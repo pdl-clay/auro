@@ -39,6 +39,13 @@ installable `auro-cli` yet.
   least-privilege permissions, timeouts, third-party actions pinned to commit SHAs.
 - CI: GitHub Pages deployment for the documentation book.
 
+### Fixed
+
+- `auro dev` rebuilt in a loop: the watcher treated file *reads* as changes, and the app opening
+  `Auro.toml` on every start re-triggered the build that had just started it.
+- Configuration errors read `configuration error in <path>: <reason>` instead of running the path
+  and the reason together.
+
 ### Changed
 
 - `AGENTS.md`, the specs and this changelog describe the workspace instead of a documentation-only

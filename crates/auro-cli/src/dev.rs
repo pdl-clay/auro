@@ -24,7 +24,19 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     install_ctrl_c(Arc::clone(&slot))?;
 
     let (events, received) = std::sync::mpsc::channel();
-    let mut watcher = notify::recommended_watcher(move |event| {
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        // Reads are not changes. The app opens `Auro.toml` on every start, and reacting to that
+        // re-triggers the build that started it: an endless rebuild loop.
+        if let Ok(event) = &event
+            && matches!(event.kind, notify::EventKind::Access(_))
+        {
+            return;
+        }
+        if std::env::var_os("AURO_DEV_TRACE").is_some()
+            && let Ok(event) = &event
+        {
+            eprintln!("auro: event {:?} {:?}", event.kind, event.paths);
+        }
         let _ = events.send(event);
     })
     .map_err(|error| AuroError::Message(format!("cannot start the file watcher: {error}")))?;
