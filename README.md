@@ -1,5 +1,7 @@
 # Auro
 
+**English** · [Português](README.pt-BR.md)
+
 **Tauri's app model. GPUI's renderer. Zero webview.**
 
 Auro is an application framework for Rust desktop apps. It takes the parts of Tauri that are
