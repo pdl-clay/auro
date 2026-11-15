@@ -271,6 +271,26 @@ Runnables, in order, on a clean checkout:
    the contract and the tree check is structural.
 8. Save-to-window time is measured once and recorded here. No target is claimed until measured.
 
+### Status (2026-11-15)
+
+- 1: **partial.** CI at `25da81f` (`43775097578`) built/clippy-tested on macOS and Windows and
+  built on `ubuntu-22.04`; the `ubuntu-latest` test link failed on `-lxkbcommon-x11`. The fix
+  (`libxkbcommon-x11-dev` in the Linux CI dependencies) is in the working tree and not yet
+  re-pushed.
+- 2: **met** locally (`/tmp/auro-demo` builds).
+- 3: **partially verified** locally — window opens, rebuild/relaunch cycle and exit behavior
+  observed; button dispatch and window-close-to-exit-0 not interactively verified in this run.
+- 4: **met** locally (Ctrl-C exits 0, no orphan).
+- 5: **met** locally (fmt, clippy `-D warnings`, tests).
+- 6: **met** (config parse/merge/unknown-key refusal, `State` extraction, sync and async dispatch,
+  rename/unknown-command handling, `auro new` refusing a non-empty directory).
+- 7: **met.** `auro-ui` integration test `root_view_renders_status_and_bounds` renders a root view
+  through `TestAppContext`, asserts `status == "Ready"` and a non-empty rendered tree via
+  `debug_bounds`.
+- 8: **measured, not met.** A saved source change to a visible relaunch measured ~60 s on the
+  development machine (relink dominates; the watcher itself reacts once per edit). This is the gap
+  hot reload must close, not an acceptable steady state.
+
 ## Open questions
 
 | Question | Where it settles |

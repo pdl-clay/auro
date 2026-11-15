@@ -16,12 +16,15 @@ Tier 1 means: builds in CI, tests run, a maintainer uses it, regressions are rel
 
 ## Current status
 
+Measured against CI run `43775097578` (push of `25da81f`, 2026-11-15). "Not verified" still means
+no maintainer has exercised a real desktop session.
+
 | Platform | Builds | Tests | Manually used | Notes |
 |---|---|---|---|---|
-| macOS | unverified | unverified | - | GPUI's most mature platform; CI must confirm the workspace |
-| Linux (X11) | builds locally | unit tests pass | - | CI installs the system libraries below |
+| macOS | CI clippy green | CI tests green | - | Format step runs only on the Linux leg; no desktop-session verification |
+| Linux (X11) | `ubuntu-22.04` build green | `ubuntu-latest` fmt+clippy green, test link failed | local only | `ubuntu-latest` test link failed on `-lxkbcommon-x11`; fixed in tree by adding `libxkbcommon-x11-dev` (not yet re-pushed). Local Linux build and tests pass |
 | Linux (Wayland) | unverified | unverified | - | Requires a compositor; not testable in CI |
-| Windows | unverified | unverified | - | GPUI support exists upstream; parity unproven |
+| Windows | CI clippy green | CI tests green | - | No desktop-session verification |
 
 ## Linux system dependencies
 
@@ -30,8 +33,8 @@ The CI job installs exactly this set to build the workspace
 
 ```bash
 sudo apt-get install -y \
-  libxkbcommon-dev libwayland-dev libx11-xcb-dev libvulkan-dev \
-  libasound2-dev libfontconfig-dev libssl-dev pkg-config
+  libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
+  libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config
 ```
 
 Contributors on other distributions need the equivalent packages; there is no per-distribution

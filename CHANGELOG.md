@@ -38,6 +38,9 @@ installable `auro-cli` yet.
 - CI: docs build gate, Linux system dependencies on the lint/test leg, concurrency cancellation,
   least-privilege permissions, timeouts, third-party actions pinned to commit SHAs.
 - CI: GitHub Pages deployment for the documentation book.
+- Headless GPUI integration test in `auro-ui` that renders a root view through `TestAppContext` and
+  asserts `status == "Ready"` and a non-empty rendered tree via `debug_bounds` (spec 0001
+  acceptance 7).
 
 ### Fixed
 
@@ -45,6 +48,8 @@ installable `auro-cli` yet.
   `Auro.toml` on every start re-triggered the build that had just started it.
 - Configuration errors read `configuration error in <path>: <reason>` instead of running the path
   and the reason together.
+- CI installs `libxkbcommon-x11-dev` on Linux so the workspace test link finds `-lxkbcommon-x11`
+  (the `ubuntu-latest` leg failed at `25da81f`; macOS, Windows and the `ubuntu-22.04` build passed).
 
 ### Changed
 
@@ -58,3 +63,6 @@ installable `auro-cli` yet.
   landed, including the full code sample and the missing hot-reload sentence.
 - README and roadmap link to the documentation book, the support matrix, the contributing guide
   and the security policy.
+- Spec 0001, the platform support table and the performance budget record current acceptance status,
+  CI results (macOS/Windows tests and `ubuntu-22.04` build green at `25da81f`) and the measured
+  ~60 s save-to-relaunch time.
