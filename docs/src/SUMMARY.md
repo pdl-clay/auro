@@ -21,6 +21,13 @@
 - [0006 - Dual MIT/Apache-2.0](decisions/0006-dual-license.md)
 - [0007 - No styling language in 1.0](decisions/0007-no-styling-language.md)
 
+# Specifications
+
+- [How specs work](specs/README.md)
+- [What Auro takes from Tauri](specs/tauri-basis.md)
+- [0001 - Foundation](specs/0001-foundation.md)
+- [0002 - Configuration](specs/0002-config.md)
+
 # Reference
 
 - [Platform support](reference/platform-support.md)
