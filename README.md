@@ -1,2 +1,130 @@
-# auro
-Tauri's app model. GPUI's renderer. Zero webview.
+# Auro
+
+**Tauri's app model. GPUI's renderer. Zero webview.**
+
+Auro is an application framework for Rust desktop apps. It takes the parts of Tauri that are
+tedious to rebuild - configuration, capabilities, plugins, bundler, signed updater, dev server,
+single-instance, multi-window - and swaps the renderer: instead of a webview, the UI is
+GPUI, Zed's GPU-accelerated Rust UI toolkit.
+
+The frontend is Rust. There is no HTML, no CSS engine and no JavaScript in the app runtime.
+
+> **Status: pre-alpha.** Designing in public. See [ROADMAP.md](ROADMAP.md).
+
+---
+
+## Why
+
+Electron and Tauri both ship a browser to draw a button.
+
+| | Electron | Tauri | Auro |
+|---|---|---|---|
+| App model | minimal | **excellent** | Tauri's |
+| Renderer | Chromium | system webview | **GPU, native** |
+| Frontend language | JS/TS | JS/TS | **Rust** |
+| Idle RAM (hello world) | ~180 MB | ~90 MB | target **< 40 MB** |
+| Cold start | ~900 ms | ~400 ms | target **< 80 ms** |
+| Binary | ~120 MB | ~3-10 MB | target **< 6 MB** |
+| Text/IME/selection | browser | browser | inherited from an editor |
+
+Tauri got the hard, boring part right: capabilities, a plugin system, bundling for seven package
+formats, a signed updater. What it gets wrong, for people who want *native*, is that the app is
+still a web page.
+
+Auro keeps the shell and replaces the engine.
+
+## What it will look like
+
+```rust
+use auro::prelude::*;
+
+#[auro::command]
+async fn save_document(path: PathBuf, body: String) -> Result<Saved, AuroError> {
+    tokio::fs::write(&path, body).await?;
+    Ok(Saved { path, bytes: body.len() })
+}
+
+impl Render for Editor {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(Button::new("save", "Save").on_click(cx.listener(|this, _, cx| {
+                let doc = this.document.clone();
+                cx.spawn(|this, mut cx| async move {
+                    let saved = api::save_document(doc.path, doc.body).await?;
+                    this.update(&mut cx, |this, cx| {
+                        this.status = format!("Saved {} bytes", saved.bytes);
+                        cx.notify();
+                    })
+                })
+            })))
+            .child(self.status.clone())
+    }
+}
+
+fn main() {
+    auro::App::new("com.example.editor")
+        .window(Window::new("Editor", 960., 640.).root::<Editor>())
+        .run();
+}
+```
+
+No `invoke("save_document", {...})`. The command is a Rust function; the call site is a Rust
+call. Type errors are compile errors.
+
+## The three decisions that define the project
+
+1. **Typed IPC, everywhere.** Schemas are derived from Rust signatures. There is no
+   stringly-typed bridge, because there is no JavaScript to bridge to.
+2. **Hot reload or bust.** Rust compile times are the only real reason to stay on the web.
+   Target: edit to see in **under 500 ms**, with app state preserved. The whole project rests on
+   this bet.
+3. **Capabilities for the real boundary.** With a Rust frontend, most permission checking is
+   compile-time. What actually needs a runtime fence is **plugin code** and **untrusted
+   content**. That is where Auro's capability model lives.
+
+## What Auro is not
+
+- **Not a webview wrapper.** A webview exists only as an explicitly scoped escape hatch for
+  OAuth and embedded docs; it is not the foundation.
+- **Not a GUI toolkit.** That is GPUI. Auro is an *application* framework.
+- **Not a GPUI fork.** We track upstream and keep a thin compatibility layer.
+- **Not "CSS for Rust".** There will be no styling language. If you want CSS, use Tauri.
+
+## Performance we are building to
+
+| Metric | Target at 1.0 |
+|---|---|
+| Cold start | < 80 ms |
+| Idle RAM | < 40 MB |
+| Hello-world binary | < 6 MB (stripped) |
+| Edit to see | < 500 ms |
+| Platforms | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland & X11) |
+
+Measured in CI. A regression fails the build.
+
+## Roadmap
+
+Six phases, ~42 weeks to 1.0. Full detail in [ROADMAP.md](ROADMAP.md).
+
+| Phase | Codename | Goal |
+|---|---|---|
+| 0 | Foundations | `auro new` to a window, in under two minutes |
+| 1 | Hello, native | Core + 20 components + `auro dev` |
+| 2 | Ship it | Bundling, signed updates, platform services, a11y |
+| 3 | Extensible | Out-of-process plugins, hot reload GA |
+| 4 | Ecosystem | Web escape hatch, templates, docs |
+| 5 | 1.0 | API freeze, audit, perf budget in CI |
+
+## Get involved
+
+Auro is designed in the open. Architecture and roadmap discussion live in Discussions. Open
+questions are listed at the end of [ROADMAP.md](ROADMAP.md).
+
+Built on the shoulders of Tauri and Zed's GPUI.
+
+## License
+
+Dual-licensed under MIT or Apache-2.0, at your option.
