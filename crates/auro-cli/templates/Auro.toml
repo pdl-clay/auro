@@ -1,0 +1,13 @@
+[app]
+identifier = "{{identifier}}"
+product-name = "{{name}}"
+version = "0.1.0"
+
+[[app.windows]]
+label = "main"
+title = "{{name}}"
+width = 960
+height = 640
+
+[dev]
+watch = ["src", "Auro.toml"]

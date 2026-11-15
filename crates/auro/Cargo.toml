@@ -1,0 +1,20 @@
+[package]
+name = "auro"
+description = "Tauri's app model, GPUI's renderer, zero webview"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+auro-core.workspace = true
+auro-ipc.workspace = true
+auro-macros.workspace = true
+auro-ui.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

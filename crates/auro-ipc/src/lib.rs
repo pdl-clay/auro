@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+//! Typed command transport.
+//!
+//! A command is a Rust function. First-party code calls it directly; [`CommandHandler`] is the
+//! boundary used when the caller is not Rust - a plugin today, the webview escape hatch later.
+//!
+//! Everything here is renderer-agnostic: this crate knows nothing about GPUI.
+
+pub mod error;
+pub mod handler;
+pub mod invoke;
+pub mod response;
+pub mod runtime;
+pub mod state;
+
+pub use error::AuroError;
+pub use handler::CommandHandler;
+pub use invoke::{Invoke, InvokeMessage};
+pub use response::{Response, ResponseFuture};
+pub use state::{State, StateStore};
