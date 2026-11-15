@@ -4,6 +4,9 @@
 
 Living document. Phases ship when their exit criteria are met, not when the calendar says so.
 
+Architecture detail lives in the [docs book](https://pdl-clay.github.io/auro/); decisions and
+their trade-offs are recorded in [`docs/src/decisions/`](docs/src/decisions/README.md).
+
 ---
 
 ## 1. The thesis
@@ -11,7 +14,7 @@ Living document. Phases ship when their exit criteria are met, not when the cale
 Tauri got the *shell* right and the *engine* wrong.
 
 - **Right:** the application model. Config, capabilities/permissions, plugin system, typed IPC,
-  bundling (MSI/NSIS/DMG/AppImage/deb/rpm), signed updater, dev server, single-instance,
+  bundling (`.app`/DMG, MSI/NSIS, AppImage/deb/rpm), signed updater, dev server, single-instance,
   multi-window. Nobody wants to rebuild that.
 - **Wrong (for people who want native):** the frontend is a browser. 80-150 MB of runtime,
   inconsistent rendering, second-hand accessibility, and the frontend is JavaScript.
@@ -23,8 +26,8 @@ rendering arrived solved, because it was a text editor first.
 **Auro = Tauri's shell + GPUI as the renderer.** The frontend is Rust. The binary is the app.
 
 **Initial audience:** Rust developers shipping dev tools, editors, dashboards, internal tools and
-kiosk apps - people who want a sub-10 MB binary and tens-of-milliseconds startup, and who already
-know Rust, so they do not need HTML.
+kiosk apps - people who want a sub-10 MB binary (the 1.0 target is under 6 MB) and
+tens-of-milliseconds startup, and who already know Rust, so they do not need HTML.
 
 ---
 
@@ -103,7 +106,7 @@ Rust compiles slowly. If the loop is a 20-second `cargo build`, nobody leaves th
 - The UI compiles as a `cdylib`, loaded via `libloading`, hot-swapped on save.
 - App state lives in the host process and is preserved across swaps via a `serde` snapshot.
 - Function-level patching along the lines of Zed's `subsecond` crate.
-- Target: **edit to see in <= 500 ms.**
+- Target: **edit to see in < 500 ms.**
 
 Fallback if that fails: process restart with state restoration plus incremental rebuild.
 
@@ -207,8 +210,8 @@ Tauri and Electron.
 | Edit to see | < 500 ms |
 | Platforms | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland & X11) |
 
-These numbers *are* the marketing. A screenshot of 4 MB of RAM next to Electron's 300 MB is the
-post that travels.
+These numbers *are* the marketing. A screenshot of 4 MB of RAM next to Electron's 300 MB in a
+typical app is the post that travels.
 
 ---
 

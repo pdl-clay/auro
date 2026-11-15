@@ -1,0 +1,28 @@
+[book]
+title = "Auro"
+description = "Tauri's app model. GPUI's renderer. Zero webview."
+authors = ["The Auro Authors"]
+language = "en"
+src = "src"
+multilingual = false
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[rust]
+# Edition used by `mdbook test` for Rust snippets, not the crate edition.
+# mdBook 0.4.40 (the pinned version) does not accept "2024".
+edition = "2021"
+
+[output.html]
+git-repository-url = "https://github.com/pdl-clay/auro"
+edit-url-template = "https://github.com/pdl-clay/auro/edit/main/docs/src/{path}"
+site-url = "/auro/"
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+no-section-label = true
+
+[output.html.fold]
+enable = true
+level = 1

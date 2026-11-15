@@ -1,5 +1,10 @@
 # Auro
 
+[![Stars](https://img.shields.io/github/stars/pdl-clay/auro?style=flat-square&label=stars)](https://github.com/pdl-clay/auro/stargazers)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](#licença)
+[![Status](https://img.shields.io/badge/status-pre--alpha-orange?style=flat-square)](#status)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](#status)
+
 [English](README.md) · **Português**
 
 **O modelo de app do Tauri. O renderer do GPUI. Zero webview.**
@@ -11,9 +16,25 @@ GPUI, o toolkit de UI em Rust acelerado por GPU do Zed.
 
 O frontend é Rust. Não existe HTML, nem engine de CSS, nem JavaScript no runtime do app.
 
-> **Status: pré-alpha.** Projetando em público. Veja o [ROADMAP.md](ROADMAP.md) (em inglês).
-
 ---
+
+## Status
+
+**Pré-alpha. Projetando em público.** Nada é instalável ainda — o repositório é arquitetura e
+roadmap até a fase 0 chegar.
+
+| Fase | Codinome | Estado |
+|---|---|---|
+| 0 | Foundations | **em andamento** |
+| 1 | Hello, native | planejada |
+| 2 | Ship it | planejada |
+| 3 | Extensible | planejada |
+| 4 | Ecosystem | planejada |
+| 5 | 1.0 | planejada |
+
+Detalhe completo no [ROADMAP.md](ROADMAP.md) (em inglês). A arquitetura e o raciocínio por trás
+dela estão no [livro de documentação](https://pdl-clay.github.io/auro/); o suporte de plataformas
+é [publicado como matriz](docs/src/reference/platform-support.md) desde o primeiro dia.
 
 ## Por quê
 
@@ -45,6 +66,32 @@ async fn save_document(path: PathBuf, body: String) -> Result<Saved, AuroError> 
     tokio::fs::write(&path, body).await?;
     Ok(Saved { path, bytes: body.len() })
 }
+
+impl Render for Editor {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(Button::new("save", "Save").on_click(cx.listener(|this, _, cx| {
+                let doc = this.document.clone();
+                cx.spawn(|this, mut cx| async move {
+                    let saved = api::save_document(doc.path, doc.body).await?;
+                    this.update(&mut cx, |this, cx| {
+                        this.status = format!("Saved {} bytes", saved.bytes);
+                        cx.notify();
+                    })
+                })
+            })))
+            .child(self.status.clone())
+    }
+}
+
+fn main() {
+    auro::App::new("com.example.editor")
+        .window(Window::new("Editor", 960., 640.).root::<Editor>())
+        .run();
+}
 ```
 
 Sem `invoke("save_document", {...})`. O comando é uma função Rust; o ponto de chamada é uma
@@ -55,7 +102,8 @@ chamada Rust. Erro de tipo é erro de compilação.
 1. **IPC tipado, em tudo.** Os schemas saem das assinaturas Rust. Não existe ponte
    stringly-typed, porque não existe JavaScript para atravessar.
 2. **Hot reload ou nada.** O tempo de compilação do Rust é o único motivo real para continuar na
-   web. Meta: editar e ver em **menos de 500 ms**, com o estado do app preservado.
+   web. Meta: editar e ver em **menos de 500 ms**, com o estado do app preservado. Todo o projeto
+   depende dessa aposta.
 3. **Capabilities na fronteira de verdade.** Com frontend em Rust, a maior parte da checagem de
    permissão é em tempo de compilação. O que realmente precisa de cerca em runtime é **código de
    plugin** e **conteúdo não confiável**. É aí que mora o modelo de capabilities do Auro.
@@ -95,11 +143,20 @@ Seis fases, ~42 semanas até o 1.0. Detalhe completo no [ROADMAP.md](ROADMAP.md)
 
 ## Participar
 
-Auro está sendo desenhado em público. Arquitetura e roadmap são discutidos nas Discussions do
-repositório. As perguntas em aberto estão no fim do [ROADMAP.md](ROADMAP.md).
+Auro está sendo desenhado em público. Arquitetura e roadmap são discutidos nas
+[Discussions](https://github.com/pdl-clay/auro/discussions). As perguntas em aberto estão no fim
+do [ROADMAP.md](ROADMAP.md) (em inglês). Veja o [CONTRIBUTING.md](CONTRIBUTING.md) para começar;
+falhas de segurança passam pelo [SECURITY.md](SECURITY.md), nunca por uma issue pública.
 
-Em cima dos ombros do Tauri e do GPUI do Zed.
+Em cima dos ombros do [Tauri](https://tauri.app) e do [GPUI do Zed](https://zed.dev).
 
 ## Licença
 
-Dual: MIT ou Apache-2.0, à sua escolha.
+Licenciado sob duas licenças, à sua escolha:
+
+- [licença MIT](LICENSE-MIT)
+- [Apache License, Version 2.0](LICENSE-APACHE)
+
+A menos que você declare explicitamente o contrário, qualquer contribuição submetida
+intencionalmente para inclusão no Auro por você será licenciada da mesma forma dupla, sem termos
+ou condições adicionais.

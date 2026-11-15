@@ -32,7 +32,9 @@ roadmap until phase 0 lands.
 | 4 | Ecosystem | planned |
 | 5 | 1.0 | planned |
 
-Full detail in [ROADMAP.md](ROADMAP.md).
+Full detail in [ROADMAP.md](ROADMAP.md). Architecture and the reasoning behind it live in the
+[documentation book](https://pdl-clay.github.io/auro/); platform support is
+[published as a matrix](docs/src/reference/platform-support.md) from day one.
 
 ## Why
 
@@ -143,7 +145,8 @@ Six phases, ~42 weeks to 1.0. Full detail in [ROADMAP.md](ROADMAP.md).
 
 Auro is designed in the open. Architecture and roadmap discussion live in
 [Discussions](https://github.com/pdl-clay/auro/discussions). Open questions are listed at the
-end of [ROADMAP.md](ROADMAP.md). See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+end of [ROADMAP.md](ROADMAP.md). See [CONTRIBUTING.md](CONTRIBUTING.md) to get started; report
+security issues through [SECURITY.md](SECURITY.md), never a public issue.
 
 Built on the shoulders of [Tauri](https://tauri.app) and [Zed's GPUI](https://zed.dev).
 
