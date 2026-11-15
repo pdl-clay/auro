@@ -6,3 +6,6 @@
 # auro
 /auro-dist
 *.auro-build
+
+# docs
+/docs/book

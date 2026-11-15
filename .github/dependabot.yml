@@ -1,0 +1,15 @@
+# Only the actions used by the workflows need updating: there is no Cargo manifest yet.
+# Add the `cargo` ecosystem in the same pull request that lands the workspace.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 3

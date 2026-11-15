@@ -1,0 +1,7 @@
+# Normalise line endings so the Windows CI leg does not fight `cargo fmt`.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.icns binary
+*.woff2 binary
