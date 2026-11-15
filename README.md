@@ -1,5 +1,10 @@
 # Auro
 
+[![Stars](https://img.shields.io/github/stars/pdl-clay/auro?style=flat-square&label=stars)](https://github.com/pdl-clay/auro/stargazers)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](https://github.com/pdl-clay/auro#license)
+[![Status](https://img.shields.io/badge/status-pre--alpha-orange?style=flat-square)](https://github.com/pdl-clay/auro#status)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/pdl-clay/auro#status)
+
 **English** · [Português](README.pt-BR.md)
 
 **Tauri's app model. GPUI's renderer. Zero webview.**
@@ -11,9 +16,23 @@ GPUI, Zed's GPU-accelerated Rust UI toolkit.
 
 The frontend is Rust. There is no HTML, no CSS engine and no JavaScript in the app runtime.
 
-> **Status: pre-alpha.** Designing in public. See [ROADMAP.md](ROADMAP.md).
-
 ---
+
+## Status
+
+**Pre-alpha. Designing in public.** Nothing is installable yet - the repo is architecture and
+roadmap until phase 0 lands.
+
+| Phase | Codename | State |
+|---|---|---|
+| 0 | Foundations | **in progress** |
+| 1 | Hello, native | planned |
+| 2 | Ship it | planned |
+| 3 | Extensible | planned |
+| 4 | Ecosystem | planned |
+| 5 | 1.0 | planned |
+
+Full detail in [ROADMAP.md](ROADMAP.md).
 
 ## Why
 
@@ -122,10 +141,11 @@ Six phases, ~42 weeks to 1.0. Full detail in [ROADMAP.md](ROADMAP.md).
 
 ## Get involved
 
-Auro is designed in the open. Architecture and roadmap discussion live in Discussions. Open
-questions are listed at the end of [ROADMAP.md](ROADMAP.md).
+Auro is designed in the open. Architecture and roadmap discussion live in
+[Discussions](https://github.com/pdl-clay/auro/discussions). Open questions are listed at the
+end of [ROADMAP.md](ROADMAP.md). See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
-Built on the shoulders of Tauri and Zed's GPUI.
+Built on the shoulders of [Tauri](https://tauri.app) and [Zed's GPUI](https://zed.dev).
 
 ## License
 
