@@ -1,9 +1,9 @@
 # Auro
 
 [![Stars](https://img.shields.io/github/stars/pdl-clay/auro?style=flat-square&label=stars)](https://github.com/pdl-clay/auro/stargazers)
-[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](https://github.com/pdl-clay/auro#license)
-[![Status](https://img.shields.io/badge/status-pre--alpha-orange?style=flat-square)](https://github.com/pdl-clay/auro#status)
-[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/pdl-clay/auro#status)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](#license)
+[![Status](https://img.shields.io/badge/status-pre--alpha-orange?style=flat-square)](#status)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](#status)
 
 **English** · [Português](README.pt-BR.md)
 
@@ -149,4 +149,12 @@ Built on the shoulders of [Tauri](https://tauri.app) and [Zed's GPUI](https://ze
 
 ## License
 
-Dual-licensed under MIT or Apache-2.0, at your option.
+Dual-licensed under either of
+
+- [MIT license](LICENSE-MIT)
+- [Apache License, Version 2.0](LICENSE-APACHE)
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
+Auro by you shall be dual-licensed as above, without any additional terms or conditions.
