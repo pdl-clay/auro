@@ -104,8 +104,8 @@ Four gates, in this order:
 3. `cargo test --workspace --locked`
 4. `mdbook build docs`
 
-The first three are gated on `Cargo.toml` existing, because the workspace does not exist yet. The
-docs gate is live now. A red gate is never merged and never "fixed" by disabling the check.
+All four run on every pull request. A red gate is never merged and never "fixed" by disabling
+the check.
 
 Every third-party action is pinned to a full commit SHA with the version in a comment
 (`uses: actions/checkout@11d5960... # v4`). Dependabot proposes the bumps, so the pin is updated

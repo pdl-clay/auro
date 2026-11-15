@@ -18,10 +18,10 @@ Tier 1 means: builds in CI, tests run, a maintainer uses it, regressions are rel
 
 | Platform | Builds | Tests | Manually used | Notes |
 |---|---|---|---|---|
-| macOS | No workspace yet | - | - | GPUI's most mature platform |
-| Linux (X11) | No workspace yet | - | - | CI installs the system libraries listed below |
-| Linux (Wayland) | No workspace yet | - | - | Requires a compositor; not testable in CI |
-| Windows | No workspace yet | - | - | GPUI support exists upstream; parity unproven |
+| macOS | unverified | unverified | - | GPUI's most mature platform; CI must confirm the workspace |
+| Linux (X11) | builds locally | unit tests pass | - | CI installs the system libraries below |
+| Linux (Wayland) | unverified | unverified | - | Requires a compositor; not testable in CI |
+| Windows | unverified | unverified | - | GPUI support exists upstream; parity unproven |
 
 ## Linux system dependencies
 

@@ -137,12 +137,14 @@ must be **published and honest from day one**. This is the biggest schedule risk
 ### Phase 0 - Foundations (weeks 1-3)
 
 - Repo, CI matrix (macOS / Windows / Linux), `rfcs/` folder, docs skeleton, license, site.
+- Cargo workspace with the six Phase 0 crates, and the specs they implement (`docs/src/specs/`).
 - `auro new`: generates `src/main.rs`, `Auro.toml`, `views/`, `services/`.
 - **Vertical slice:** a window with a GPUI view, a button calling an async command, state
   updating. Get the *feel* right before anything else.
 
-**Exit:** on a clean machine, `cargo install auro-cli && auro new demo && auro dev` opens a window
-in under two minutes.
+**Exit:** after `cargo install --path crates/auro-cli --locked`, `auro new demo && cd demo &&
+auro dev` opens a window in under two minutes with a warm cargo cache. Publishing to crates.io is
+not part of the phase.
 
 ### Phase 1 - v0.1 "Hello, native" (weeks 4-8)
 

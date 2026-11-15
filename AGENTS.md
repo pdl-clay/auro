@@ -2,11 +2,29 @@
 
 Instructions for AI coding assistants and contributors working in this repository.
 
-**Read this first: the repository is documentation-only.** There is no `Cargo.toml`, no `src/`, no
-tests and no published crate. The tree is `README.md`, `README.pt-BR.md`, `ROADMAP.md`, `docs/`,
-`rfcs/`, licensing and community files, and CI. Anything described below as *planned* is a target
-recorded in the roadmap, not code you can find with a symbol search. Never present a planned API as
-an existing one, and do not invent files to make a design look implemented.
+**Read this first: the workspace exists; the framework is pre-alpha.** Six crates under `crates/`
+compile and their tests pass, `auro new` produces a project that builds against this checkout, and
+the UI layer is one primitive. Nothing is published. Anything described below as *planned* is a
+target recorded in the roadmap or a spec, not code you can find with a symbol search. Never present
+a planned API as an existing one, and do not invent files to make a design look implemented.
+
+## Non-negotiable: documentation and changelog move with the code
+
+Every change that alters behaviour, a public API, a config key, a CLI flag, or an architectural
+decision ships **in the same pull request** as:
+
+| Touched | Must also change |
+|---|---|
+| anything a user can observe | `CHANGELOG.md` under `## [Unreleased]` |
+| a contract in a spec | the spec in `docs/src/specs/` |
+| an architectural decision | a new or superseding ADR in `docs/src/decisions/` |
+| the pitch, quickstart or feature list | `README.md` **and** `README.pt-BR.md` |
+| a convention in this file | `AGENTS.md` itself |
+| a phase, target or exit criterion | `ROADMAP.md` |
+
+A pull request missing them is incomplete, not "later". If you cannot name which document a change
+touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
+redundant entry costs a line, a stale doc costs a user's afternoon.
 
 ## Project Overview
 
@@ -73,6 +91,8 @@ process restart.
 
 | Path | Purpose |
 |---|---|
+| `crates/` | the workspace: `auro` (facade + builder), `auro-core` (config, state), `auro-ipc` (commands, runtime bridge), `auro-macros` (`#[command]`, `generate_handler!`), `auro-ui` (the only GPUI crate), `auro-cli` |
+| `vendor/xattr` | vendored `xattr 0.2.3` with the Linux `ENOATTR` fix; see `[patch.crates-io]` in `Cargo.toml` |
 | `docs/` | mdBook source for the published documentation book |
 | `docs/book.toml` | book config: `src = "src"`, `build-dir = "book"`, `create-missing = false` |
 | `docs/src/SUMMARY.md` | the table of contents; a chapter missing from disk fails the build |
@@ -97,7 +117,7 @@ mdbook serve docs          # http://localhost:3000, live reload
 mdbook build docs          # output in docs/book (gitignored)
 ```
 
-Rust gates (only meaningful once `Cargo.toml` exists):
+Rust gates (the workspace exists; run all of them before pushing):
 
 ```bash
 cargo fmt --all --check
@@ -114,8 +134,8 @@ sudo apt-get install -y --no-install-recommends \
   libasound2-dev libfontconfig-dev libssl-dev pkg-config
 ```
 
-CI note: every Rust job is guarded by `hashFiles('Cargo.toml') != ''`, so those jobs are green
-no-ops today. The `docs` job is live and is the gate that actually protects `main`.
+CI runs those gates on Linux, macOS and Windows plus an `ubuntu-22.04` floor job, and
+`mdbook build docs`. `Cargo.lock` is committed and CI passes `--locked`.
 
 ## Code Conventions & Common Patterns
 
@@ -177,17 +197,20 @@ no-ops today. The `docs` job is live and is the gate that actually protects `mai
   job because that is the published Linux floor. Least-privilege `permissions: contents: read`,
   concurrency cancellation, explicit timeouts, and every third-party action pinned to a full commit
   SHA with its version in a trailing comment. Never replace a pinned SHA with a moving tag.
-- **Dependabot:** `github-actions` only, until the workspace exists. It updates the pinned SHAs; do
-  not add a `cargo` ecosystem entry before `Cargo.toml`.
+- **Dependabot:** `github-actions` and `cargo`, both weekly. It updates the pinned SHAs and the
+  lockfile; a dependency bump must keep `--locked` green.
+- **Vendored patches:** a dependency that cannot build is patched under `vendor/`, with the reason
+  and the removal condition in the `[patch.crates-io]` comment. Never patch silently.
 - **Release:** nothing is released and no workflow exists. Do not add a release workflow before
   Phase 1.
 
 ## Testing & QA
 
-There are no tests and no test framework configured, because there is no Rust code. Do not claim a
-test suite passes.
+`cargo test --workspace --locked` is the gate. Today that covers config parsing and merging,
+command dispatch (sync, async, state, rename), and `auro new`; the GPUI headless test is the next
+one to land.
 
-Expectations for the first code and everything after:
+Expectations:
 
 - Unit tests live beside the module; integration tests in `tests/`. `cargo test --workspace --locked`
   is the gate; CI runs it on all three OSes.

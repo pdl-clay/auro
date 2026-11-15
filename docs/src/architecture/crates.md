@@ -1,7 +1,7 @@
 # Crates and layering
 
-The workspace is not in the tree yet. This chapter is the contract the first `Cargo.toml` must
-satisfy; it is deliberately more specific than the README.
+The Phase 0 workspace is in the tree. This chapter is the contract it satisfies and the map for
+what comes next; it is deliberately more specific than the README.
 
 ## Planned crates
 

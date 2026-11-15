@@ -26,7 +26,7 @@ Precision matters more than the number, because a budget you cannot reproduce is
 ## Enforcement
 
 The roadmap commits to measuring these in CI and failing the build on regression. That is not
-implemented yet; there is no workspace to measure. When it lands:
+implemented yet: nothing is bundled, so there is no binary to measure. When it lands:
 
 - benchmarks run on a pinned runner class, and the runner is recorded with the result;
 - results are committed as a baseline file, so a pull request shows a delta;

@@ -1,6 +1,6 @@
 # 0001 - Foundation
 
-**Status:** Draft - awaiting approval
+**Status:** Approved - implementation in progress
 
 Phase 0 exists to answer one question: **does an Auro app feel like a native app, and is the loop
 fast enough to live in?** This spec defines the smallest set of contracts that makes the vertical
@@ -96,8 +96,10 @@ window.
 async fn save_document(path: PathBuf, body: String) -> Result<Saved, AuroError> { /* ... */ }
 ```
 
-- Attribute options: `name = "..."`, `rename_all = "camelCase" | "snake_case"`. Async is detected
-  from the `async fn` itself; a sync function is allowed and runs blocking.
+- Attribute options: `name = "..."`, `rename_all = "snake_case" | "camelCase"` (default
+  `snake_case`). Async is detected from the `async fn` itself. A plain `fn` is allowed: it is emitted
+  as an `async fn` and its body runs on the blocking pool, so a first-party call site always awaits
+  an off-thread result.
 - Arguments: `serde::Deserialize + schemars::JsonSchema + Send + 'static`, or `State<T>`.
 - Result: `Result<T, AuroError>` with `T: Serialize + Send + 'static`.
 - `generate_handler![save_document, load_document]` builds a `CommandHandler` that maps a command
@@ -194,7 +196,8 @@ belongs in `auro-ui` with the rest of the renderer.
 ```
 demo/
   Auro.toml
-  Cargo.toml            # auro = { path = "..." } in-repo, version = "0.x" once published
+  Cargo.toml            # auro = { path = "..." } in-repo, version = "0.x" once published;
+                        # also carries the vendored xattr patch until the chain updates
   src/
     main.rs             # auro::App::new().root::<Root>("main").run()
     views/mod.rs        # the root view

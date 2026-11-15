@@ -68,28 +68,32 @@ async fn save_document(path: PathBuf, body: String) -> Result<Saved, AuroError> 
 }
 
 impl Render for Editor {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .flex_col()
             .gap_2()
-            .child(Button::new("save", "Save").on_click(cx.listener(|this, _, cx| {
-                let doc = this.document.clone();
-                cx.spawn(|this, mut cx| async move {
-                    let saved = api::save_document(doc.path, doc.body).await?;
-                    this.update(&mut cx, |this, cx| {
-                        this.status = format!("Saved {} bytes", saved.bytes);
-                        cx.notify();
+            .child(Button::new("save", "Save").on_click(cx.listener(
+                |this, _, _window, cx| {
+                    let doc = this.document.clone();
+                    cx.spawn(async move |this, cx| {
+                        let saved = api::save_document(doc.path, doc.body).await?;
+                        this.update(cx, |this, cx| {
+                            this.status = format!("Saved {} bytes", saved.bytes);
+                            cx.notify();
+                        });
+                        Ok::<(), AuroError>(())
                     })
-                })
-            })))
+                    .detach();
+                },
+            )))
             .child(self.status.clone())
     }
 }
 
 fn main() {
-    auro::App::new("com.example.editor")
-        .window(Window::new("Editor", 960., 640.).root::<Editor>())
+    auro::App::new()
+        .root::<Editor>("main")
         .run();
 }
 ```

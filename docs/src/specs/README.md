@@ -38,5 +38,5 @@ Every spec carries:
 | # | Spec | Phase | Status |
 |---|---|---|---|
 | - | [What Auro takes from Tauri](tauri-basis.md) | evidence | living |
-| [0001](0001-foundation.md) | Foundation: workspace, runtime seam, commands, state, dev loop | 0 | Draft |
-| [0002](0002-config.md) | `Auro.toml` schema, merge rules, validation | 0 | Draft |
+| [0001](0001-foundation.md) | Foundation: workspace, runtime seam, commands, state, dev loop | 0 | Approved |
+| [0002](0002-config.md) | `Auro.toml` schema, merge rules, validation | 0 | Approved |

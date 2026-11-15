@@ -13,6 +13,20 @@ installable `auro-cli` yet.
 
 ### Added
 
+- Workspace of six crates: `auro` (builder), `auro-core` (config, state), `auro-ipc` (commands,
+  runtime bridge), `auro-macros` (`#[command]`, `generate_handler!`), `auro-ui` (GPUI re-exports,
+  `Button`, tokens) and `auro-cli` (`new`, `dev`, `build`, `doctor`).
+- `Auro.toml` parsing: platform overrides, RFC 7396 merge, and validation that rejects unknown keys,
+  duplicate window labels and paths escaping the app directory.
+- Typed commands: the attribute moves the body onto the Auro runtime (GPUI polls its own executor),
+  resolves `State<T>` as an owned handle, and dispatch is covered by tests for sync, async, state,
+  renaming and unknown commands.
+- `auro new` scaffolds an app that builds; until the first release it wires the `auro` path
+  dependency and the vendored `xattr` patch, since a generated app is its own workspace. `auro dev`
+  rebuilds and relaunches on change; `auro doctor` reports the toolchain, native libraries, and
+  config keys the platform cannot honor.
+- Vendored `xattr 0.2.3` under `vendor/`: `libc 0.2.191` dropped `ENOATTR` on Linux and the
+  `gpui` -> `gpui_http_client` -> `zed-async-tar` chain still references it.
 - Documentation book (`docs/`, mdBook) covering architecture, decision records, platform support,
   performance budget and repository standards.
 - Decision records 0001-0007: Tauri's app model with GPUI's renderer, Rust-only typed IPC,
@@ -27,6 +41,8 @@ installable `auro-cli` yet.
 
 ### Changed
 
+- `AGENTS.md`, the specs and this changelog describe the workspace instead of a documentation-only
+  repository.
 - `CONTRIBUTING.md` gains the development setup, the gates, the commit and sign-off rules, and the
   ADR-versus-RFC split; the design-first framing stays.
 - `ROADMAP.md` package-format count and hot-reload comparison character corrected; the Electron

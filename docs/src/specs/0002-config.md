@@ -1,6 +1,6 @@
 # 0002 - Configuration
 
-**Status:** Draft - awaiting approval
+**Status:** Approved - implementation in progress
 
 `Auro.toml` is the only file an app author edits to describe their app. This spec fixes its
 location, format, every Phase 0 key, the merge rules, and what makes it invalid.
