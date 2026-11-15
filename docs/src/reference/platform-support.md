@@ -16,13 +16,13 @@ Tier 1 means: builds in CI, tests run, a maintainer uses it, regressions are rel
 
 ## Current status
 
-Measured against CI run `43775097578` (push of `25da81f`, 2026-11-15). "Not verified" still means
+Measured against CI run `43776830848` (push of `5a5d389`, 2026-11-15). "Not verified" still means
 no maintainer has exercised a real desktop session.
 
 | Platform | Builds | Tests | Manually used | Notes |
 |---|---|---|---|---|
 | macOS | CI clippy green | CI tests green | - | Format step runs only on the Linux leg; no desktop-session verification |
-| Linux (X11) | `ubuntu-22.04` build green | `ubuntu-latest` fmt+clippy green, test link failed | local only | `ubuntu-latest` test link failed on `-lxkbcommon-x11`; fixed in tree by adding `libxkbcommon-x11-dev` (not yet re-pushed). Local Linux build and tests pass |
+| Linux (X11) | `ubuntu-latest` and `ubuntu-22.04` CI green | `ubuntu-latest` fmt, clippy and tests green | local only | `libxkbcommon-x11-dev` added to CI Linux dependencies after a `-lxkbcommon-x11` link failure at `25da81f`; no desktop-session verification |
 | Linux (Wayland) | unverified | unverified | - | Requires a compositor; not testable in CI |
 | Windows | CI clippy green | CI tests green | - | No desktop-session verification |
 

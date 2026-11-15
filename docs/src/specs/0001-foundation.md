@@ -273,10 +273,9 @@ Runnables, in order, on a clean checkout:
 
 ### Status (2026-11-15)
 
-- 1: **partial.** CI at `25da81f` (`43775097578`) built/clippy-tested on macOS and Windows and
-  built on `ubuntu-22.04`; the `ubuntu-latest` test link failed on `-lxkbcommon-x11`. The fix
-  (`libxkbcommon-x11-dev` in the Linux CI dependencies) is in the working tree and not yet
-  re-pushed.
+- 1: **met in CI.** CI run `43776830848` for `5a5d389` is green on macOS, Windows, `ubuntu-latest`
+  (fmt, clippy, tests) and `ubuntu-22.04` (build), after adding `libxkbcommon-x11-dev` to the Linux
+  dependencies. Not verified on a real desktop session.
 - 2: **met** locally (`/tmp/auro-demo` builds).
 - 3: **partially verified** locally — window opens, rebuild/relaunch cycle and exit behavior
   observed; button dispatch and window-close-to-exit-0 not interactively verified in this run.
