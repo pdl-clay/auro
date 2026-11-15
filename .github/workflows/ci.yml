@@ -18,11 +18,32 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # The repository is documentation-only until the workspace lands. `hashFiles` is not
+  # available in a job-level `if` (step contexts only), so the presence of Cargo.toml is
+  # detected once here and the Rust jobs gate on the output.
+  detect:
+    name: detect workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      workspace: ${{ steps.check.outputs.workspace }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - id: check
+        name: Check for Cargo.toml
+        shell: bash
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo "workspace=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "workspace=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Formatting, lints and tests on every supported OS.
-  # Inert until the workspace lands: the repository is documentation-only today.
   build:
     name: ${{ matrix.os }}
-    if: ${{ hashFiles('Cargo.toml') != '' }}
+    needs: detect
+    if: needs.detect.outputs.workspace == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -30,7 +51,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Linux system dependencies
         if: runner.os == 'Linux'
         run: |
@@ -54,11 +75,12 @@ jobs:
   # gets its own job against the documented minimum rather than being assumed.
   linux-floor:
     name: linux 22.04 build
-    if: ${{ hashFiles('Cargo.toml') != '' }}
+    needs: detect
+    if: needs.detect.outputs.workspace == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install
         run: |
           sudo apt-get update
@@ -70,12 +92,22 @@ jobs:
       - name: Build
         run: cargo build --workspace --locked
 
+  # A workflow that fails to parse is silent: the run dies in 0s with no logs, which is
+  # how a job-level hashFiles guard went unnoticed. Lint the workflows themselves.
+  workflows:
+    name: lint workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
+
   docs:
     name: docs
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08 # v2
         with:
           mdbook-version: "0.4.40"
