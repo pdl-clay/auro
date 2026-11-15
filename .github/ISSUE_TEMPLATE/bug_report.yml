@@ -1,0 +1,82 @@
+name: Bug report
+description: Something documented, built or shipped by Auro behaves incorrectly.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report security vulnerabilities here.** Use the
+        [security policy](https://github.com/pdl-clay/auro/blob/main/SECURITY.md).
+
+        Auro is pre-alpha: there is no release. If you are reporting a problem with the
+        documentation, the CI configuration or the build, say so - that is currently most of what
+        can be wrong.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The actual behaviour, including the exact command or link.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Minimal steps, or a link to a repository that shows it.
+      placeholder: |
+        1. git clone https://github.com/pdl-clay/auro
+        2. cd auro && mdbook build docs
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Commit or reference
+      description: There are no versions yet, so give the commit SHA or the page URL.
+      placeholder: de01e43
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other / not applicable
+    validations:
+      required: true
+  - type: input
+    id: toolchain
+    attributes:
+      label: Toolchain
+      description: Output of `rustc -V` and `mdbook --version`, if relevant.
+      placeholder: rustc 1.85.0 (4d91de4e4 2025-02-17)
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Full output, not a screenshot of a terminal. Redact anything private.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

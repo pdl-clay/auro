@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and design discussion
+    url: https://github.com/pdl-clay/auro/discussions
+    about: Usage questions, ideas, and anything that is not yet a bug or a concrete request.
+  - name: RFC proposals
+    url: https://github.com/pdl-clay/auro/blob/main/rfcs/README.md
+    about: Read the process before proposing an architectural change.
+  - name: Report a security vulnerability
+    url: https://github.com/pdl-clay/auro/security/advisories/new
+    about: Private disclosure. Never open a public issue for a vulnerability.
+  - name: Roadmap
+    url: https://github.com/pdl-clay/auro/blob/main/ROADMAP.md
+    about: Check what is planned and what is explicitly out of scope before filing a request.

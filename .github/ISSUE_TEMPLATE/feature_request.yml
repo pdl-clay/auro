@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a capability, a component, a platform or an API change.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Auro is designed in the open. For anything that changes the architecture, the public API,
+        the IPC contract or the capability model, an [RFC](https://github.com/pdl-clay/auro/blob/main/rfcs/README.md)
+        is the right vehicle. Use this form to start the conversation.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can you not do today? Describe the task, not the API you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should exist, and what would using it look like?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including Tauri, GPUI directly, or doing nothing.
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      description: Check anything this touches. Each box makes the report easier to route.
+      options:
+        - label: Public API or a new crate
+        - label: IPC contract or command registry
+        - label: Capability or permission model
+        - label: Hot reload
+        - label: Platform support (states which)
+        - label: Documentation only
+        - label: I am willing to write an RFC for this

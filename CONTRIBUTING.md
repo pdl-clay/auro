@@ -3,6 +3,8 @@
 Auro is pre-alpha and being designed in public, so the most valuable contribution right now is
 an opinion, not a patch.
 
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## The best ways to help today
 
 1. **Argue with the design.** Read [ROADMAP.md](ROADMAP.md) and the open questions at the end.
@@ -16,16 +18,93 @@ an opinion, not a patch.
 Anything larger than a typo starts in [Discussions](https://github.com/pdl-clay/auro/discussions).
 A PR that lands without agreement wastes your time.
 
-Design changes that affect the public API go through a short RFC in `rfcs/` once that folder
-exists (phase 0).
+Design changes that affect the public API go through a short [RFC](rfcs/README.md). A decision
+that has already been made and constrains future code is recorded as an
+[ADR](docs/src/decisions/README.md) instead. If you are unsure which applies, ask in the issue
+first.
+
+## Development setup
+
+Rust **stable**, with `rustfmt` and `clippy`. `rust-toolchain.toml` pins the channel and the
+components, so a plain `rustup` install is enough.
+
+Linux needs native headers for the windowing, audio and TLS stack - the same set CI installs:
+
+```bash
+sudo apt-get install -y --no-install-recommends \
+  libxkbcommon-dev libwayland-dev libx11-xcb-dev libvulkan-dev \
+  libasound2-dev libfontconfig-dev libssl-dev pkg-config
+```
+
+Other distributions need the equivalent packages.
+
+**There is no `Cargo.toml` yet.** Phase 0 adds the workspace; until then the only build that
+exists is the documentation book.
+
+## Gates
+
+CI runs exactly these, and a red gate is never merged. Run them locally before pushing:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+mdbook build docs
+```
+
+The first three are inert until the workspace lands. The docs gate applies to every pull request
+today.
+
+## Documentation
+
+```bash
+cargo install mdbook --version 0.4.40 --locked
+mdbook serve docs        # http://localhost:3000
+mdbook build docs        # output in docs/book, gitignored
+```
+
+Every file listed in `docs/src/SUMMARY.md` must exist (`create-missing = false`). English is the
+source of truth; `README.pt-BR.md` must mirror `README.md` section for section - same headings,
+same tables, same code samples. A change to one without the other is an incomplete change.
 
 ## Code conventions
 
 - `cargo fmt` and `cargo clippy -- -D warnings` before pushing. CI enforces both.
-- Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`,
-  `docs:`, `refactor:`, `perf:`, `test:`, `chore:`.
-- One logical change per PR.
-- New public API needs a doc comment with an example that compiles.
+- Every `.rs` file starts with `// SPDX-License-Identifier: MIT OR Apache-2.0`.
+- Errors are typed: library code returns `Result<T, AuroError>`. No `unwrap` outside tests, and no
+  `unwrap` in a command.
+- No blocking I/O on the main thread. GPUI owns the main thread; commands are `async fn`s on the
+  `tokio` runtime. See [threading and IPC](docs/src/architecture/threading-and-ipc.md).
+- No `println!` for diagnostics in library code; use `tracing`.
+- New public API needs a doc comment with an example that compiles, and an entry in
+  `CHANGELOG.md` under `## [Unreleased]`.
+
+## Commits
+
+[Conventional Commits](https://www.conventionalcommits.org/), imperative mood, 72-character
+subject, no trailing period:
+
+```
+feat(ipc): derive command schema from the function signature
+fix(ui): keep focus on the input after a reload
+docs: explain the capability manifest format
+```
+
+Types: `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+
+Sign off every commit (DCO 1.1, no CLA):
+
+```bash
+git commit -s -m "docs: add the RFC template"
+```
+
+## Pull requests
+
+- One logical change per PR. Do not mix formatting churn with behaviour.
+- Fill in the pull request template; it mirrors the gates above.
+- Keep the branch rebased on `main`. PRs are squash-merged, so the PR title must be a valid
+  Conventional Commit subject.
+- A maintainer review is required. Expect questions about scope before style.
 
 ## Performance is a feature
 
@@ -35,8 +114,12 @@ ergonomics but regresses those numbers needs to say so and justify it.
 ## Licensing
 
 By contributing you agree your work is dual-licensed under MIT or Apache-2.0, matching the
-project.
+project. Do not copy code with an incompatible licence into the tree.
 
 ## Conduct
 
 Be technical, be direct, be kind. Disagreement about design is expected; contempt is not.
+
+## Security
+
+Do not open a public issue for a vulnerability. Use [SECURITY.md](SECURITY.md).
