@@ -14,6 +14,8 @@ pub struct Button {
     id: SharedString,
     label: SharedString,
     on_click: Option<ClickHandler>,
+    #[cfg(any(test, feature = "test-support"))]
+    debug_selector: Option<String>,
 }
 
 impl Button {
@@ -22,6 +24,8 @@ impl Button {
             id: id.into(),
             label: label.into(),
             on_click: None,
+            #[cfg(any(test, feature = "test-support"))]
+            debug_selector: None,
         }
     }
 
@@ -30,6 +34,19 @@ impl Button {
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_click = Some(Rc::new(handler));
+        self
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    /// Sets a debug selector visible to `VisualTestContext::debug_bounds` in tests.
+    pub fn debug_selector(mut self, f: impl FnOnce() -> String) -> Self {
+        self.debug_selector = Some(f());
+        self
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    #[inline]
+    pub fn debug_selector(self, _: impl FnOnce() -> String) -> Self {
         self
     }
 }
@@ -44,6 +61,11 @@ impl IntoElement for Button {
             .py(super::tokens::space_2())
             .rounded_md()
             .child(self.label);
+
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(selector) = self.debug_selector {
+            element = element.debug_selector(move || selector.clone());
+        }
 
         if let Some(handler) = self.on_click {
             element = element.on_click(move |event, window, cx| handler(event, window, cx));

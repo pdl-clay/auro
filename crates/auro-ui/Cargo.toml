@@ -9,6 +9,10 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+default = []
+test-support = ["gpui/test-support"]
+
 [dependencies]
 auro-core.workspace = true
 gpui.workspace = true

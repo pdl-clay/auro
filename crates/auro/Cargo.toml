@@ -17,4 +17,6 @@ auro-ui.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+auro-ui = { workspace = true, features = ["test-support"] }
+gpui = { workspace = true, features = ["test-support"] }
 serde_json.workspace = true

@@ -277,8 +277,10 @@ Runnables, in order, on a clean checkout:
   (fmt, clippy, tests) and `ubuntu-22.04` (build), after adding `libxkbcommon-x11-dev` to the Linux
   dependencies. Not verified on a real desktop session.
 - 2: **met** locally (`/tmp/auro-demo` builds).
-- 3: **partially verified** locally — window opens, rebuild/relaunch cycle and exit behavior
-  observed; button dispatch and window-close-to-exit-0 not interactively verified in this run.
+- 3: **partially verified.** Window opens and the rebuild/relaunch cycle work locally; a headless
+  GPUI test clicks the button, dispatches the async `#[auro::command]` and asserts the view update
+  (`auro` integration test `clicking_button_dispatches_async_command_and_updates_view`). Closing
+  the window to exit 0 has not been interactively verified in this run.
 - 4: **met** locally (Ctrl-C exits 0, no orphan).
 - 5: **met** locally (fmt, clippy `-D warnings`, tests).
 - 6: **met** (config parse/merge/unknown-key refusal, `State` extraction, sync and async dispatch,

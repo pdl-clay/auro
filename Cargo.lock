@@ -488,6 +488,7 @@ dependencies = [
  "auro-ipc",
  "auro-macros",
  "auro-ui",
+ "gpui",
  "serde_json",
  "tracing",
 ]

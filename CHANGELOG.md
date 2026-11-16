@@ -41,6 +41,12 @@ installable `auro-cli` yet.
 - Headless GPUI integration test in `auro-ui` that renders a root view through `TestAppContext` and
   asserts `status == "Ready"` and a non-empty rendered tree via `debug_bounds` (spec 0001
   acceptance 7).
+- Headless GPUI integration test in `auro` that clicks a `Button`, dispatches an async
+  `#[auro::command]` through the scaffold-style flow, and asserts the view state updates
+  (`clicking_button_dispatches_async_command_and_updates_view`), covering the dispatch/update part
+  of spec 0001 acceptance 3.
+- `auro-ui::Button` `debug_selector` (test-support) and `auro-ui` `test-support` feature for
+  headless element bounds in tests.
 
 ### Fixed
 
