@@ -58,11 +58,16 @@ installable `auro-cli` yet.
 - `CONTRIBUTING.md` gains the development setup, the gates, the commit and sign-off rules, and the
   ADR-versus-RFC split; the design-first framing stays.
 - `ROADMAP.md` package-format count and hot-reload comparison character corrected; the Electron
-  memory figure and the binary-size claim qualified.
-- `README.pt-BR.md` mirrored to `README.md` after the status table, badges and license section
-  landed, including the full code sample and the missing hot-reload sentence.
+  memory figure and the binary-size claim qualified; Phase 0 progress recorded, and the resolved
+  license moved out of open questions.
+- `README.md` and `README.pt-BR.md` mirrored: status reflects the existing workspace and in-progress
+  Phase 0 (unpublished, no released CLI), with the full code sample kept in sync.
 - README and roadmap link to the documentation book, the support matrix, the contributing guide
   and the security policy.
-- Spec 0001, the platform support table and the performance budget record current acceptance status,
-  CI results (macOS/Windows tests and `ubuntu-22.04` build green at `25da81f`) and the measured
-  ~60 s save-to-relaunch time.
+- Spec 0001, the platform support table and the performance budget record acceptance status, the
+  measured ~60 s save-to-relaunch time, and CI results: run `43776830848` for `5a5d389` is green on
+  macOS, Windows, `ubuntu-latest` and `ubuntu-22.04` (the `ubuntu-latest` test link failed on
+  `-lxkbcommon-x11` at `25da81f`, run `43775097578`, before `libxkbcommon-x11-dev` was added).
+- Docs reviewed for consistency: introduction, architecture, crates, standards and repository
+  guidelines now describe the current workspace state; illustrative API notes no longer claim the
+  workspace does not exist.

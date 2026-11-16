@@ -27,7 +27,7 @@ slice real, and nothing beyond it.
 
 ## Decisions
 
-### D1 - Six crates now, nine at 1.0
+### D1 - Six crates now, eleven in the full graph
 
 Phase 0 materialises `auro` (facade), `auro-core`, `auro-ui`, `auro-ipc`, `auro-macros`,
 `auro-cli`. `auro-perms`, `auro-plugins`, `auro-bundle`, `auro-update`, `auro-sign` arrive with the

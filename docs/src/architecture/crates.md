@@ -3,20 +3,23 @@
 The Phase 0 workspace is in the tree. This chapter is the contract it satisfies and the map for
 what comes next; it is deliberately more specific than the README.
 
-## Planned crates
+## Crates
 
-| Crate | Kind | Responsibility | First phase |
+Six crates are materialized now; the rest arrive with the phase that needs them.
+
+| Crate | Kind | Responsibility | Status |
 |---|---|---|---|
-| `auro` | library | facade re-exporting the supported API surface (`auro::prelude`) | 0 |
-| `auro-cli` | binary | `new`, `dev`, `build`, `bundle`, `add`, `doctor` | 0 |
-| `auro-core` | library | app builder, window manager, config schema, lifecycle, command registry, state store, event bus | 1 |
-| `auro-ui` | library | GPUI re-export, components, tokens, themes | 1 |
-| `auro-ipc` | library | typed transport, schema derivation, event delivery | 1 |
-| `auro-perms` | library | capability manifests and runtime enforcement | 2 |
-| `auro-plugins` | library | plugin manifest and host (in-process and out-of-process) | 3 |
-| `auro-bundle` | library | platform packaging | 2 |
-| `auro-update` | library | signed manifests, deltas, rollout, rollback | 2 |
-| `auro-sign` | library | signing and key handling shared by bundle and update | 2 |
+| `auro` | library | facade re-exporting the supported API surface (`auro::prelude`) | Phase 0, in tree |
+| `auro-cli` | binary | `new`, `dev`, `build`, `bundle`, `add`, `doctor` | Phase 0, in tree (`new`, `dev`, `build`, `doctor`) |
+| `auro-core` | library | app builder, window manager, config schema, lifecycle, command registry, state store, event bus | Phase 0, in tree (config, state; broader surface later) |
+| `auro-ui` | library | GPUI re-export, components, tokens, themes | Phase 0, in tree (re-exports, `Button`, tokens) |
+| `auro-ipc` | library | typed transport, schema derivation, event delivery | Phase 0, in tree (commands, runtime bridge) |
+| `auro-macros` | proc-macro | `#[command]`, `generate_handler!` | Phase 0, in tree |
+| `auro-perms` | library | capability manifests and runtime enforcement | planned, Phase 2 |
+| `auro-plugins` | library | plugin manifest and host (in-process and out-of-process) | planned, Phase 3 |
+| `auro-bundle` | library | platform packaging | planned, Phase 2 |
+| `auro-update` | library | signed manifests, deltas, rollout, rollback | planned, Phase 2 |
+| `auro-sign` | library | signing and key handling shared by bundle and update | planned, Phase 2 |
 
 ## Dependency rules
 

@@ -72,14 +72,14 @@ Absent on purpose: `CODEOWNERS` (one maintainer, the default reviewer is already
 ## Rust conventions
 
 - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings` and
-  `cargo test --workspace --locked` are the gates, and CI runs exactly them.
+  `cargo test --workspace --locked` are the gates, and CI runs them on Linux, macOS and Windows.
 - **`Cargo.lock` is committed.** This workspace produces binaries, so the lockfile is part of the
   build; `--locked` makes a dependency change without a lockfile update fail in CI instead of
   silently resolving differently.
-- **Dependency licences are checked**, not assumed: `cargo deny check licenses` runs once the
-  workspace exists, with `deny.toml` allowing `MIT`, `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`,
-  `ISC`, `Unicode-3.0` and `Zlib`. A copyleft crate arriving through a transitive bump is an
-  incident, not a surprise for someone's legal team.
+- **Dependency licences should be checked, not assumed.** Once `cargo-deny` is configured, a
+  `deny.toml` should allow the set compatible with `MIT OR Apache-2.0` and flag incompatible
+  licences on transitive bumps. Until that configuration lands, licence review remains a manual part
+  of dependency changes.
 - Every `.rs` file starts with the SPDX identifier:
 
   ```rust
@@ -97,15 +97,16 @@ Absent on purpose: `CODEOWNERS` (one maintainer, the default reviewer is already
 
 ## CI
 
-Four gates, in this order:
+Gates and supporting jobs, all required to be green before merge:
 
-1. `cargo fmt --all --check`
-2. `cargo clippy --workspace --all-targets --locked -- -D warnings`
-3. `cargo test --workspace --locked`
-4. `mdbook build docs`
+1. `cargo fmt --all --check` (Linux leg)
+2. `cargo clippy --workspace --all-targets --locked -- -D warnings` (Linux, macOS, Windows)
+3. `cargo test --workspace --locked` (Linux, macOS, Windows)
+4. `cargo build --workspace --locked` on `ubuntu-22.04` (published Linux floor)
+5. `mdbook build docs`
+6. workflow lint (`actionlint`)
 
-All four run on every pull request. A red gate is never merged and never "fixed" by disabling
-the check.
+A red gate is never merged and never "fixed" by disabling the check.
 
 Every third-party action is pinned to a full commit SHA with the version in a comment
 (`uses: actions/checkout@11d5960... # v4`). Dependabot proposes the bumps, so the pin is updated

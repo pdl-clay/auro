@@ -20,8 +20,9 @@ The frontend is Rust. There is no HTML, no CSS engine and no JavaScript in the a
 
 ## Status
 
-**Pre-alpha. Designing in public.** Nothing is installable yet - the repo is architecture and
-roadmap until phase 0 lands.
+**Pre-alpha. Designing in public.** The workspace exists and Phase 0 is in progress; nothing is
+published on crates.io and there is no released CLI yet. You can build and try the framework from a
+checkout (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 | Phase | Codename | State |
 |---|---|---|

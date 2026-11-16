@@ -50,7 +50,7 @@ Authoritative documents: `README.md` (pitch), `ROADMAP.md` (phases and targets),
 
 ## Architecture & Data Flow
 
-Planned workspace, nine `auro-*` crates plus the `auro` facade, layered top-down:
+Workspace of eleven crates total (six materialized now, five planned), layered top-down:
 
 ```
 auro-cli        new . dev . build . bundle . add . doctor
@@ -102,7 +102,6 @@ process restart.
 | `rfcs/` | design proposals: process in `README.md`, template at `0000-template.md` |
 | `.github/workflows/` | `ci.yml` (format, clippy, test, docs), `docs.yml` (Pages deploy) |
 | `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md` | report and change shapes |
-| *(planned)* | crate directories - the workspace layout is not decided yet |
 
 Do not add a second documentation tree. Architecture prose goes in `docs/`, proposals in `rfcs/`,
 decisions in ADRs, and the pitch in `README.md`.
@@ -130,8 +129,8 @@ Linux build dependencies (same set CI installs):
 
 ```bash
 sudo apt-get install -y --no-install-recommends \
-  libxkbcommon-dev libwayland-dev libx11-xcb-dev libvulkan-dev \
-  libasound2-dev libfontconfig-dev libssl-dev pkg-config
+  libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
+  libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config
 ```
 
 CI runs those gates on Linux, macOS and Windows plus an `ubuntu-22.04` floor job, and
@@ -206,9 +205,10 @@ CI runs those gates on Linux, macOS and Windows plus an `ubuntu-22.04` floor job
 
 ## Testing & QA
 
-`cargo test --workspace --locked` is the gate. Today that covers config parsing and merging,
-command dispatch (sync, async, state, rename), and `auro new`; the GPUI headless test is the next
-one to land.
+`cargo test --workspace --locked` is the gate. It covers config parsing and merging, command
+dispatch (sync, async, state, rename), `auro new`, CLI/dev helpers, and a headless GPUI render test
+in `auro-ui` (`TestAppContext`, asserting view status and a non-empty rendered tree via
+`debug_bounds`).
 
 Expectations:
 
@@ -219,10 +219,11 @@ Expectations:
 - Micro-benchmarks use `criterion`. Startup, RAM and binary size are measured by a separate
   process-level harness, not by a unit benchmark.
 - The performance budget (`docs/src/reference/performance-budget.md`) is a CI gate only once it is
-  implemented; until then its status column says "not measured" and must not be presented as a
-  result.
+  implemented; until then its status column states what is measured or unmeasured and must not be
+  presented as a result.
 - Platform rows move from "unverified" to "verified" only when CI exercises them on every pull
-  request. Do not upgrade a support claim because a build succeeded once.
+  request and a maintainer confirms a real desktop session. Do not upgrade a support claim because a
+  build or test run succeeded once.
 - Documentation QA: `mdbook build docs` must pass, every `SUMMARY.md` target must exist, internal
   links must resolve, and `README.md`/`README.pt-BR.md` must stay in sync.
 
@@ -234,4 +235,5 @@ Expectations:
    same change, or do not make the claim.
 4. Does it add a user-visible behaviour? Add a `CHANGELOG.md` entry.
 5. Did it change `README.md`? Mirror it in `README.pt-BR.md`.
-6. Run the gates that exist: `mdbook build docs`, plus the Cargo gates once the workspace lands.
+6. Run the gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+   `cargo test --workspace --locked`, and `mdbook build docs`.

@@ -20,8 +20,9 @@ O frontend é Rust. Não existe HTML, nem engine de CSS, nem JavaScript no runti
 
 ## Status
 
-**Pré-alpha. Projetando em público.** Nada é instalável ainda — o repositório é arquitetura e
-roadmap até a fase 0 chegar.
+**Pré-alpha. Projetando em público.** O workspace já existe e a fase 0 está em andamento; nada foi
+publicado no crates.io e ainda não há CLI lançada. Dá para compilar e experimentar o framework a
+partir de um checkout (veja [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 | Fase | Codinome | Estado |
 |---|---|---|

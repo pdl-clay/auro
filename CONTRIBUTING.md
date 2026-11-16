@@ -32,18 +32,19 @@ Linux needs native headers for the windowing, audio and TLS stack - the same set
 
 ```bash
 sudo apt-get install -y --no-install-recommends \
-  libxkbcommon-dev libwayland-dev libx11-xcb-dev libvulkan-dev \
-  libasound2-dev libfontconfig-dev libssl-dev pkg-config
+  libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
+  libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config
 ```
 
 Other distributions need the equivalent packages.
 
-**There is no `Cargo.toml` yet.** Phase 0 adds the workspace; until then the only build that
-exists is the documentation book.
+The workspace is at the repository root (`Cargo.toml`, `Cargo.lock`, `crates/`, `vendor/`). Build
+and test from the checkout root; `Cargo.lock` is committed and CI runs with `--locked`.
 
 ## Gates
 
-CI runs exactly these, and a red gate is never merged. Run them locally before pushing:
+CI runs these on every pull request, and a red gate is never merged. Run them locally before
+pushing:
 
 ```bash
 cargo fmt --all --check
@@ -52,8 +53,8 @@ cargo test --workspace --locked
 mdbook build docs
 ```
 
-The first three are inert until the workspace lands. The docs gate applies to every pull request
-today.
+CI also runs `actionlint` on the workflows, a three-OS build/test matrix, and an `ubuntu-22.04`
+floor build. The docs book is built by the `docs` job and deployed to GitHub Pages on `main`.
 
 ## Documentation
 

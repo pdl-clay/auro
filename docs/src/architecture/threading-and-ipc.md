@@ -30,7 +30,7 @@ result schema, and the registry entry; it does not introduce a wire format the c
 see.
 
 ```rust,ignore
-// Shape of the contract. `auro` does not exist yet.
+// Current workspace API (unpublished).
 #[auro::command]
 async fn save_document(path: PathBuf, body: String) -> Result<Saved, AuroError> {
     tokio::fs::write(&path, body).await?;

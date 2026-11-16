@@ -33,7 +33,7 @@ What remains is a real security boundary:
 A denial is a typed error returned to the caller, not a panic and not a silently ignored call:
 
 ```rust,ignore
-// Shape of the contract. `auro` does not exist yet.
+// Planned shape (capability enforcement not implemented yet).
 let file = perms.fs_read(&plugin_id, path).await?; // Err(CapabilityDenied { scope, subject })
 ```
 

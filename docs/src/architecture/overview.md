@@ -21,9 +21,9 @@ follows from that split.
 ```
 
 The diagram is a **layering**, not a dependency graph: a layer may use the layer below it, and
-`auro-core` is the only crate that composes the others. The exact `Cargo.toml` edges are fixed
-when the workspace lands in Phase 0; until then this is the intended direction, not a build
-artifact.
+`auro-core` is the only crate that composes the others. The Phase 0 workspace fixes the current
+`Cargo.toml` edges for the materialized crates; the full crate graph remains the intended
+direction as later phases land.
 
 ## Responsibilities
 
@@ -50,7 +50,7 @@ artifact.
    `cx.notify()`, which schedules a render.
 
 ```rust,ignore
-// Shape of the contract. `auro` does not exist yet.
+// Current workspace API (unpublished).
 #[auro::command]
 async fn save_document(path: PathBuf, body: String) -> Result<Saved, AuroError> {
     tokio::fs::write(&path, body).await?;

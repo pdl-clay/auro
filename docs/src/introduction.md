@@ -7,9 +7,9 @@ with [GPUI](https://gpui.rs), Zed's GPU-accelerated Rust UI toolkit.
 
 The frontend is Rust. There is no HTML, no CSS engine and no JavaScript in the app runtime.
 
-> **Status: pre-alpha.** There is no `Cargo.toml`, no published crate and no installable CLI.
-> This book documents the architecture that the code is being written against; it is not user
-> documentation for a working framework.
+> **Status: pre-alpha.** The workspace exists and Phase 0 is in progress, but nothing is published
+> on crates.io and there is no released CLI. This book documents the architecture and the contracts
+> the code is being written against; it is reference material, not end-user release documentation.
 
 ## Where to start
 

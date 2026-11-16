@@ -146,6 +146,12 @@ must be **published and honest from day one**. This is the biggest schedule risk
 auro dev` opens a window in under two minutes with a warm cargo cache. Publishing to crates.io is
 not part of the phase.
 
+**Progress (2026-11-15):** workspace, specs, CLI, typed command/state/config plumbing, scaffold,
+relaunch-based `auro dev`, CI on macOS/Windows/Linux, and a headless GPUI render test are in place
+and green in CI. Spec 0001 acceptance is mostly met locally/CI; interactive button-dispatch/close
+verification and the < 500 ms save-to-visible target remain open (current relaunch ~60 s, measured).
+The phase is still in progress until the exit criterion and acceptance are fully closed.
+
 ### Phase 1 - v0.1 "Hello, native" (weeks 4-8)
 
 - `auro-core`: config schema, multi-window, lifecycle, command registry with schema, state store.
@@ -235,5 +241,7 @@ typical app is the post that travels.
 2. **Plugin isolation:** out-of-process first (safer, slower) or in-process first (faster)?
 3. **Opinionated or not:** ship our own component kit, or let crates like `gpui-component` fill
    in?
-4. **License:** dual MIT/Apache-2.0, Tauri-style. Recommended.
-5. **Brand:** name, logo, domain, org.
+4. **Brand:** name, logo, domain, org.
+
+Resolved: **license** — dual MIT/Apache-2.0 (see [ADR 0006](docs/src/decisions/0006-dual-license.md)
+and `LICENSE-MIT`, `LICENSE-APACHE`).
