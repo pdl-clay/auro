@@ -89,13 +89,50 @@ continuity across revisions in the same process: `rev=0 count 1..361 -> rev=1 42
 `C:\Users\pdl\wvmt\op1win\logs\plain-proofwin-20261116152539.*`). This demonstrates the same-process
 tip-crate `HotFn` patching mechanism works on Windows x86_64 in this minimal plain prototype (not a
 D6 benchmark). An earlier observed run (transcript, artifacts cleaned) showed `rev=0 count=541 ->
-637 ms hot-patch -> rev=1 count=601` with continuity. Caveats: non-GPUI only; GPUI 0.2.2 +
-subsecond/dx prototype sources were prepared on the guest but not built/tested in this
-consolidation; not integrated into `auro dev`; not production/GA; not representative D6 for Auro
-scaffolds/apps. Observed failures/caveats: reusing corrupted target `target-plain-dx3` caused
+637 ms hot-patch -> rev=1 count=601` with continuity. Caveats: non-GPUI only; not integrated into
+`auro dev`; not production/GA; not representative D6 for Auro scaffolds/apps. Observed failures/caveats: reusing corrupted target `target-plain-dx3` caused
 `Failed to generate fat binary: rust-lld: error: ...\desktop-dev\libdeps-62094602.a: unknown file
 type`; hidden/background dx runs were inconclusive (missing/0-byte logs in early attempts); and
 in-project verbose log redirection produced watcher noise/misleading hot-patch labels.
+
+**Windows advanced front/back prototype (2026-11-16, WinBoat guest, plain non-GPUI, not
+integrated):** a second throwaway tip crate modelled a host-owned UI state plus an init-captured
+backend task (a thread that reads its interval once at startup), with the frontend rendered through
+`HotFn::current(render_frontend)` and printed state lines (`session`, `items`, `backend_ticks`,
+`init_backend_ms`). Three edits inside the hot boundary applied as warm hot-patches of
+`src\main.rs`: `590 ms` (`ui0` blue/120/Save/light → `ui1` green/180/Salvar/dark), `523 ms`
+(`ui1` → `ui2` orange/240/Publicar/contrast, adding `radius=12 padding=24 icon=rocket`), and
+`527 ms` (backend-interval source edit). Across all three the process and host state were
+continuous: `session=s5500`, `items` 4→36, `backend_ticks` 8→72, same pid, `init_backend_ms=500`.
+The backend source change (`backend_tick_interval_ms` 500→1500) was hot-patched but **not
+retroactive**: the running backend task kept logging `active_interval_ms=500` (18 tick lines after
+the change, last `ticks=69 active_interval_ms=500`). A restart with the changed source produced a new
+process (`session=s9516`, first render `ui_v=ui2`, `init_backend_ms=1500`) and a 1500 ms cadence
+(`[backend_tick] ... ticks=1 active_interval_ms=1500`, ticks 1→21 over ~30 s). Evidence:
+`C:\Users\pdl\wvmt\op1win\logs\adv-fix-20261116161242.*` and
+`adv-fix-restart-20261116161242.*`, `ERR_LEN=0` in both phases. This is the observed
+frontend-hot-boundary versus init-captured-backend split for this mechanism on Windows; it is not a
+Tauri backend-process comparison and not a product contract.
+
+**GPUI 0.2.2 on Windows (2026-11-16, WinBoat guest, not integrated):** the GPUI prototype
+(`gpui = "=0.2.2"`, `subsecond`/`dioxus-devtools` 0.7.10, host-owned `RootView` counter ticker and
+stable string, `HotFn::current(hot_view)` in `Render::render`) built in 181 s
+(`target-gpui-win2\debug\gpui-subsecond-spike.exe`, 23.9 MB). Launched through a scheduled task in
+the active interactive console session (`/RU pdl /IT`, session 1) it rendered: pid 708, 206
+`[hot_view]` renders, `counter` 0→204, `stable=host-owned-state` preserved, no panic
+(`gpui-run-int2-20261116162859.*`). The same executable launched from the SSH/session-0 context
+panicked before render with `Creating DirectX renderer` → `Creating DirectX resources` →
+`0x887A0022` (`DXGI_ERROR_NOT_CURRENTLY_AVAILABLE`), as did a `dx serve --hot-patch` run from that
+context after a 199.20 s build (`gpui-win1-20261116155242.*`, `gpui-hot-20261116163202.*`). So the
+earlier launch failure is a non-interactive-session/GPU-availability condition, not a GPUI+
+subsecond incompatibility. A `dx serve --hot-patch` run then executed in the interactive session
+itself (scheduled task, `SESSION=1`, clean `target-gpui-hot3`): build 473.85 s, app rendered
+(`[hot_view] ... label=v0`, `counter` 0→43), and the first patch applied
+(`Hot-patching: src\main.rs took 1453ms`, `[patch_applied] t_ms=5760`) — after which the process
+died with `thread 'main' has overflowed its stack` and `exit code: 0xc000041d`, before rendering
+`label=v1` (`gpui-hot3-20261116-170828.*`, `gpui-hot3-current.result.txt`). **GPUI hot-patching on
+Windows is therefore not usable today**: patch application succeeds but crashes the main thread;
+the cause (subsecond trampoline/stack frame under MSVC debug with GPUI 0.2.2) is not yet isolated.
 
 
 ## Scope
@@ -169,8 +206,14 @@ patch, `thread_local!` in patched path can fail patch generation, and tooling/la
 classification/integration and representative Auro-scaffold D6 measurement remain pending.
 A Windows 11 x86_64 plain (non-GPUI) prototype follow-up (2026-11-16, WinBoat guest, same dx/subsecond
 tip-crate mechanism) additionally showed 3/3 warm `HotFn` patches in 484/504/499 ms with monotonic
-counter continuity in the same process (build 30.66 s, clean target/external logs); GPUI-on-Windows
-and `auro dev` integration remain untested/unproven.
+counter continuity in the same process (build 30.66 s, clean target/external logs), and a second
+plain prototype showed warm view edits applying in 590/523 ms with host state continuous while an
+init-captured backend interval change stayed non-retroactive until restart. GPUI 0.2.2 built and
+rendered on the same guest in the interactive console session (206 renders, host state preserved),
+while `dx serve` started from the SSH/session-0 context hit DirectX `0x887A0022` before render, and
+`dx serve` in the interactive session applied the first patch (`1453 ms`) then crashed the main
+thread with a stack overflow (`0xc000041d`); GPUI hot-patching on Windows is therefore blocked and
+`auro dev` integration remains unproven.
 
 *Rejected:* recompiling and relinking the whole app process on every save as the hot path. *Rejected:*
 claiming a process restart is hot reload (forbidden by ADR 0008). *Rejected:* discarding the window
@@ -420,10 +463,10 @@ budget), published numbers, and a stable documented author contract for reloadab
 
 | Question | Where it settles |
 |---|---|
-| Reload mechanism: in-process/function-level patching feasibility (e.g. subsecond-style) on Linux x86_64 with GPUI 0.2.2, and alternatives if not viable | **Partially evidenced (prototype, 2026-11-16):** subsecond/dx tip-crate `HotFn` patching viable in minimal GPUI 0.2.2 cases with constraints; a Windows 11 x86_64 plain (non-GPUI) prototype showed the same mechanism applying 3/3 warm patches (484/504/499 ms) with state continuity, but GPUI-on-Windows is untested. Productization, representative D6, and other platforms remain open. Mechanism recorded here; ADR revision/addition only if decision changes. |
+| Reload mechanism: in-process/function-level patching feasibility (e.g. subsecond-style) on Linux x86_64 with GPUI 0.2.2, and alternatives if not viable | **Partially evidenced (prototype, 2026-11-16):** subsecond/dx tip-crate `HotFn` patching viable in minimal GPUI 0.2.2 cases with constraints; on Windows 11 x86_64 a plain (non-GPUI) prototype applied 3/3 warm patches (484/504/499 ms) with state continuity and a second plain prototype showed view edits at 590/523 ms with host state continuous and an init-captured backend change applying only after restart; GPUI 0.2.2 built and rendered on Windows in the interactive console session, but a `dx serve` patch there applied (1453 ms) and then crashed the main thread with a stack overflow. Productization, representative D6, and other platforms remain open. Mechanism recorded here; ADR revision/addition only if decision changes. |
 | Exact scaffold/layout/build flags for hot-reload-capable projects and migration from Phase 0 layout | Implementation of this spec; recorded here when chosen |
 | Canonical snapshot encoding (JSON, CBOR, postcard/bincode-class) and compatibility policy | Implementation; must remain `serde`-compatible at the API boundary |
 | How managed `State<T>` participates when its type is defined in reloadable code vs host-stable code | Implementation + follow-up ADR/spec if it changes state ownership rules (D5 of spec 0001) |
 | Debug/release mixing, optimization levels, and symbol/debug info required by the chosen mechanism | Implementation, per platform notes |
 | In-app surfacing of build/reload diagnostics (overlay/panel) vs terminal-only in experimental mode | `auro-ui`/dev UX follow-up; terminal reporting is the minimum |
-| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (plain non-GPUI prototype, 2026-11-16):** same-process tip-crate `HotFn` patching applied 3/3 warm patches with continuity in a WinBoat guest; GPUI-on-Windows, macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. |
+| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and `dx serve` in session 1 applied its first patch (1453 ms) then crashed the main thread with a stack overflow (`0xc000041d`), so GPUI hot-patching on Windows is blocked. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. |

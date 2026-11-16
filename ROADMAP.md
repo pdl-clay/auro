@@ -126,8 +126,18 @@ the web. This is *the* bet of the project.
   applied 3/3 warm patches in 484/504/499 ms with monotonic counter continuity
   `rev0 1..361 -> rev1 421..781 -> rev2 841..1261 -> rev3 1321..1741` in the same process
   (`plain-proofwin-20261116152539.*`), showing mechanism viability on Windows for this minimal plain
-  case only; GPUI-on-Windows was prepared but not built/tested. `auro dev` remains relaunch by
-  default.
+  case only. A second plain Windows prototype (same guest, 2026-11-16) applied in-boundary view
+  edits in 590 ms and 523 ms (`ui0`→`ui1`→`ui2` with added radius/padding/icon) while
+  `session=s5500` and the host/backend counters stayed continuous; an init-captured backend
+  interval change (500→1500 ms) was hot-patched but not retroactive (`active_interval_ms=500`), and
+  only took effect after a restart (`session=s9516`, `init_backend_ms=1500`, 1500 ms cadence) —
+  `adv-fix-20261116161242.*`. GPUI 0.2.2 on the same guest built and rendered in the interactive
+  console session (206 renders, host state preserved), while `dx serve` launched from the
+  SSH/session-0 context failed with DirectX `0x887A0022` before render. A `dx serve` run inside the
+  interactive session then built (473.85 s), rendered, applied its first patch (1453 ms) and
+  crashed with a main-thread stack overflow (`exit code: 0xc000041d`) before any patched render —
+  so GPUI hot-patching on Windows is currently blocked, with the cause not yet isolated. `auro dev`
+  remains relaunch by default.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 

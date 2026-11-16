@@ -79,6 +79,33 @@ installable `auro-cli` yet.
   representative-D6 claims remain unproven. Caveats: corrupted reused target
   (`libdeps-62094602.a: unknown file type`), inconclusive hidden/background runs, and watcher noise
   from in-project verbose log redirection.
+- Windows 11 x86_64 front/back advanced prototype evidence (2026-11-16, WinBoat guest, plain
+  non-GPUI `HotFn` tip crate, not integrated): visual UI edits inside the hot boundary applied as
+  three warm hot-patches (590/523/527 ms) while host-owned state stayed in the same process —
+  `session=s5500`, `items`/`backend_ticks` continued across `ui0` blue/120/Save/light →
+  `ui1` green/180/Salvar/dark → `ui2` orange/240/Publicar/contrast + `radius=12 padding=24
+  icon=rocket`. A source change to the init-captured backend interval (500→1500 ms) was
+  hot-patched into the frontend boundary but the already-running backend task kept
+  `active_interval_ms=500` (not retroactive). Restarting the app with the changed source produced a
+  new process (`session=s9516`, first render `ui_v=ui2`, `init_backend_ms=1500`) and a 1500 ms
+  tick cadence, i.e. the init-captured change only takes effect on restart
+  (`adv-fix-20261116161242.*`, `adv-fix-restart-20261116161242.*`, `ERR_LEN=0` both phases).
+- GPUI 0.2.2 on Windows (2026-11-16, WinBoat guest): the prototype built in 181 s
+  (`target-gpui-win2\debug\gpui-subsecond-spike.exe`, 23.9 MB) and rendered in the active
+  interactive console session launched via a scheduled task (`/RU pdl /IT`): pid 708 in session 1,
+  206 `[hot_view]` renders, `counter` 0→204, `stable=host-owned-state` preserved, no panic. The same
+  executable launched from the SSH/session-0 context panicked with `Creating DirectX renderer` /
+  `Creating DirectX resources` / `0x887A0022` (`DXGI_ERROR_NOT_CURRENTLY_AVAILABLE`), and a
+  `dx serve --hot-patch` run from that context built in 199.20 s then failed the same way before any
+  render. A `dx serve --hot-patch` run finally executed in the interactive session itself (scheduled
+  task, `SESSION=1`, clean `target-gpui-hot3`): build 473.85 s, app rendered (`[hot_view] ...
+  label=v0`, `counter` 0→43), the first patch compiled and applied — `Hot-patching: src\main.rs took
+  1453ms`, `[patch_applied] t_ms=5760` — and the process then died with
+  `thread 'main' has overflowed its stack` / `exit code: 0xc000041d` before rendering `label=v1`.
+  So on Windows, GPUI render works and the patch is applied, but hot reload is **not usable**: the
+  applied patch crashes the main thread (evidence `gpui-hot3-20261116-170828.*`,
+  `gpui-hot3-current.result.txt`). Root cause (subsecond trampoline/stack frame under MSVC debug,
+  GPUI 0.2.2) is not yet isolated.
 
 ### Fixed
 

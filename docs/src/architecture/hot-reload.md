@@ -72,11 +72,33 @@ function-level hot-patching of the **tip crate**:
   Build completed in 30.66 s and 3/3 warm `src\main.rs` hot-patches applied in 484/504/499 ms with
   monotonic counter continuity `rev=0 1..361 -> rev=1 421..781 -> rev=2 841..1261 -> rev=3 1321..1741`
   in the same process (`ERR_LEN=0`, `plain-proofwin-20261116152539.*`), demonstrating mechanism
-  viability on Windows x86_64 for this minimal plain case only (not a D6 benchmark). GPUI 0.2.2 +
-  subsecond/dx sources were prepared on the guest but not built/tested; no `auro dev` integration
-  or production/representative-D6 claim. Caveats: corrupted reused target (`libdeps-62094602.a:
-  unknown file type`), inconclusive hidden/background runs, and watcher noise from in-project
-  verbose log redirection.
+  viability on Windows x86_64 for this minimal plain case only (not a D6 benchmark). Caveats:
+  corrupted reused target (`libdeps-62094602.a: unknown file type`), inconclusive hidden/background
+  runs, and watcher noise from in-project verbose log redirection.
+- **Windows advanced front/back follow-up (2026-11-16, WinBoat guest, plain non-GPUI, not
+  integrated):** a second tip crate rendered through `HotFn::current(render_frontend)` with
+  host-owned state (`session`, `items`, `backend_ticks`) and an init-captured backend thread.
+  View edits applied in 590 ms (`ui0`→`ui1`) and 523 ms (`ui1`→`ui2` with added
+  radius/padding/icon) while `session=s5500`, `items` 4→36 and `backend_ticks` 8→72 stayed
+  continuous in the same process. A source change to the backend interval (500→1500 ms) was
+  hot-patched (527 ms) but the running task kept `active_interval_ms=500`; restarting with the
+  changed source produced a new process (`session=s9516`, `init_backend_ms=1500`) and a 1500 ms
+  tick cadence (`adv-fix-20261116161242.*`, `adv-fix-restart-20261116161242.*`, `ERR_LEN=0`). This
+  is the observed hot-boundary versus init-captured split for this mechanism, not a Tauri
+  backend-process comparison.
+- **Windows GPUI 0.2.2 follow-up (2026-11-16, WinBoat guest, not integrated):** the GPUI prototype
+  built in 181 s (23.9 MB exe) and rendered when launched into the active interactive console
+  session via a scheduled task (`/RU pdl /IT`): 206 `[hot_view]` renders, `counter` 0→204,
+  `stable=host-owned-state` preserved, no panic. The same exe launched from SSH/session 0 panicked
+  with `Creating DirectX renderer` → `Creating DirectX resources` → `0x887A0022`
+  (`DXGI_ERROR_NOT_CURRENTLY_AVAILABLE`), as did `dx serve --hot-patch` from that context after a
+  199.20 s build. A `dx serve --hot-patch` run in the interactive session itself (scheduled task,
+  `SESSION=1`, clean `target-gpui-hot3`) built in 473.85 s, rendered (`label=v0`, `counter` 0→43),
+  applied its first patch (`Hot-patching: src\main.rs took 1453ms`, `[patch_applied] t_ms=5760`)
+  and then died with `thread 'main' has overflowed its stack` / `exit code: 0xc000041d` before any
+  `label=v1` render (`gpui-hot3-20261116-170828.*`). GPUI render on Windows is therefore unblocked
+  in an interactive session, but GPUI hot-patching on Windows is currently **not usable**: patch
+  application crashes the main thread, cause not yet isolated.
 
 ## Direction under investigation
 
@@ -124,4 +146,9 @@ context and is labelled honestly.
 - Snapshot format/versioning, incompatible-change classification, and state migration/reset policy.
 - Representative D6 measurements on Auro apps/scaffolds (warm/cold, debug/release, platform matrix).
 - Debugging, symbols, breakpoints, and backtraces through the chosen reload mechanism.
-- Windows GPUI feasibility, macOS feasibility, signing/entitlements, debugger behavior, and CI verification (plain non-GPUI tip-crate patching was prototyped on Windows 11 x86_64, 2026-11-16; not representative).
+- Windows GPUI hot-patching, macOS feasibility, signing/entitlements, debugger behavior, and CI
+  verification (plain non-GPUI tip-crate patching was prototyped on Windows 11 x86_64, 2026-11-16;
+  GPUI 0.2.2 built and rendered there in an interactive console session; `dx serve` from the
+  SSH/session-0 context failed with DirectX `0x887A0022` before render, and `dx serve` in the
+  interactive session applied its first patch then crashed the main thread with a stack overflow
+  (`0xc000041d`), so no patched UI was ever rendered; not representative).
