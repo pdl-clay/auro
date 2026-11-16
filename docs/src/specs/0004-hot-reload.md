@@ -75,6 +75,28 @@ layout/tip-crate/build strategy, host-owned versioned snapshot/restore and incom
 classification/reset, `auro dev` opt-in integration (dx/devserver or equivalent driver, target-dir
 isolation, timing/trace and diagnostics), and representative D6 measurements.
 
+**Windows plain prototype follow-up (2026-11-16, WinBoat guest, not integrated):** a throwaway
+non-GPUI Rust tip-crate prototype (same `subsecond`/`dioxus-devtools`/`dx` 0.7.10 `HotFn`
+mechanism, `dioxus_devtools::connect_subsecond()`, and a `HotFn::current(render).call((count,))`
+loop with `[workspace]` isolation) was validated on a Windows 11 Pro 10.0.26200.0 x64 guest
+(`WIN-30IUPGSQL9F`, WinBoat VM, rustc 1.99.0/cargo 1.99.0 `stable-x86_64-pc-windows-msvc`, MSVC
+Build Tools 14.44.35207, debug). With a clean target
+(`CARGO_TARGET_DIR=C:\Users\pdl\wvmt\op1win\target-plain-proof`), external stdout/stderr logs, and
+`dx serve --hot-patch --interactive false --platform desktop`, build completed in 30.66 s and 3/3
+warm hot-patches of `src\main.rs` applied in 484 ms, 504 ms, and 499 ms with monotonic counter
+continuity across revisions in the same process: `rev=0 count 1..361 -> rev=1 421..781 -> rev=2
+841..1261 -> rev=3 1321..1741` (30 sampled app lines, `ERR_LEN=0`; evidence:
+`C:\Users\pdl\wvmt\op1win\logs\plain-proofwin-20261116152539.*`). This demonstrates the same-process
+tip-crate `HotFn` patching mechanism works on Windows x86_64 in this minimal plain prototype (not a
+D6 benchmark). An earlier observed run (transcript, artifacts cleaned) showed `rev=0 count=541 ->
+637 ms hot-patch -> rev=1 count=601` with continuity. Caveats: non-GPUI only; GPUI 0.2.2 +
+subsecond/dx prototype sources were prepared on the guest but not built/tested in this
+consolidation; not integrated into `auro dev`; not production/GA; not representative D6 for Auro
+scaffolds/apps. Observed failures/caveats: reusing corrupted target `target-plain-dx3` caused
+`Failed to generate fat binary: rust-lld: error: ...\desktop-dev\libdeps-62094602.a: unknown file
+type`; hidden/background dx runs were inconclusive (missing/0-byte logs in early attempts); and
+in-project verbose log redirection produced watcher noise/misleading hot-patch labels.
+
 
 ## Scope
 
@@ -145,6 +167,10 @@ alive on previous code). Documented constraints: patchable code limited to tip-c
 boundaries (outside-boundary/init-captured work not retroactive), tip-crate statics/reset on
 patch, `thread_local!` in patched path can fail patch generation, and tooling/layout/snapshot/
 classification/integration and representative Auro-scaffold D6 measurement remain pending.
+A Windows 11 x86_64 plain (non-GPUI) prototype follow-up (2026-11-16, WinBoat guest, same dx/subsecond
+tip-crate mechanism) additionally showed 3/3 warm `HotFn` patches in 484/504/499 ms with monotonic
+counter continuity in the same process (build 30.66 s, clean target/external logs); GPUI-on-Windows
+and `auro dev` integration remain untested/unproven.
 
 *Rejected:* recompiling and relinking the whole app process on every save as the hot path. *Rejected:*
 claiming a process restart is hot reload (forbidden by ADR 0008). *Rejected:* discarding the window
@@ -394,10 +420,10 @@ budget), published numbers, and a stable documented author contract for reloadab
 
 | Question | Where it settles |
 |---|---|
-| Reload mechanism: in-process/function-level patching feasibility (e.g. subsecond-style) on Linux x86_64 with GPUI 0.2.2, and alternatives if not viable | **Partially evidenced (prototype, 2026-11-16):** subsecond/dx tip-crate `HotFn` patching viable in minimal GPUI 0.2.2 cases with constraints; productization, representative D6, and other platforms remain open. Mechanism recorded here; ADR revision/addition only if decision changes. |
+| Reload mechanism: in-process/function-level patching feasibility (e.g. subsecond-style) on Linux x86_64 with GPUI 0.2.2, and alternatives if not viable | **Partially evidenced (prototype, 2026-11-16):** subsecond/dx tip-crate `HotFn` patching viable in minimal GPUI 0.2.2 cases with constraints; a Windows 11 x86_64 plain (non-GPUI) prototype showed the same mechanism applying 3/3 warm patches (484/504/499 ms) with state continuity, but GPUI-on-Windows is untested. Productization, representative D6, and other platforms remain open. Mechanism recorded here; ADR revision/addition only if decision changes. |
 | Exact scaffold/layout/build flags for hot-reload-capable projects and migration from Phase 0 layout | Implementation of this spec; recorded here when chosen |
 | Canonical snapshot encoding (JSON, CBOR, postcard/bincode-class) and compatibility policy | Implementation; must remain `serde`-compatible at the API boundary |
 | How managed `State<T>` participates when its type is defined in reloadable code vs host-stable code | Implementation + follow-up ADR/spec if it changes state ownership rules (D5 of spec 0001) |
 | Debug/release mixing, optimization levels, and symbol/debug info required by the chosen mechanism | Implementation, per platform notes |
 | In-app surfacing of build/reload diagnostics (overlay/panel) vs terminal-only in experimental mode | `auro-ui`/dev UX follow-up; terminal reporting is the minimum |
-| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | Platform verification during implementation |
+| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (plain non-GPUI prototype, 2026-11-16):** same-process tip-crate `HotFn` patching applied 3/3 warm patches with continuity in a WinBoat guest; GPUI-on-Windows, macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. |

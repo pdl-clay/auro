@@ -66,6 +66,19 @@ installable `auro-cli` yet.
   patch, `thread_local!` in a patched path fails patch generation while app stays on previous
   code, and tooling/layout/snapshot integration plus representative Auro-scaffold D6 measurement
   still pending.
+- Windows 11 x86_64 plain (non-GPUI) Option 1 prototype evidence (2026-11-16, WinBoat guest,
+  throwaway, not integrated): same-process tip-crate `HotFn` hot-patching via
+  `subsecond 0.7.10`/`dioxus-devtools 0.7.10`/`dx 0.7.10` (rustc/cargo 1.99.0 MSVC, MSVC Build Tools
+  14.44.35207, clean target, external logs, `dx serve --hot-patch --interactive false --platform
+  desktop`) completed build in 30.66 s and applied 3/3 warm `src\main.rs` patches in 484/504/499 ms
+  with monotonic counter continuity `rev=0 1..361 -> rev=1 421..781 -> rev=2 841..1261 -> rev=3
+  1321..1741` in the same process (30 sampled app lines, `ERR_LEN=0`,
+  `C:\Users\pdl\wvmt\op1win\logs\plain-proofwin-20261116152539.*`). This demonstrates mechanism
+  viability on Windows x86_64 for this minimal plain case only; GPUI 0.2.2 + subsecond/dx sources
+  were prepared on the guest but not built/tested, and `auro dev` integration/production/
+  representative-D6 claims remain unproven. Caveats: corrupted reused target
+  (`libdeps-62094602.a: unknown file type`), inconclusive hidden/background runs, and watcher noise
+  from in-project verbose log redirection.
 
 ### Fixed
 

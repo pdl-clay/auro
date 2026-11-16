@@ -119,8 +119,6 @@ the web. This is *the* bet of the project.
   state preserved. Documented constraints: tip-crate-only boundary, outside-boundary/init-captured
   work not retroactive, tip-crate statics reset on patch, `thread_local!` in a patched path can
   fail patch generation while the app stays on previous code, and tooling/layout/snapshot
-  integration plus representative Auro-scaffold D6 measurement remain pending. `auro dev` remains
-  relaunch by default.
   integration plus representative Auro-scaffold D6 measurement remain pending. A Windows 11 x86_64
   plain (non-GPUI) prototype follow-up in a WinBoat guest (same dx/subsecond/dioxus-devtools 0.7.10
   stack, rustc/cargo 1.99.0 MSVC, clean target, external logs,
