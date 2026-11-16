@@ -50,6 +50,9 @@ impl App {
 
     /// Runs the app, returning before the event loop starts if configuration is invalid.
     pub fn try_run(self) -> Result<(), AuroError> {
+        #[cfg(feature = "hot-reload")]
+        crate::hot::install();
+
         let config = Config::load(&std::env::current_dir()?)?;
         let App { states, roots } = self;
 

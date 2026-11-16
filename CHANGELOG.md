@@ -115,6 +115,11 @@ installable `auro-cli` yet.
   `stable` preserved, QMP screenshot `20261116-175532`). Constraint retained: the Windows patch DLL
   is 89,600 bytes carrying no GPUI (only `main` exported), so element-returning view code cannot be
   the patched unit; `HotFn::try_call` also bypasses the jump table when `debug_assertions` is off.
+- `auro::hot` experimental in-process hot boundaries behind the off-by-default `hot-reload` feature
+  and `AURO_HOT_RELOAD=1`: `hot()` / `hot_with()` call through `subsecond::HotFn`, `App::try_run`
+  installs the dev-host hook, and boundaries return framework-free data because the Windows patch
+  unit cannot build GPUI elements. No CLI mode, no snapshot/restore, no change classification;
+  `auro dev` still rebuilds and relaunches.
 
 ### Fixed
 

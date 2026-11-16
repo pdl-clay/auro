@@ -148,6 +148,9 @@ boundaries must return framework-free data; code that constructs GPUI elements c
 unit. `HotFn::try_call` also bypasses the jump table entirely when `debug_assertions` is off, so hot
 reload requires a dev-profile build. Full view-code hot reload on Windows remains open (candidate
 levers: `dx --force-fat-binary`, a full-relink patch unit, or a non-Windows patch transport).
+First library surface (2026-11-16): `auro::hot` behind the off-by-default `hot-reload` feature —
+`hot()` / `hot_with()` over `subsecond::HotFn` with `AURO_HOT_RELOAD=1` installing the dev-host hook.
+No CLI mode, snapshot/restore, or change classification yet.
 
 
 ## Scope

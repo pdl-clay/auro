@@ -9,12 +9,22 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+# Experimental in-process hot boundaries (spec 0004). Off by default; `auro dev` relaunches.
+hot-reload = ["dep:subsecond", "dep:dioxus-devtools"]
+
 [dependencies]
 auro-core.workspace = true
 auro-ipc.workspace = true
 auro-macros.workspace = true
 auro-ui.workspace = true
+dioxus-devtools = { workspace = true, optional = true }
+subsecond = { workspace = true, optional = true }
 tracing.workspace = true
+
+[[test]]
+name = "hot"
+required-features = ["hot-reload"]
 
 [dev-dependencies]
 auro-ui = { workspace = true, features = ["test-support"] }

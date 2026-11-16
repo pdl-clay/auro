@@ -13,6 +13,9 @@ pub use auro_ui::gpui;
 
 mod app;
 
+#[cfg(feature = "hot-reload")]
+pub mod hot;
+
 pub use app::App;
 
 /// The implementation surface the macros expand against. Not a user-facing module.
