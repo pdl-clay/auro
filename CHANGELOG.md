@@ -51,6 +51,9 @@ installable `auro-cli` yet.
   versioned snapshot/restore, failure/fallback semantics, measurability, staged acceptance, and
   Slice 0 (2026-11-16) feasibility findings; specs index/SUMMARY and architecture/roadmap
   updated to reference it.
+  versioned snapshot/restore, failure/fallback semantics, measurability, staged acceptance,
+  Slice 0 (2026-11-16) feasibility findings, and Option 1 consolidation evidence (2026-11-16);
+  specs index/SUMMARY and architecture/roadmap updated to reference it.
 - [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md) (supersedes ADR 0005):
   retains the hot-reload goal/contract and rejects `cdylib`/`libloading` swap of GPUI view code
   after the Slice 0 spike; mechanism under revision.

@@ -111,6 +111,16 @@ the web. This is *the* bet of the project.
   `cdylib`/`libloading` swap of GPUI view code as infeasible for the current stack and measured a
   realistic GPUI-view `cdylib` warm relink at ~171 s (debug). The mechanism is under revision toward
   a same-process approach.
+- **Option 1 consolidation (2026-11-16, prototype evidence, not integrated):** on Linux x86_64/
+  Wayland with `gpui = "=0.2.2"`, `subsecond 0.7.10`/`dioxus-devtools 0.7.10`/`dx 0.7.10`,
+  in-process tip-crate function-level patching via explicit `HotFn` boundaries and host-owned GPUI
+  application/window/entities/state showed warm view changes in ~271-450 ms save-to-first-new-render
+  in minimal scenarios (s1 median 371.5 ms, N=10; s6 median 346 ms, N=20, 20/20 stable) with host
+  state preserved. Documented constraints: tip-crate-only boundary, outside-boundary/init-captured
+  work not retroactive, tip-crate statics reset on patch, `thread_local!` in a patched path can
+  fail patch generation while the app stays on previous code, and tooling/layout/snapshot
+  integration plus representative Auro-scaffold D6 measurement remain pending. `auro dev` remains
+  relaunch by default.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 
@@ -154,15 +164,20 @@ must be **published and honest from day one**. This is the biggest schedule risk
 auro dev` opens a window in under two minutes with a warm cargo cache. Publishing to crates.io is
 not part of the phase.
 
-**Progress (2026-11-15):** workspace, specs, CLI, typed command/state/config plumbing, scaffold,
-relaunch-based `auro dev`, CI on macOS/Windows/Linux, and headless GPUI tests (render and button
-click dispatching an async command with view update) are in place and green in CI/local gates. The
-app quits when the last window closes (verified locally on niri/Wayland: demo exits 0) and `auro
-dev` now detects child exit. Spec 0001 acceptance is mostly met; automated/in-`auro dev`
-window-close coverage and the < 500 ms save-to-visible target remain open (current relaunch ~60 s,
 measured). Hot-reload mechanism revision is tracked in [spec 0004](docs/src/specs/0004-hot-reload.md)
 and [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md). The phase is still in
-progress until the exit criterion and acceptance are fully closed.
+**Progress (2026-11-15, updated 2026-11-16):** workspace, specs, CLI, typed command/state/config
+plumbing, scaffold, relaunch-based `auro dev`, CI on macOS/Windows/Linux, and headless GPUI tests
+(render and button click dispatching an async command with view update) are in place and green in
+CI/local gates. The app quits when the last window closes (verified locally on niri/Wayland: demo
+exits 0) and `auro dev` now detects child exit. Spec 0001 acceptance is mostly met; automated/
+in-`auro dev` window-close coverage remains open. The < 500 ms save-to-visible target remains unmet
+in product (`auro dev` relaunch ~60 s measured), but Option 1 consolidation (2026-11-16) recorded
+prototype evidence for a viable same-process candidate (`subsecond`/`dx` tip-crate `HotFn`
+patching, Linux x86_64/GPUI 0.2.2, minimal cases ~271-450 ms, host state preserved) with
+constraints and pending integration/representative D6 measurement (see
+[spec 0004](docs/src/specs/0004-hot-reload.md), [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
+The phase is still in progress until the exit criterion and acceptance are fully closed.
 
 ### Phase 1 - v0.1 "Hello, native" (weeks 4-8)
 
