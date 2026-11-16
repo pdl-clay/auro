@@ -286,6 +286,16 @@ reset of that entry.
 *Rejected:* snapshotting arbitrary memory or entity graphs implicitly. *Rejected:* a silent fallback
 to default state on mismatch.
 
+**Implemented (2026-11-16).** `auro-core::snapshot`, re-exported as
+`auro::{Snapshot, ReloadSnapshot, Restored, ResetReason}`, fixes the envelope: JSON with
+`format_version` (currently `1`), the `build` identity of the writer, and a map of stable key to
+`{ "version": u32, "payload": <serde JSON> }`. State opts in by implementing `ReloadSnapshot` with
+its `KEY` and `VERSION`. `Snapshot::restore` consumes one entry; a missing key, a version mismatch or
+an undecodable payload drops **only that entry** and returns `Restored::Reset(reason)` whose
+`message()` is printable — nothing defaults silently. A `format_version` this build does not
+understand makes `Snapshot::decode` fail outright. Not yet wired to capture/restore around a reload
+or a state-preserving restart, and no on-disk location is fixed.
+
 ### D4 - Successful reload, failed build, and fallback are distinct outcomes
 
 | Outcome | Condition | Host behaviour | User-visible label |

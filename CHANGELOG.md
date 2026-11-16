@@ -18,6 +18,10 @@ installable `auro-cli` yet.
   when `AURO_DEV_TRACE` is set, so save-to-visible is computed without a stopwatch (spec 0004, D6).
   First measured run in relaunch mode: 2730 ms median save→repaint-requested on niri/Wayland, warm
   cache, debug build.
+- `auro-core::snapshot`, re-exported from `auro`: a JSON envelope with `format_version`, build
+  identity and per-entry `version`/payload, plus the `ReloadSnapshot` opt-in trait. `restore`
+  reports a reset (`Missing`, `VersionMismatch`, `Decode`) instead of defaulting silently, and an
+  unknown format version fails to decode (spec 0004, D3). Not yet wired to a reload or restart.
 - Workspace of six crates: `auro` (builder), `auro-core` (config, state), `auro-ipc` (commands,
   runtime bridge), `auro-macros` (`#[command]`, `generate_handler!`), `auro-ui` (GPUI re-exports,
   `Button`, tokens) and `auro-cli` (`new`, `dev`, `build`, `doctor`).
