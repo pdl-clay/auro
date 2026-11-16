@@ -52,6 +52,8 @@ installable `auro-cli` yet.
 
 - `auro dev` rebuilt in a loop: the watcher treated file *reads* as changes, and the app opening
   `Auro.toml` on every start re-triggered the build that had just started it.
+- Closing the last window now quits the Auro app (GPUI `on_window_closed` + `quit`), and `auro dev`
+  detects child process exit instead of idling until a file change or Ctrl-C.
 - Configuration errors read `configuration error in <path>: <reason>` instead of running the path
   and the reason together.
 - CI installs `libxkbcommon-x11-dev` on Linux so the workspace test link finds `-lxkbcommon-x11`

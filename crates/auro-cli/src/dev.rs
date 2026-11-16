@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
-use std::sync::{Arc, Mutex};
+use std::process::{Child, Command, ExitStatus};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use auro_core::{AuroError, Config};
@@ -50,23 +50,34 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     }
 
     loop {
-        if received.recv().is_err() {
-            break;
-        }
-        // Coalesce the burst of events one save produces.
-        std::thread::sleep(Duration::from_millis(200));
-        while received.try_recv().is_ok() {}
+        match received.recv_timeout(Duration::from_millis(250)) {
+            Ok(_) => {
+                // Coalesce the burst of events one save produces.
+                std::thread::sleep(Duration::from_millis(200));
+                while received.try_recv().is_ok() {}
 
-        println!("auro: change detected, rebuilding");
-        stop(&slot);
-        match build(&dir, &config) {
-            Ok(next) => {
-                binary = next;
-                let child = spawn(&binary, &dir, patch.as_deref())?;
-                println!("auro: rebuilt, running {}", binary.display());
-                *slot.lock().expect("dev slot poisoned") = Some(child);
+                println!("auro: change detected, rebuilding");
+                stop(&slot);
+                match build(&dir, &config) {
+                    Ok(next) => {
+                        binary = next;
+                        let child = spawn(&binary, &dir, patch.as_deref())?;
+                        println!("auro: rebuilt, running {}", binary.display());
+                        *slot.lock().expect("dev slot poisoned") = Some(child);
+                    }
+                    Err(error) => eprintln!("auro: build failed, window closed: {error}"),
+                }
             }
-            Err(error) => eprintln!("auro: build failed, window closed: {error}"),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(status) = child_exited(&slot) {
+                    if status.success() {
+                        println!("auro: app exited");
+                        return Ok(());
+                    }
+                    return Err(AuroError::Message(format!("app exited with {status}")));
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
 
@@ -132,6 +143,20 @@ fn stop(slot: &Arc<Mutex<Option<Child>>>) {
     {
         let _ = child.kill();
         let _ = child.wait();
+    }
+}
+
+fn child_exited(slot: &Arc<Mutex<Option<Child>>>) -> Option<ExitStatus> {
+    let Ok(mut slot) = slot.lock() else {
+        return None;
+    };
+    let child = slot.as_mut()?;
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            slot.take();
+            Some(status)
+        }
+        Ok(None) | Err(_) => None,
     }
 }
 

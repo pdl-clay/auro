@@ -69,6 +69,13 @@ impl App {
                 }
             }
 
+            // Closing the last window ends the app; `auro dev` and acceptance expect exit 0.
+            cx.on_window_closed(|cx| {
+                if cx.windows().is_empty() {
+                    cx.quit();
+                }
+            })
+            .detach();
             cx.activate(true);
         });
 

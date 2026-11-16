@@ -273,14 +273,16 @@ Runnables, in order, on a clean checkout:
 
 ### Status (2026-11-15)
 
-- 1: **met in CI.** CI run `43776830848` for `5a5d389` is green on macOS, Windows, `ubuntu-latest`
-  (fmt, clippy, tests) and `ubuntu-22.04` (build), after adding `libxkbcommon-x11-dev` to the Linux
-  dependencies. Not verified on a real desktop session.
+- 1: **met in CI.** CI is green on macOS, Windows, `ubuntu-latest` and `ubuntu-22.04` (latest:
+  runs `43783852871`/`43783852868` for `78871e2`; earlier run `43776830848` for `5a5d389` remained
+  the first green after adding `libxkbcommon-x11-dev`). Not verified on a real desktop session.
 - 2: **met** locally (`/tmp/auro-demo` builds).
 - 3: **partially verified.** Window opens and the rebuild/relaunch cycle work locally; a headless
   GPUI test clicks the button, dispatches the async `#[auro::command]` and asserts the view update
   (`auro` integration test `clicking_button_dispatches_async_command_and_updates_view`). Closing
-  the window to exit 0 has not been interactively verified in this run.
+  the last window now quits the app and was verified to exit 0 on a local niri/Wayland session
+  (`/tmp/auro-demo` binary); automated process-level/in-`auro dev` window-close coverage is not
+  yet added.
 - 4: **met** locally (Ctrl-C exits 0, no orphan).
 - 5: **met** locally (fmt, clippy `-D warnings`, tests).
 - 6: **met** (config parse/merge/unknown-key refusal, `State` extraction, sync and async dispatch,

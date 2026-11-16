@@ -148,10 +148,11 @@ not part of the phase.
 
 **Progress (2026-11-15):** workspace, specs, CLI, typed command/state/config plumbing, scaffold,
 relaunch-based `auro dev`, CI on macOS/Windows/Linux, and headless GPUI tests (render and button
-click dispatching an async command with view update) are in place and green in CI/local gates. Spec
-0001 acceptance is mostly met; interactive window-close-to-exit-0 verification and the < 500 ms
-save-to-visible target remain open (current relaunch ~60 s, measured). The phase is still in
-progress until the exit criterion and acceptance are fully closed.
+click dispatching an async command with view update) are in place and green in CI/local gates. The
+app quits when the last window closes (verified locally on niri/Wayland: demo exits 0) and `auro
+dev` now detects child exit. Spec 0001 acceptance is mostly met; automated/in-`auro dev`
+window-close coverage and the < 500 ms save-to-visible target remain open (current relaunch ~60 s,
+measured). The phase is still in progress until the exit criterion and acceptance are fully closed.
 
 ### Phase 1 - v0.1 "Hello, native" (weeks 4-8)
 
