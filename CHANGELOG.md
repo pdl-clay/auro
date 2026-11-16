@@ -104,8 +104,17 @@ installable `auro-cli` yet.
   `thread 'main' has overflowed its stack` / `exit code: 0xc000041d` before rendering `label=v1`.
   So on Windows, GPUI render works and the patch is applied, but hot reload is **not usable**: the
   applied patch crashes the main thread (evidence `gpui-hot3-20261116-170828.*`,
-  `gpui-hot3-current.result.txt`). Root cause (subsecond trampoline/stack frame under MSVC debug,
-  GPUI 0.2.2) is not yet isolated.
+  `gpui-hot3-current.result.txt`). Isolation on the same guest: patching a leaf `HotFn`
+  (`fn(u64) -> u64`) applied twice in one process with no crash (`bumped=1050` at counter 50,
+  `bumped=2193` at counter 193, 303 renders after), and the crash is not stack- or
+  address-resolution-related (jump table resolved: 746 entries, RVAs `0xcab0`/`0xcb10`; reproduced
+  with a PE-verified 16 MiB stack). A **framework-free `ViewData` hot boundary** — the patched
+  function returns `label`/`bg`/`width`/`extra` and host code builds the `div()` — hot-reloaded UI
+  values twice in the same window (`1324 ms`, `1084 ms`; `data=v1` green/600, `data=v2` brown/640
+  with `panel=dark radius=12 icon=rocket`, 120/187 renders after each, `counter` 4→175,
+  `stable` preserved, QMP screenshot `20261116-175532`). Constraint retained: the Windows patch DLL
+  is 89,600 bytes carrying no GPUI (only `main` exported), so element-returning view code cannot be
+  the patched unit; `HotFn::try_call` also bypasses the jump table when `debug_assertions` is off.
 
 ### Fixed
 

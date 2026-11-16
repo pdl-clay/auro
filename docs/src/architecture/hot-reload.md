@@ -96,9 +96,18 @@ function-level hot-patching of the **tip crate**:
   `SESSION=1`, clean `target-gpui-hot3`) built in 473.85 s, rendered (`label=v0`, `counter` 0→43),
   applied its first patch (`Hot-patching: src\main.rs took 1453ms`, `[patch_applied] t_ms=5760`)
   and then died with `thread 'main' has overflowed its stack` / `exit code: 0xc000041d` before any
-  `label=v1` render (`gpui-hot3-20261116-170828.*`). GPUI render on Windows is therefore unblocked
-  in an interactive session, but GPUI hot-patching on Windows is currently **not usable**: patch
-  application crashes the main thread, cause not yet isolated.
+  `label=v1` render (`gpui-hot3-20261116-170828.*`). Follow-up isolation on the same guest: the jump
+  table itself is sound (runtime dump: `entries=746`, `aslr_ref=0xcab0`/`new_base=0xcb10` as RVAs,
+  exe exporting `main` at RVA `0xcab0`), the crash reproduces with a 16 MiB main-thread stack
+  (`/STACK:16777216`, PE-verified), a leaf `HotFn` (`fn(u64) -> u64`) patched twice in one process
+  without crashing (`bumped=1050` at counter 50, `bumped=2193` at counter 193), and a
+  **framework-free `ViewData` boundary** reloaded UI values twice (`1324 ms`, `1084 ms`) with
+  `data=v1`→`data=v2`, 120/187 renders after each, `counter` 4→175, `stable` preserved, no crash —
+  visually confirmed by a QMP screenshot of the same window (`gpui-hot7-20261116-175144.*`). The
+  Windows patch DLL is 89,600 bytes with only `main` exported and no GPUI/imports from the exe, so
+  the observed limit is consistent with the patch unit not carrying the framework. Windows GPUI
+  render works in an interactive session; **view-code hot patching is blocked, framework-free hot
+  boundaries work**.
 
 ## Direction under investigation
 
@@ -136,6 +145,13 @@ context and is labelled honestly.
   statics, thread-locals, and layout-incompatible values need reset or migration handling.
 - Entity/view handles and callbacks must not be stored in global/static locations that outlive the
   reload unit or prevent safe invalidation.
+- On Windows/MSVC (`dx`/`subsecond` 0.7.10, `gpui 0.2.2`) the patched unit cannot construct GPUI
+  elements: an element-returning hot boundary applies and then overflows the main thread's stack.
+  The unit must return framework-free data (`ViewData`-style) that host-stable code turns into
+  elements; view-code hot reload there is unproven.
+- Hot patching requires a build with `debug_assertions` enabled: `HotFn::try_call` calls the local
+  function directly in release builds, so the jump table is bypassed and code changes silently do
+  not apply.
 
 ## Open problems
 
@@ -146,9 +162,9 @@ context and is labelled honestly.
 - Snapshot format/versioning, incompatible-change classification, and state migration/reset policy.
 - Representative D6 measurements on Auro apps/scaffolds (warm/cold, debug/release, platform matrix).
 - Debugging, symbols, breakpoints, and backtraces through the chosen reload mechanism.
-- Windows GPUI hot-patching, macOS feasibility, signing/entitlements, debugger behavior, and CI
-  verification (plain non-GPUI tip-crate patching was prototyped on Windows 11 x86_64, 2026-11-16;
-  GPUI 0.2.2 built and rendered there in an interactive console session; `dx serve` from the
-  SSH/session-0 context failed with DirectX `0x887A0022` before render, and `dx serve` in the
-  interactive session applied its first patch then crashed the main thread with a stack overflow
-  (`0xc000041d`), so no patched UI was ever rendered; not representative).
+- Full view-code hot reload on Windows (element-returning hot boundaries crash after apply; a
+  framework-free `ViewData` boundary was verified to reload UI values), macOS feasibility,
+  signing/entitlements, debugger behavior, and CI verification. Plain non-GPUI tip-crate patching
+  was prototyped on Windows 11 x86_64, 2026-11-16; GPUI 0.2.2 built and rendered there in an
+  interactive console session, and the patch DLL's 89 KB size (no GPUI, only `main` exported)
+  suggests a full-relink patch unit or `dx --force-fat-binary` as the next lever.

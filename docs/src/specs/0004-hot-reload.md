@@ -131,8 +131,23 @@ itself (scheduled task, `SESSION=1`, clean `target-gpui-hot3`): build 473.85 s, 
 (`Hot-patching: src\main.rs took 1453ms`, `[patch_applied] t_ms=5760`) — after which the process
 died with `thread 'main' has overflowed its stack` and `exit code: 0xc000041d`, before rendering
 `label=v1` (`gpui-hot3-20261116-170828.*`, `gpui-hot3-current.result.txt`). **GPUI hot-patching on
-Windows is therefore not usable today**: patch application succeeds but crashes the main thread;
-the cause (subsecond trampoline/stack frame under MSVC debug with GPUI 0.2.2) is not yet isolated.
+Windows is blocked for element-returning functions, and works for a framework-free boundary.** The
+investigation on the same guest (2026-11-16) established:
+
+| Observation | Evidence |
+|---|---|
+| Patch transport is sound | `apply_patch` on Windows is `LoadLibrary` + a jump table (`endereço_antigo → endereço_novo`), no in-memory detour; runtime dump showed `entries=746`, `aslr_ref=0xcab0`/`new_base=0xcb10` (RVAs) and resolved targets ~19.2 GB away, and the exe exports `main` at RVA `0xcab0` as the ASLR anchor. |
+| Stack budget is not the cause | the crash reproduced at the default 1 MiB main-thread stack and with `/STACK:16777216` (PE verified: `1000000 size of stack reserve`). |
+| Patching an element-returning view crashes | `HotFn::current(hot_view)` applied (`Hot-patching: src\main.rs took 1238ms`, `[patch_applied] t_ms=5212`) then `thread 'main' has overflowed its stack` / `exit code: 0xc000041d`, before any patched render. |
+| Patching a leaf function works, repeatedly | `HotFn::current(hot_add)` (`fn(u64) -> u64`) patched twice in one process: `bumped=1050` at `counter=50`, then `bumped=2193` at `counter=193`, 303 renders after, no crash (`Hot-patching ... 1055ms`). |
+| A framework-free hot boundary reloads UI values | boundary `fn view_data() -> ViewData` (`label`, `hs`, `bg: u32`, `width: f32`, `extra`), host builds the `div()`: two warm patches (`1324 ms`, `1084 ms`) produced `data=v1` (`bg=0x65f46`, `w=600`, `extra=panel=contrast`) and `data=v2` (`bg=0x7c2d12`, `w=640`, `hs=hs2`, `extra=panel=dark radius=12 icon=rocket`), with 120 and 187 renders after each, `counter` 4→175, `stable` preserved, no crash, captured in a QMP screenshot of the same window (`gpui-hot7-20261116-175144.log`, `gpui-hot7-current.result.txt`, shot `20261116-175532`). |
+| Patch DLL does not carry the framework | the Windows patch DLL is 89,600 bytes, exports only `main` (RVA `0xcb10`) and imports only KERNEL32/VCRUNTIME140/UCRT (37 functions); the Linux patch `.so` carried GPUI (429 MB). |
+
+Consequence recorded for the mechanism contract: on Windows/MSVC with `dx`/`subsecond` 0.7.10, hot
+boundaries must return framework-free data; code that constructs GPUI elements cannot be the patched
+unit. `HotFn::try_call` also bypasses the jump table entirely when `debug_assertions` is off, so hot
+reload requires a dev-profile build. Full view-code hot reload on Windows remains open (candidate
+levers: `dx --force-fat-binary`, a full-relink patch unit, or a non-Windows patch transport).
 
 
 ## Scope
@@ -210,10 +225,12 @@ counter continuity in the same process (build 30.66 s, clean target/external log
 plain prototype showed warm view edits applying in 590/523 ms with host state continuous while an
 init-captured backend interval change stayed non-retroactive until restart. GPUI 0.2.2 built and
 rendered on the same guest in the interactive console session (206 renders, host state preserved),
-while `dx serve` started from the SSH/session-0 context hit DirectX `0x887A0022` before render, and
-`dx serve` in the interactive session applied the first patch (`1453 ms`) then crashed the main
-thread with a stack overflow (`0xc000041d`); GPUI hot-patching on Windows is therefore blocked and
-`auro dev` integration remains unproven.
+while `dx serve` started from the SSH/session-0 context hit DirectX `0x887A0022` before render. On
+Windows, patching an element-returning view applies and then overflows the main thread's stack
+(`0xc000041d`, reproduced at 1 MiB and 16 MiB), while a leaf `HotFn` patched twice with continuity
+(`bumped=1050`/`2193`) and a framework-free `ViewData` boundary hot-reloaded UI values twice
+(1324/1084 ms, `data=v1`→`data=v2`, state preserved, screenshot). `auro dev` integration remains
+unproven.
 
 *Rejected:* recompiling and relinking the whole app process on every save as the hot path. *Rejected:*
 claiming a process restart is hot reload (forbidden by ADR 0008). *Rejected:* discarding the window
@@ -463,10 +480,10 @@ budget), published numbers, and a stable documented author contract for reloadab
 
 | Question | Where it settles |
 |---|---|
-| Reload mechanism: in-process/function-level patching feasibility (e.g. subsecond-style) on Linux x86_64 with GPUI 0.2.2, and alternatives if not viable | **Partially evidenced (prototype, 2026-11-16):** subsecond/dx tip-crate `HotFn` patching viable in minimal GPUI 0.2.2 cases with constraints; on Windows 11 x86_64 a plain (non-GPUI) prototype applied 3/3 warm patches (484/504/499 ms) with state continuity and a second plain prototype showed view edits at 590/523 ms with host state continuous and an init-captured backend change applying only after restart; GPUI 0.2.2 built and rendered on Windows in the interactive console session, but a `dx serve` patch there applied (1453 ms) and then crashed the main thread with a stack overflow. Productization, representative D6, and other platforms remain open. Mechanism recorded here; ADR revision/addition only if decision changes. |
+| Reload mechanism: in-process/function-level patching feasibility (e.g. subsecond-style) on Linux x86_64 with GPUI 0.2.2, and alternatives if not viable | **Partially evidenced (prototype, 2026-11-16):** subsecond/dx tip-crate `HotFn` patching viable in minimal GPUI 0.2.2 cases with constraints; on Windows 11 x86_64 a plain (non-GPUI) prototype applied 3/3 warm patches (484/504/499 ms) with state continuity and a second plain prototype showed view edits at 590/523 ms with host state continuous and an init-captured backend change applying only after restart; GPUI 0.2.2 built and rendered on Windows in the interactive console session; there, a patch of an element-returning view applies then overflows the main thread's stack, while a leaf `HotFn` and a framework-free `ViewData` boundary hot-patched repeatedly with state preserved (UI values reloaded in 1324/1084 ms). Productization, representative D6, and other platforms remain open. Mechanism recorded here; ADR revision/addition only if decision changes. |
 | Exact scaffold/layout/build flags for hot-reload-capable projects and migration from Phase 0 layout | Implementation of this spec; recorded here when chosen |
 | Canonical snapshot encoding (JSON, CBOR, postcard/bincode-class) and compatibility policy | Implementation; must remain `serde`-compatible at the API boundary |
 | How managed `State<T>` participates when its type is defined in reloadable code vs host-stable code | Implementation + follow-up ADR/spec if it changes state ownership rules (D5 of spec 0001) |
 | Debug/release mixing, optimization levels, and symbol/debug info required by the chosen mechanism | Implementation, per platform notes |
 | In-app surfacing of build/reload diagnostics (overlay/panel) vs terminal-only in experimental mode | `auro-ui`/dev UX follow-up; terminal reporting is the minimum |
-| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and `dx serve` in session 1 applied its first patch (1453 ms) then crashed the main thread with a stack overflow (`0xc000041d`), so GPUI hot-patching on Windows is blocked. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. |
+| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and patching an element-returning view in session 1 applied then overflowed the main thread's stack (`0xc000041d`); a leaf `HotFn` and a framework-free `ViewData` boundary hot-patched repeatedly with state preserved, so Windows hot reload is limited to framework-free boundaries. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. |

@@ -135,9 +135,11 @@ the web. This is *the* bet of the project.
   console session (206 renders, host state preserved), while `dx serve` launched from the
   SSH/session-0 context failed with DirectX `0x887A0022` before render. A `dx serve` run inside the
   interactive session then built (473.85 s), rendered, applied its first patch (1453 ms) and
-  crashed with a main-thread stack overflow (`exit code: 0xc000041d`) before any patched render —
-  so GPUI hot-patching on Windows is currently blocked, with the cause not yet isolated. `auro dev`
-  remains relaunch by default.
+  crashed with a main-thread stack overflow (`exit code: 0xc000041d`). Isolation showed the cast is
+  not stack- or address-resolution-related (16 MiB stack reproduces it; jump table resolves), that a
+  leaf `HotFn` patches twice without crashing, and that a `ViewData`-returning boundary hot-reloads
+  UI values with state preserved (1324/1084 ms, 2/2, screenshot). So on Windows: framework-free hot
+  boundaries work, element-returning view code does not. `auro dev` remains relaunch by default.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 
