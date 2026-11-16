@@ -136,6 +136,10 @@ When a change is not safely reloadable in-process (host/bootstrap/toolchain/conf
 compatibility/apply/patch generation, or mechanism limitations), the fallback is a
 **state-preserving process restart**: persist snapshot, restart, restore. Slower, but it preserves
 context and is labelled honestly.
+Follow-up throwaway prototypes (Linux x86_64, Wayland/niri, rustc 1.99.1/cargo 1.99.1, debug
+`debug = 0`, warm `dx serve --hot-patch`, `gpui = "=0.2.2"`, `subsecond 0.7.10`,
+`dioxus-devtools 0.7.10`, `dx 0.7.10`, not integrated into `auro` crates/CLI) evaluated same-process
+function-level hot-patching of the **tip crate**:
 
 ## Constraints this imposes on application code
 

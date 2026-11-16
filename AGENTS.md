@@ -80,6 +80,24 @@ A pull request missing them is incomplete, not "later". If you cannot name which
 touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
 redundant entry costs a line, a stale doc costs a user's afternoon.
 
+## Non-negotiable: documentation and changelog move with the code
+
+Every change that alters behaviour, a public API, a config key, a CLI flag, or an architectural
+decision ships **in the same pull request** as:
+
+| Touched | Must also change |
+|---|---|
+| anything a user can observe | `CHANGELOG.md` under `## [Unreleased]` |
+| a contract in a spec | the spec in `docs/src/specs/` |
+| an architectural decision | a new or superseding ADR in `docs/src/decisions/` |
+| the pitch, quickstart or feature list | `README.md` **and** `README.pt-BR.md` |
+| a convention in this file | `AGENTS.md` itself |
+| a phase, target or exit criterion | `ROADMAP.md` |
+
+A pull request missing them is incomplete, not "later". If you cannot name which document a change
+touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
+redundant entry costs a line, a stale doc costs a user's afternoon.
+
 ## Project Overview
 
 Auro is an application framework for native Rust desktop apps: **Tauri's app model with GPUI as the
