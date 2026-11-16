@@ -335,6 +335,25 @@ sufficient to compute this metric without manual stopwatch use. `AURO_DEV_TRACE`
 this purpose. Numbers published in docs, roadmap, or performance budget are measured or explicitly
 marked as targets.
 
+**Implemented (2026-11-16, relaunch mode).** `auro dev` sets `AURO_DEV_TRACE` for the child; the app
+then prints `auro:trace window_requested <label>` immediately after `open_window`, and the dev loop
+prints one line per save:
+
+```
+{"event":"relaunch","window":"main","save_to_build_ms":N,"build_to_window_ms":N,"save_to_window_ms":N}
+```
+
+`saved_at` is the first watcher event of a burst (not the editor's own save timestamp), `built_at` is
+the moment the replacement binary exists, and the window marker means the first repaint was
+requested - the method is "repaint requested", not measured pixels. The loop polls the watcher at
+50 ms, which bounds the resolution of `build_to_window_ms`.
+
+**Measured run (2026-11-16, niri/Wayland, x86_64, debug, warm dependency cache, scaffold demo,
+three consecutive and visible reloads):** `save_to_build_ms` 2408/2357/2380, `build_to_window_ms`
+400/350/350, `save_to_window_ms` 2809/2708/2730 (medians 2380 / 350 / 2730); closing the window
+through `auro dev` exited 0. This is relaunch mode, not hot reload, and it is far below the earlier
+~60 s figure recorded for a different configuration; both numbers stay labelled with their method.
+
 Target (from ADR 0008 / roadmap): **< 500 ms save-to-visible** for a view-only change on a warm
 incremental build, with state preserved. This is a target, not a guarantee, until recorded under D6.
 

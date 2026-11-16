@@ -200,7 +200,9 @@ The phase is still in progress until the exit criterion and acceptance are fully
 `cargo install --path crates/auro-cli --locked` took 13.3 s; `auro new /home/pdl/auro-demo` then
 `auro dev` opened the window in **2 s**; closing the window through `auro dev` exited **0**. A
 broken-then-fixed edit kept the previous window and app alive during the failure and produced a new
-app process 3 s after the fix (spec 0004 D4, implemented the same day). Remaining acceptance gaps:
+app process 3 s after the fix (spec 0004 D4, implemented the same day). The dev loop now emits a JSON
+trace per save: median **2380 ms** save→build and **2730 ms** save→repaint-requested (three saves,
+debug, warm cache, 50 ms resolution; spec 0004 D6). Remaining acceptance gaps:
 automated (process-level) window-close coverage, and the observed `(unset)` window title reported by
 the compositor even though the config sets one (not diagnosed).
 

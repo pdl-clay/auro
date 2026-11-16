@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use auro_core::{AuroError, Config};
 use notify::{RecursiveMode, Watcher};
+
+/// Printed by the app once a window's first repaint is requested (spec 0004, D6).
+const READY_MARKER: &str = "auro:trace window_requested";
+const TRACE_ENV: &str = "AURO_DEV_TRACE";
 
 /// Builds, spawns and watches the app. A change rebuilds and relaunches; Ctrl-C leaves nothing
 /// behind.
@@ -18,8 +22,16 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
 
     let mut binary = build(&dir, &config)?;
     println!("auro: running {}", binary.display());
-    let slot: Arc<Mutex<Option<Child>>> =
-        Arc::new(Mutex::new(Some(spawn(&binary, &dir, patch.as_deref())?)));
+    let (ready_tx, ready_rx) = mpsc::channel::<String>();
+    let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(spawn(
+        &binary,
+        &dir,
+        patch.as_deref(),
+        ready_tx.clone(),
+    )?)));
+    // Save-to-window bookkeeping for the trace line (spec 0004, D6).
+    let mut saved_at: Option<Instant> = None;
+    let mut built_at: Option<Instant> = None;
 
     install_ctrl_c(Arc::clone(&slot))?;
 
@@ -50,8 +62,11 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     }
 
     loop {
-        match received.recv_timeout(Duration::from_millis(250)) {
+        // Short tick: the ready marker is picked up here, so the poll interval bounds the
+        // resolution of `build_to_window_ms` (spec 0004, D6).
+        match received.recv_timeout(Duration::from_millis(50)) {
             Ok(_) => {
+                saved_at = Some(Instant::now());
                 // Coalesce the burst of events one save produces.
                 std::thread::sleep(Duration::from_millis(200));
                 while received.try_recv().is_ok() {}
@@ -62,8 +77,10 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
                         // Only stop the app once the replacement binary exists: a failed build
                         // must leave the previous UI running (spec 0004, D4).
                         stop(&slot);
+                        while ready_rx.try_recv().is_ok() {}
+                        built_at = Some(Instant::now());
                         binary = next;
-                        let child = spawn(&binary, &dir, patch.as_deref())?;
+                        let child = spawn(&binary, &dir, patch.as_deref(), ready_tx.clone())?;
                         println!("auro: rebuilt, running {}", binary.display());
                         *slot.lock().expect("dev slot poisoned") = Some(child);
                     }
@@ -73,6 +90,18 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let (Some(saved), Some(built)) = (saved_at, built_at)
+                    && let Ok(label) = ready_rx.try_recv()
+                {
+                    let now = Instant::now();
+                    println!(
+                        "{}",
+                        trace_line(&label, now - saved, built - saved, now - built)
+                    );
+                    // One trace per save: the next edit starts a new measurement.
+                    saved_at = None;
+                    built_at = None;
+                }
                 if let Some(status) = child_exited(&slot) {
                     if status.success() {
                         println!("auro: app exited");
@@ -130,15 +159,57 @@ fn build(dir: &Path, config: &Config) -> Result<PathBuf, AuroError> {
     binary.ok_or_else(|| AuroError::Message("cargo produced no binary to run".to_owned()))
 }
 
-fn spawn(binary: &Path, dir: &Path, patch: Option<&str>) -> Result<Child, AuroError> {
+fn spawn(
+    binary: &Path,
+    dir: &Path,
+    patch: Option<&str>,
+    ready: mpsc::Sender<String>,
+) -> Result<Child, AuroError> {
     let mut command = Command::new(binary);
     command.current_dir(dir);
     if let Some(patch) = patch {
         command.env(auro_core::config::OVERRIDES_ENV, patch);
     }
-    command
-        .spawn()
-        .map_err(|error| AuroError::Message(format!("cannot start {}: {error}", binary.display())))
+    command.env(TRACE_ENV, "1");
+    command.stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|error| {
+        AuroError::Message(format!("cannot start {}: {}", binary.display(), error))
+    })?;
+
+    // Forward the app's stderr and watch for the first-repaint marker (spec 0004, D6).
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader};
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                if let Some(label) = ready_label(&line) {
+                    let _ = ready.send(label.to_owned());
+                }
+                eprintln!("{line}");
+            }
+        });
+    }
+
+    Ok(child)
+}
+
+/// `auro:trace window_requested main` -> `main`; any other line is not a marker.
+fn ready_label(line: &str) -> Option<&str> {
+    line.strip_prefix(READY_MARKER).map(str::trim)
+}
+
+/// One machine-readable line per save, so save-to-visible can be computed without a stopwatch.
+fn trace_line(
+    label: &str,
+    save_to_window: Duration,
+    save_to_build: Duration,
+    build_to_window: Duration,
+) -> String {
+    format!(
+        "{{\"event\":\"relaunch\",\"window\":{label:?},\"save_to_build_ms\":{},\"build_to_window_ms\":{},\"save_to_window_ms\":{}}}",
+        save_to_build.as_millis(),
+        build_to_window.as_millis(),
+        save_to_window.as_millis()
+    )
 }
 
 fn stop(slot: &Arc<Mutex<Option<Child>>>) {
@@ -235,5 +306,35 @@ mod tests {
     #[test]
     fn rejects_a_flag_without_a_value() {
         assert!(overrides_json(&["app".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn parses_the_first_repaint_marker() {
+        assert_eq!(
+            ready_label("auro:trace window_requested main"),
+            Some("main")
+        );
+        assert_eq!(
+            ready_label("auro:trace window_requested settings"),
+            Some("settings")
+        );
+        assert_eq!(ready_label("auro: running /tmp/app"), None);
+        assert_eq!(ready_label(""), None);
+    }
+
+    #[test]
+    fn emits_one_json_trace_per_save() {
+        let line = trace_line(
+            "main",
+            Duration::from_millis(4321),
+            Duration::from_millis(3456),
+            Duration::from_millis(865),
+        );
+        let value: serde_json::Value = serde_json::from_str(&line).expect("valid json");
+        assert_eq!(value["event"], "relaunch");
+        assert_eq!(value["window"], "main");
+        assert_eq!(value["save_to_build_ms"], 3456);
+        assert_eq!(value["build_to_window_ms"], 865);
+        assert_eq!(value["save_to_window_ms"], 4321);
     }
 }

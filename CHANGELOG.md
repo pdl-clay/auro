@@ -13,6 +13,11 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `auro dev` emits one JSON trace line per save (`event`, `window`, `save_to_build_ms`,
+  `build_to_window_ms`, `save_to_window_ms`); the app prints `auro:trace window_requested <label>`
+  when `AURO_DEV_TRACE` is set, so save-to-visible is computed without a stopwatch (spec 0004, D6).
+  First measured run in relaunch mode: 2730 ms median save→repaint-requested on niri/Wayland, warm
+  cache, debug build.
 - Workspace of six crates: `auro` (builder), `auro-core` (config, state), `auro-ipc` (commands,
   runtime bridge), `auro-macros` (`#[command]`, `generate_handler!`), `auro-ui` (GPUI re-exports,
   `Button`, tokens) and `auro-cli` (`new`, `dev`, `build`, `doctor`).

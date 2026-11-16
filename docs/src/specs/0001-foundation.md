@@ -296,9 +296,10 @@ Runnables, in order, on a clean checkout:
 - 8: **measured, not met.** A saved source change to a visible relaunch measured ~60 s on the
   development machine (relink dominates; the watcher itself reacts once per edit). This is the gap
   hot reload must close, not an acceptable steady state. Re-measured 2026-11-16 on the scaffold
-  demo (debug, warm dependency cache, incremental relink, edit→`auro dev`→`niri msg windows` by
-  app id): save→new app process **3 s**, window present on the next poll; cold build of the demo
-  (dependencies included) takes minutes, so the number is only meaningful with a warm cache.
+  demo with the traced dev loop (debug, warm dependency cache, incremental relink): save→build
+  **2380 ms**, save→repaint-requested **2730 ms** (medians over three saves; `niri msg windows` by
+  app id, 50 ms poll resolution). A cold build of the demo (dependencies included) takes minutes, so
+  the number is only meaningful with a warm cache. Details and the trace format: spec 0004, D6.
 
 ## Open questions
 

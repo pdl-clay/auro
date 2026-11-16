@@ -10,6 +10,9 @@ use auro_ui::{
 
 type OpenWindow = Box<dyn Fn(&mut GpuiApp, &Config, &WindowConfig)>;
 
+/// Set by `auro dev`; the app then reports when each window's first repaint is requested.
+const TRACE_ENV: &str = "AURO_DEV_TRACE";
+
 /// The application builder.
 ///
 /// Windows and identity come from `Auro.toml`; the builder attaches a root view to a window label.
@@ -62,7 +65,12 @@ impl App {
 
             for window in &config.app.windows {
                 match roots.iter().find(|(label, _)| *label == window.label) {
-                    Some((_, open)) => open(cx, &config, window),
+                    Some((_, open)) => {
+                        open(cx, &config, window);
+                        if std::env::var_os(TRACE_ENV).is_some() {
+                            eprintln!("auro:trace window_requested {}", window.label);
+                        }
+                    }
                     None => {
                         tracing::error!(
                             window = window.label,
