@@ -26,6 +26,24 @@ A pull request missing them is incomplete, not "later". If you cannot name which
 touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
 redundant entry costs a line, a stale doc costs a user's afternoon.
 
+## Non-negotiable: documentation and changelog move with the code
+
+Every change that alters behaviour, a public API, a config key, a CLI flag, or an architectural
+decision ships **in the same pull request** as:
+
+| Touched | Must also change |
+|---|---|
+| anything a user can observe | `CHANGELOG.md` under `## [Unreleased]` |
+| a contract in a spec | the spec in `docs/src/specs/` |
+| an architectural decision | a new or superseding ADR in `docs/src/decisions/` |
+| the pitch, quickstart or feature list | `README.md` **and** `README.pt-BR.md` |
+| a convention in this file | `AGENTS.md` itself |
+| a phase, target or exit criterion | `ROADMAP.md` |
+
+A pull request missing them is incomplete, not "later". If you cannot name which document a change
+touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
+redundant entry costs a line, a stale doc costs a user's afternoon.
+
 ## Project Overview
 
 Auro is an application framework for native Rust desktop apps: **Tauri's app model with GPUI as the
@@ -221,9 +239,12 @@ Expectations:
 - The performance budget (`docs/src/reference/performance-budget.md`) is a CI gate only once it is
   implemented; until then its status column states what is measured or unmeasured and must not be
   presented as a result.
+  implemented; until then its status column says "not measured" and must not be presented as a
+  result.
 - Platform rows move from "unverified" to "verified" only when CI exercises them on every pull
   request and a maintainer confirms a real desktop session. Do not upgrade a support claim because a
   build or test run succeeded once.
+  request. Do not upgrade a support claim because a build succeeded once.
 - Documentation QA: `mdbook build docs` must pass, every `SUMMARY.md` target must exist, internal
   links must resolve, and `README.md`/`README.pt-BR.md` must stay in sync.
 
@@ -237,3 +258,4 @@ Expectations:
 5. Did it change `README.md`? Mirror it in `README.pt-BR.md`.
 6. Run the gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs`.
+6. Run the gates that exist: `mdbook build docs`, plus the Cargo gates once the workspace lands.
