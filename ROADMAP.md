@@ -196,6 +196,14 @@ constraints and pending integration/representative D6 measurement (see
 [spec 0004](docs/src/specs/0004-hot-reload.md), [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 The phase is still in progress until the exit criterion and acceptance are fully closed.
 
+**Exit criterion measured (2026-11-16, niri/Wayland, warm cache):**
+`cargo install --path crates/auro-cli --locked` took 13.3 s; `auro new /home/pdl/auro-demo` then
+`auro dev` opened the window in **2 s**; closing the window through `auro dev` exited **0**. A
+broken-then-fixed edit kept the previous window and app alive during the failure and produced a new
+app process 3 s after the fix (spec 0004 D4, implemented the same day). Remaining acceptance gaps:
+automated (process-level) window-close coverage, and the observed `(unset)` window title reported by
+the compositor even though the config sets one (not diagnosed).
+
 ### Phase 1 - v0.1 "Hello, native" (weeks 4-8)
 
 - `auro-core`: config schema, multi-window, lifecycle, command registry with schema, state store.

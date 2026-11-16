@@ -123,6 +123,10 @@ installable `auro-cli` yet.
 
 ### Fixed
 
+- `auro dev` no longer closes the running window when a rebuild fails: the app is stopped only
+  after the replacement binary exists, so a typo keeps the previous UI alive and the session
+  reports `build failed, previous UI still running` (spec 0004, D4).
+
 - `auro dev` rebuilt in a loop: the watcher treated file *reads* as changes, and the app opening
   `Auro.toml` on every start re-triggered the build that had just started it.
 - Closing the last window now quits the Auro app (GPUI `on_window_closed` + `quit`), and `auro dev`

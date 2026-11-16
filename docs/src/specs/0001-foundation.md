@@ -281,8 +281,11 @@ Runnables, in order, on a clean checkout:
   GPUI test clicks the button, dispatches the async `#[auro::command]` and asserts the view update
   (`auro` integration test `clicking_button_dispatches_async_command_and_updates_view`). Closing
   the last window now quits the app and was verified to exit 0 on a local niri/Wayland session
-  (`/tmp/auro-demo` binary); automated process-level/in-`auro dev` window-close coverage is not
-  yet added.
+  (`/tmp/auro-demo` binary); closing through `auro dev` also exits 0 (measured 2026-11-16:
+  warm `auro dev` → window in 2 s, close → `DEV_EXIT=0`). Automated process-level window-close
+  coverage is not yet added. Observed gap (2026-11-16, niri/Wayland): the window title reaches the
+  compositor as `(unset)` even though `Auro.toml`/`WindowOptions` set it; the `app_id`
+  (`com.example.aurodemo`) is correct. Not diagnosed.
 - 4: **met** locally (Ctrl-C exits 0, no orphan).
 - 5: **met** locally (fmt, clippy `-D warnings`, tests).
 - 6: **met** (config parse/merge/unknown-key refusal, `State` extraction, sync and async dispatch,
@@ -292,7 +295,10 @@ Runnables, in order, on a clean checkout:
   `debug_bounds`.
 - 8: **measured, not met.** A saved source change to a visible relaunch measured ~60 s on the
   development machine (relink dominates; the watcher itself reacts once per edit). This is the gap
-  hot reload must close, not an acceptable steady state.
+  hot reload must close, not an acceptable steady state. Re-measured 2026-11-16 on the scaffold
+  demo (debug, warm dependency cache, incremental relink, edit→`auro dev`→`niri msg windows` by
+  app id): save→new app process **3 s**, window present on the next poll; cold build of the demo
+  (dependencies included) takes minutes, so the number is only meaningful with a warm cache.
 
 ## Open questions
 

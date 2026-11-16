@@ -57,15 +57,19 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
                 while received.try_recv().is_ok() {}
 
                 println!("auro: change detected, rebuilding");
-                stop(&slot);
                 match build(&dir, &config) {
                     Ok(next) => {
+                        // Only stop the app once the replacement binary exists: a failed build
+                        // must leave the previous UI running (spec 0004, D4).
+                        stop(&slot);
                         binary = next;
                         let child = spawn(&binary, &dir, patch.as_deref())?;
                         println!("auro: rebuilt, running {}", binary.display());
                         *slot.lock().expect("dev slot poisoned") = Some(child);
                     }
-                    Err(error) => eprintln!("auro: build failed, window closed: {error}"),
+                    Err(error) => {
+                        eprintln!("auro: build failed, previous UI still running: {error}")
+                    }
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
