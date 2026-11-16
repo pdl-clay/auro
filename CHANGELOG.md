@@ -47,6 +47,9 @@ installable `auro-cli` yet.
   of spec 0001 acceptance 3.
 - `auro-ui::Button` `debug_selector` (test-support) and `auro-ui` `test-support` feature for
   headless element bounds in tests.
+- Draft [spec 0004](docs/src/specs/0004-hot-reload.md) (hot reload): dev host/UI swap contract,
+  versioned snapshot/restore, failure/fallback semantics, measurability, and staged acceptance;
+  specs index/SUMMARY and architecture/roadmap updated to reference it.
 
 ### Fixed
 

@@ -108,7 +108,8 @@ Rust compiles slowly. If the loop is a 20-second `cargo build`, nobody leaves th
 - Function-level patching along the lines of Zed's `subsecond` crate.
 - Target: **edit to see in < 500 ms.**
 
-Fallback if that fails: process restart with state restoration plus incremental rebuild.
+Fallback if that fails: process restart with state restoration plus incremental rebuild. Contract
+and staged acceptance: [spec 0004](docs/src/specs/0004-hot-reload.md) (draft).
 
 ### Text, IME and accessibility
 
@@ -160,7 +161,7 @@ measured). The phase is still in progress until the exit criterion and acceptanc
 - `auro-ui`: GPUI re-export plus ~20 components (Button, Input, List, Table, Tabs, Dialog, Toast,
   Menu, Tooltip, Sidebar, Command palette).
 - Theming: tokens, light/dark, three built-in themes.
-- `auro dev`: watch + rebuild + relaunch. Experimental hot reload.
+- `auro dev`: watch + rebuild + relaunch. Experimental hot reload (see [spec 0004](docs/src/specs/0004-hot-reload.md)).
 - CLI: `new`, `dev`, `build`, `doctor`.
 
 **Exit:** a real internal tool can be built with it (log viewer plus a settings window).
@@ -185,7 +186,7 @@ Tauri and Electron.
 - Plugin index (static first, marketplace later).
 - `auro-ui` grows: virtualized data table, charts, markdown/rich text, syntax highlighting
   (reusing Zed crates).
-- Hot reload GA with state preservation.
+- Hot reload GA with state preservation (see [spec 0004](docs/src/specs/0004-hot-reload.md)).
 
 **Exit:** a third-party plugin published by someone outside the core team.
 

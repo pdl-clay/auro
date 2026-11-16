@@ -5,6 +5,8 @@ leaves the web, and the rest of Auro does not matter.
 
 > Target: edit to see in **under 500 ms**, with app state preserved.
 
+Normative dev-loop contract, staging and acceptance are drafted in
+[spec 0004](../specs/0004-hot-reload.md).
 ## Mechanism
 
 ```

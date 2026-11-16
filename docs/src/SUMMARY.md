@@ -27,6 +27,7 @@
 - [What Auro takes from Tauri](specs/tauri-basis.md)
 - [0001 - Foundation](specs/0001-foundation.md)
 - [0002 - Configuration](specs/0002-config.md)
+- [0004 - Hot reload](specs/0004-hot-reload.md)
 
 # Reference
 
