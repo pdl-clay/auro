@@ -100,16 +100,23 @@ invocations, which is where the risk actually is.
 
 ### Hot reload - existential
 
-Rust compiles slowly. If the loop is a 20-second `cargo build`, nobody leaves the web. This is
-*the* bet of the project.
+Rust compiles slowly. If the loop stays at a multi-second/minute rebuild-and-relaunch, nobody leaves
+the web. This is *the* bet of the project.
 
-- The UI compiles as a `cdylib`, loaded via `libloading`, hot-swapped on save.
-- App state lives in the host process and is preserved across swaps via a `serde` snapshot.
-- Function-level patching along the lines of Zed's `subsecond` crate.
-- Target: **edit to see in < 500 ms.**
+- **Target:** edit to see in **< 500 ms** for a warm view-only change, with opted-in state
+  preserved (a target until measured).
+- **Baseline (Phase 0):** relaunch loop, ~60 s save-to-visible on the development machine
+  (relink-dominated). Not hot reload.
+- **Slice 0 finding (2026-11-16):** a viability spike on GPUI 0.2.2/Linux rejected
+  `cdylib`/`libloading` swap of GPUI view code as infeasible for the current stack and measured a
+  realistic GPUI-view `cdylib` warm relink at ~171 s (debug). The mechanism is under revision toward
+  a same-process approach.
+- **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
+  reload.
 
-Fallback if that fails: process restart with state restoration plus incremental rebuild. Contract
-and staged acceptance: [spec 0004](docs/src/specs/0004-hot-reload.md) (draft).
+Contract, evidence, and staged acceptance:
+[spec 0004](docs/src/specs/0004-hot-reload.md) (draft),
+[ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md).
 
 ### Text, IME and accessibility
 
@@ -153,7 +160,9 @@ click dispatching an async command with view update) are in place and green in C
 app quits when the last window closes (verified locally on niri/Wayland: demo exits 0) and `auro
 dev` now detects child exit. Spec 0001 acceptance is mostly met; automated/in-`auro dev`
 window-close coverage and the < 500 ms save-to-visible target remain open (current relaunch ~60 s,
-measured). The phase is still in progress until the exit criterion and acceptance are fully closed.
+measured). Hot-reload mechanism revision is tracked in [spec 0004](docs/src/specs/0004-hot-reload.md)
+and [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md). The phase is still in
+progress until the exit criterion and acceptance are fully closed.
 
 ### Phase 1 - v0.1 "Hello, native" (weeks 4-8)
 
@@ -161,7 +170,7 @@ measured). The phase is still in progress until the exit criterion and acceptanc
 - `auro-ui`: GPUI re-export plus ~20 components (Button, Input, List, Table, Tabs, Dialog, Toast,
   Menu, Tooltip, Sidebar, Command palette).
 - Theming: tokens, light/dark, three built-in themes.
-- `auro dev`: watch + rebuild + relaunch. Experimental hot reload (see [spec 0004](docs/src/specs/0004-hot-reload.md)).
+- `auro dev`: watch + rebuild + relaunch. Experimental hot reload (mechanism under [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 - CLI: `new`, `dev`, `build`, `doctor`.
 
 **Exit:** a real internal tool can be built with it (log viewer plus a settings window).
@@ -186,7 +195,7 @@ Tauri and Electron.
 - Plugin index (static first, marketplace later).
 - `auro-ui` grows: virtualized data table, charts, markdown/rich text, syntax highlighting
   (reusing Zed crates).
-- Hot reload GA with state preservation (see [spec 0004](docs/src/specs/0004-hot-reload.md)).
+- Hot reload GA with state preservation (mechanism/measurability per [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 
 **Exit:** a third-party plugin published by someone outside the core team.
 

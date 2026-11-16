@@ -47,9 +47,13 @@ installable `auro-cli` yet.
   of spec 0001 acceptance 3.
 - `auro-ui::Button` `debug_selector` (test-support) and `auro-ui` `test-support` feature for
   headless element bounds in tests.
-- Draft [spec 0004](docs/src/specs/0004-hot-reload.md) (hot reload): dev host/UI swap contract,
-  versioned snapshot/restore, failure/fallback semantics, measurability, and staged acceptance;
-  specs index/SUMMARY and architecture/roadmap updated to reference it.
+- Draft [spec 0004](docs/src/specs/0004-hot-reload.md) (hot reload): save-to-visible contract,
+  versioned snapshot/restore, failure/fallback semantics, measurability, staged acceptance, and
+  Slice 0 (2026-11-16) feasibility findings; specs index/SUMMARY and architecture/roadmap
+  updated to reference it.
+- [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md) (supersedes ADR 0005):
+  retains the hot-reload goal/contract and rejects `cdylib`/`libloading` swap of GPUI view code
+  after the Slice 0 spike; mechanism under revision.
 
 ### Fixed
 
@@ -82,3 +86,7 @@ installable `auro-cli` yet.
 - Docs reviewed for consistency: introduction, architecture, crates, standards and repository
   guidelines now describe the current workspace state; illustrative API notes no longer claim the
   workspace does not exist.
+- Spec 0004, ADR 0005/0008, architecture, roadmap, AGENTS, specs index and overview corrected
+  after the Slice 0 hot-reload viability spike: `cdylib`/`libloading` swap of GPUI view code
+  rejected as infeasible for the current stack, relaunch remains default, and the mechanism is
+  under revision toward a same-process approach.

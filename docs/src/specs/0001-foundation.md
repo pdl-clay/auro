@@ -19,7 +19,7 @@ slice real, and nothing beyond it.
 ## Out of scope
 
 - Plugins, capabilities enforcement, bundling output, updater, signing - later phases, later specs.
-- Hot reload by library swap. Phase 0 relaunches the process; the `< 500 ms` target is spec 0004.
+- Hot reload. Phase 0 relaunches the process; the `< 500 ms` target and mechanism are tracked in [spec 0004](0004-hot-reload.md).
 - A component kit. Phase 0 ships the primitives the slice needs, styled by tokens.
 - Embedded config, embedded assets, `$schema` generation and build-script codegen. Config loads at
   runtime until the bundler lands.
@@ -157,8 +157,8 @@ and splits one truth across two files.
 `src/**` and `Auro.toml`, kill, rebuild, relaunch. Ctrl-C stops the child and exits 0. No dev
 server, no frontend directory, no static file serving.
 
-*Rejected:* starting with the `cdylib` hot-reload architecture. It is the project's bet, but it is
-not the first thing to build; a relaunch loop proves the app model without risking the schedule.
+*Rejected:* starting with hot reload before the app model was proven. A relaunch loop proves the
+app model without risking the schedule; the hot-reload mechanism is tracked in [spec 0004](0004-hot-reload.md).
 
 ### D8 - Bundling is delegated
 

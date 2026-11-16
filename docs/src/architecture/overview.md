@@ -65,8 +65,9 @@ The call site is a Rust call, so a wrong argument type is a compile error rather
 
 - **UI state** lives in GPUI entities on the main thread.
 - **Application state** lives in the core state store, reachable from commands.
-- **Hot-reload state** is a `serde` snapshot owned by the host process, not by the swapped UI
-  library. This is what makes a rebuild survive a reload.
+- **Reloadable state** (planned) is captured as a host-owned `serde` snapshot so a future hot reload
+  or a state-preserving restart can restore opted-in state. The hot-reload mechanism is under
+  revision ([spec 0004](../specs/0004-hot-reload.md), [ADR 0008](../decisions/0008-hot-reload-mechanism-revision.md)).
 
 The boundary rule that keeps this honest: nothing outside `auro-core` holds a global mutable
 reference to app state, and nothing on the main thread blocks on I/O.

@@ -46,6 +46,7 @@ ADR keeps the conclusion.
 | [0002](0002-rust-only-frontend.md) | Rust-only frontend and typed IPC | Accepted |
 | [0003](0003-capabilities-at-the-real-boundary.md) | Capabilities at the real boundary | Accepted |
 | [0004](0004-main-thread-ownership.md) | Main thread belongs to GPUI | Accepted |
-| [0005](0005-hot-reload-as-the-bet.md) | Hot reload with state preservation | Accepted |
+| [0005](0005-hot-reload-as-the-bet.md) | Hot reload with state preservation | Superseded by [0008](0008-hot-reload-mechanism-revision.md) |
 | [0006](0006-dual-license.md) | Dual MIT/Apache-2.0 | Accepted |
 | [0007](0007-no-styling-language.md) | No styling language in 1.0 | Accepted |
+| [0008](0008-hot-reload-mechanism-revision.md) | Hot reload mechanism revised after feasibility spike | Accepted |

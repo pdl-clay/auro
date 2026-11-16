@@ -1,6 +1,6 @@
 # 0005 - Hot reload with state preservation
 
-**Status:** Accepted (target under research; fallback defined)
+**Status:** Superseded by [0008 - Hot reload mechanism revised after feasibility spike](0008-hot-reload-mechanism-revision.md)
 
 ## Context
 

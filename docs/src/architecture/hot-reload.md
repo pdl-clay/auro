@@ -1,68 +1,79 @@
 # Hot reload
 
-This is the existential bet of the project. If the edit loop is a 20-second `cargo build`, nobody
-leaves the web, and the rest of Auro does not matter.
+This is the existential bet of the project. If the edit loop stays at a multi-second/minute
+rebuild-and-relaunch, nobody leaves the web, and the rest of Auro does not matter.
 
 > Target: edit to see in **under 500 ms**, with app state preserved.
 
-Normative dev-loop contract, staging and acceptance are drafted in
-[spec 0004](../specs/0004-hot-reload.md).
-## Mechanism
+The target and observable contract are fixed; the mechanism is under revision. Normative dev-loop
+contract, staging, and acceptance are drafted in [spec 0004](../specs/0004-hot-reload.md).
 
-```
-editor saves
-    |
-    v
-cargo build -p app-ui --crate-type cdylib   (incremental, background)
-    |
-    v
-host loads new library (libloading), swaps the render entry point
-    |
-    v
-state snapshot (serde) is handed to the new library
-    |
-    v
-window repaints with preserved state
-```
+## Contract
 
-1. **UI as `cdylib`.** The app's views compile to a dynamic library, separate from the host
-   process. The host owns the window and the event loop.
-2. **`libloading` swap.** On a successful build, the host unloads the previous library and loads
-   the new one. Failed builds keep the previous library live and surface the compiler error in the
-   app.
-3. **State survives the swap.** App state lives in the host. The new library receives a `serde`
-   snapshot and reconstructs its entities from it. State that cannot be serialised is reset, and
-   that must be visible in documentation rather than a silent surprise.
+- **Default today:** `auro dev` rebuilds and relaunches the app process (Phase 0). A saved change to
+  a visible relaunch measured ~60 s on the development machine (relink dominates, 2026-11-15). This
+  is not hot reload.
+- **Hot reload goal:** a warm, view-only change becomes visible in under 500 ms with opted-in state
+  preserved, without closing the window.
+- **Honesty rule:** a process restart is never presented as hot reload. A failed build keeps the
+  previous UI active. A reload that cannot be applied safely falls back to a state-preserving
+  restart only when state can be restored, and the outcome is labelled explicitly.
 
-## Function-level patching
+## Slice 0 finding (2026-11-16)
 
-Whole-library swaps pay relocation and re-layout cost on every save. The roadmap targets
-function-level patching along the lines of Zed's `subsecond` crate: patch only the functions whose
-code changed, leaving the rest of the process untouched.
+[ADR 0005](../decisions/0005-hot-reload-as-the-bet.md) (superseded) assumed a `cdylib` compiled UI
+swapped by the host via `libloading`. A Slice 0 viability spike
+([spec 0004](../specs/0004-hot-reload.md), Linux x86_64, Wayland/niri, rustc 1.99.1, debug,
+`gpui = "=0.2.2"`, `libloading = "0.8.9"`) found that mechanism **infeasible** for GPUI view/render
+code on the current stack:
 
-Status: research. It is an optimisation on top of the swap, not a prerequisite for it.
+- `dlopen`/`dlclose` mechanics work for isolated C-ABI symbol calls, but mounting GPUI views from a
+  separately loaded library into a host-owned GPUI application is incompatible with GPUI 0.2.2’s
+  type/instance model (`Window::replace_root<E: Render>` generic root, `AnyView`/`Entity<V>`
+  downcast and host `App` entity storage, thread-local element arena, `TypeId` identity, upstream
+  GPUI rlib-only).
+- A realistic GPUI-view `cdylib` (trivial view change, 429 MB debug artifact) warm-relinked in
+  ~171 s wall / 2m50s cargo in the spike run, far outside the < 500 ms budget.
+
+`cdylib`/`libloading` swap for GPUI view code is rejected unless new evidence resolves mount,
+type/instance identity, unload safety, and measured performance.
+
+## Direction under investigation
+
+Per [ADR 0008](../decisions/0008-hot-reload-mechanism-revision.md), the mechanism must keep one
+GPUI `Application`/window/event loop and reload updated UI code in the same process and type
+universe. The leading direction to prototype is same-process/in-process reload (e.g.
+function-level hotpatching, subject to platform/toolchain/GPUI feasibility), or another approach
+proven to satisfy the contract. The chosen mechanism, layout/build model, and measurements are
+recorded in spec 0004 when proven.
+
+## State preservation
+
+Regardless of mechanism, reloadable state that opts in is captured as a versioned,
+`serde`-compatible snapshot owned by the host before apply or before a state-preserving restart, and
+restored after success. State that cannot be restored (incompatible version/key, non-serialisable
+resource, or explicit reset) must be reported, never silently replaced.
 
 ## Fallback
 
-If the sub-500 ms target is missed, the fallback is a **process restart with state restoration**:
-the host exits, the new binary starts, and the app restores from the last snapshot. Slower, but it
-still preserves context, and it is honest about what is happening.
-
-The fallback exists so the project is not blocked by a research result. It must not be presented
-as hot reload.
+When a change is not safely reloadable in-process (host/bootstrap/toolchain/config changes, failed
+compatibility/apply, or mechanism limitations), the fallback is a **state-preserving process
+restart**: persist snapshot, restart, restore. Slower, but it preserves context and is labelled
+honestly.
 
 ## Constraints this imposes on application code
 
-- Views must be reconstructible from state. Anything built ad hoc inside a render function is lost
-  on reload.
-- Entity handles must not be stored in `static`s that outlive the library. A stale handle into an
-  unloaded `cdylib` is a use-after-free.
-- Long-lived tasks that capture view code must be cancellable on swap, or they will call into the
-  old library.
+- Views and reloadable state must be reconstructible from state/snapshots.
+- Reloadable tasks, subscriptions, and callbacks must be cancellable or invalidatable before replaced
+  code can run.
+- Entity/view handles and callbacks must not be stored in global/static locations that outlive the
+  reload unit or prevent safe invalidation.
 
 ## Open problems
 
-- ABI stability across compiler versions and across the host/library boundary.
-- Whether the snapshot format is versioned per app, and what happens when it does not match.
-- Debugging a swapped library: line tables, breakpoints and backtraces through `libloading`.
-- Linux `dlclose` semantics when the old library still has live threads.
+- A proven in-process reload mechanism compatible with GPUI 0.2.2 and Tier 1 platforms.
+- Build/layout strategy that makes warm view-only updates fast enough (compile/apply/restore/repaint
+  within budget), not just correct.
+- Snapshot format/versioning and compatibility policy for app-defined reloadable state.
+- Debugging, symbols, breakpoints, and backtraces through the chosen reload mechanism.
+- Classification rules and project layout for hot-reload-capable apps.

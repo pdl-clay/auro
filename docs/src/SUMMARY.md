@@ -20,6 +20,7 @@
 - [0005 - Hot reload with state preservation](decisions/0005-hot-reload-as-the-bet.md)
 - [0006 - Dual MIT/Apache-2.0](decisions/0006-dual-license.md)
 - [0007 - No styling language in 1.0](decisions/0007-no-styling-language.md)
+- [0008 - Hot reload mechanism revised after feasibility spike](decisions/0008-hot-reload-mechanism-revision.md)
 
 # Specifications
 
