@@ -48,15 +48,24 @@ installable `auro-cli` yet.
 - `auro-ui::Button` `debug_selector` (test-support) and `auro-ui` `test-support` feature for
   headless element bounds in tests.
 - Draft [spec 0004](docs/src/specs/0004-hot-reload.md) (hot reload): save-to-visible contract,
-  versioned snapshot/restore, failure/fallback semantics, measurability, staged acceptance, and
-  Slice 0 (2026-11-16) feasibility findings; specs index/SUMMARY and architecture/roadmap
-  updated to reference it.
   versioned snapshot/restore, failure/fallback semantics, measurability, staged acceptance,
   Slice 0 (2026-11-16) feasibility findings, and Option 1 consolidation evidence (2026-11-16);
   specs index/SUMMARY and architecture/roadmap updated to reference it.
 - [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md) (supersedes ADR 0005):
   retains the hot-reload goal/contract and rejects `cdylib`/`libloading` swap of GPUI view code
-  after the Slice 0 spike; mechanism under revision.
+  after the Slice 0 spike; mechanism under revision with prototype evidence recorded in spec 0004.
+- Option 1 hot-reload consolidation spike evidence (2026-11-16, throwaway prototypes, not
+  integrated): Linux x86_64/Wayland, `gpui = "=0.2.2"`, `subsecond 0.7.10`/`dioxus-devtools
+  0.7.10`/`dx 0.7.10`. In-process tip-crate function-level patching via explicit `HotFn`
+  boundaries with host-owned GPUI application/window/entities/state showed warm view changes in
+  ~271-450 ms save-to-first-new-render in minimal scenarios (s1 median 371.5 ms, N=10; s6 median
+  346 ms, N=20, 20/20 stable) with host state preserved; helper/layout/style changes, coordinated
+  transient struct layout changes, multi-module tip-crate edits (functionally applied), build/
+  syntax-error recovery, and non-dx run viability observed. Documented constraints: tip-crate-only
+  hot boundary (outside-boundary/init-captured work not retroactive), tip-crate statics/reset on
+  patch, `thread_local!` in a patched path fails patch generation while app stays on previous
+  code, and tooling/layout/snapshot integration plus representative Auro-scaffold D6 measurement
+  still pending.
 
 ### Fixed
 
@@ -89,7 +98,9 @@ installable `auro-cli` yet.
 - Docs reviewed for consistency: introduction, architecture, crates, standards and repository
   guidelines now describe the current workspace state; illustrative API notes no longer claim the
   workspace does not exist.
-- Spec 0004, ADR 0005/0008, architecture, roadmap, AGENTS, specs index and overview corrected
-  after the Slice 0 hot-reload viability spike: `cdylib`/`libloading` swap of GPUI view code
-  rejected as infeasible for the current stack, relaunch remains default, and the mechanism is
-  under revision toward a same-process approach.
+- Spec 0004, ADR 0005/0008 references, architecture, roadmap, AGENTS, specs index and overview
+  corrected after the Slice 0 viability spike and Option 1 consolidation: `cdylib`/`libloading`
+  swap of GPUI view code rejected for the current stack; subsecond/dx tip-crate `HotFn` patching
+  recorded as an evidenced experimental candidate (prototype, Linux x86_64/GPUI 0.2.2, minimal
+  cases) with constraints and pending integration/representative D6 measurement; `auro dev`
+  remains relaunch by default and restarts remain honest fallbacks.

@@ -164,8 +164,6 @@ must be **published and honest from day one**. This is the biggest schedule risk
 auro dev` opens a window in under two minutes with a warm cargo cache. Publishing to crates.io is
 not part of the phase.
 
-measured). Hot-reload mechanism revision is tracked in [spec 0004](docs/src/specs/0004-hot-reload.md)
-and [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md). The phase is still in
 **Progress (2026-11-15, updated 2026-11-16):** workspace, specs, CLI, typed command/state/config
 plumbing, scaffold, relaunch-based `auro dev`, CI on macOS/Windows/Linux, and headless GPUI tests
 (render and button click dispatching an async command with view update) are in place and green in

@@ -26,96 +26,6 @@ A pull request missing them is incomplete, not "later". If you cannot name which
 touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
 redundant entry costs a line, a stale doc costs a user's afternoon.
 
-## Non-negotiable: documentation and changelog move with the code
-
-Every change that alters behaviour, a public API, a config key, a CLI flag, or an architectural
-decision ships **in the same pull request** as:
-
-| Touched | Must also change |
-|---|---|
-| anything a user can observe | `CHANGELOG.md` under `## [Unreleased]` |
-| a contract in a spec | the spec in `docs/src/specs/` |
-| an architectural decision | a new or superseding ADR in `docs/src/decisions/` |
-| the pitch, quickstart or feature list | `README.md` **and** `README.pt-BR.md` |
-| a convention in this file | `AGENTS.md` itself |
-| a phase, target or exit criterion | `ROADMAP.md` |
-
-A pull request missing them is incomplete, not "later". If you cannot name which document a change
-touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
-redundant entry costs a line, a stale doc costs a user's afternoon.
-
-## Non-negotiable: documentation and changelog move with the code
-
-Every change that alters behaviour, a public API, a config key, a CLI flag, or an architectural
-decision ships **in the same pull request** as:
-
-| Touched | Must also change |
-|---|---|
-| anything a user can observe | `CHANGELOG.md` under `## [Unreleased]` |
-| a contract in a spec | the spec in `docs/src/specs/` |
-| an architectural decision | a new or superseding ADR in `docs/src/decisions/` |
-| the pitch, quickstart or feature list | `README.md` **and** `README.pt-BR.md` |
-| a convention in this file | `AGENTS.md` itself |
-| a phase, target or exit criterion | `ROADMAP.md` |
-
-A pull request missing them is incomplete, not "later". If you cannot name which document a change
-touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
-redundant entry costs a line, a stale doc costs a user's afternoon.
-
-## Non-negotiable: documentation and changelog move with the code
-
-Every change that alters behaviour, a public API, a config key, a CLI flag, or an architectural
-decision ships **in the same pull request** as:
-
-| Touched | Must also change |
-|---|---|
-| anything a user can observe | `CHANGELOG.md` under `## [Unreleased]` |
-| a contract in a spec | the spec in `docs/src/specs/` |
-| an architectural decision | a new or superseding ADR in `docs/src/decisions/` |
-| the pitch, quickstart or feature list | `README.md` **and** `README.pt-BR.md` |
-| a convention in this file | `AGENTS.md` itself |
-| a phase, target or exit criterion | `ROADMAP.md` |
-
-A pull request missing them is incomplete, not "later". If you cannot name which document a change
-touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
-redundant entry costs a line, a stale doc costs a user's afternoon.
-
-## Non-negotiable: documentation and changelog move with the code
-
-Every change that alters behaviour, a public API, a config key, a CLI flag, or an architectural
-decision ships **in the same pull request** as:
-
-| Touched | Must also change |
-|---|---|
-| anything a user can observe | `CHANGELOG.md` under `## [Unreleased]` |
-| a contract in a spec | the spec in `docs/src/specs/` |
-| an architectural decision | a new or superseding ADR in `docs/src/decisions/` |
-| the pitch, quickstart or feature list | `README.md` **and** `README.pt-BR.md` |
-| a convention in this file | `AGENTS.md` itself |
-| a phase, target or exit criterion | `ROADMAP.md` |
-
-A pull request missing them is incomplete, not "later". If you cannot name which document a change
-touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
-redundant entry costs a line, a stale doc costs a user's afternoon.
-
-## Non-negotiable: documentation and changelog move with the code
-
-Every change that alters behaviour, a public API, a config key, a CLI flag, or an architectural
-decision ships **in the same pull request** as:
-
-| Touched | Must also change |
-|---|---|
-| anything a user can observe | `CHANGELOG.md` under `## [Unreleased]` |
-| a contract in a spec | the spec in `docs/src/specs/` |
-| an architectural decision | a new or superseding ADR in `docs/src/decisions/` |
-| the pitch, quickstart or feature list | `README.md` **and** `README.pt-BR.md` |
-| a convention in this file | `AGENTS.md` itself |
-| a phase, target or exit criterion | `ROADMAP.md` |
-
-A pull request missing them is incomplete, not "later". If you cannot name which document a change
-touches, the change is not understood yet. When in doubt, update the doc and the changelog: a
-redundant entry costs a line, a stale doc costs a user's afternoon.
-
 ## Project Overview
 
 Auro is an application framework for native Rust desktop apps: **Tauri's app model with GPUI as the
@@ -172,10 +82,21 @@ webview hatch. Grants are deny-by-default, scoped (`fs`, `net`, `shell`, `clipbo
 `keychain`), compiled into the host, and checked at the call site that performs the effect.
 `auro-perms` returns a verdict and performs no I/O.
 
-Hot reload is the project's existential bet: the UI compiles as a `cdylib`, the host swaps it via
-`libloading`, state survives as a `serde` snapshot, target `< 500 ms` save-to-pixel; function-level
-patching (`subsecond`-style) is an optimisation, and the documented fallback is a state-preserving
-process restart.
+Hot reload is the project's existential bet: keep one GPUI `Application`/window/event loop in a
+long-lived host and apply reloadable UI changes in-process (same process/type universe) with
+opted-in state preserved as a versioned `serde`-compatible snapshot, target `< 500 ms`
+save-to-visible for a warm view-only change (target until measured per case, per
+[spec 0004](docs/src/specs/0004-hot-reload.md)). A Slice 0 viability spike rejected
+`cdylib`/`libloading` swap of GPUI view code for the current stack (GPUI 0.2.2). Option 1
+consolidation (2026-11-16, throwaway prototypes, not integrated) evidenced
+`subsecond 0.7.10` + `dioxus-devtools 0.7.10`/`dx 0.7.10` function-level tip-crate patching via
+explicit `HotFn` boundaries with host-owned GPUI state as a viable experimental candidate on
+Linux x86_64/Wayland in minimal cases (~271-450 ms save-to-first-new-render, host state preserved)
+with documented constraints (tip-crate-only boundary; outside-boundary/init-captured work not
+retroactive; tip-crate statics reset on patch; `thread_local!` in a patched path can fail patch
+generation while the app stays on previous code; tooling/layout/snapshot integration and
+representative Auro-scaffold D6 measurement pending). `auro dev` remains relaunch by default; a
+state-preserving process restart is the documented fallback and is never presented as hot reload.
 
 ## Key Directories
 
@@ -311,12 +232,9 @@ Expectations:
 - The performance budget (`docs/src/reference/performance-budget.md`) is a CI gate only once it is
   implemented; until then its status column states what is measured or unmeasured and must not be
   presented as a result.
-  implemented; until then its status column says "not measured" and must not be presented as a
-  result.
 - Platform rows move from "unverified" to "verified" only when CI exercises them on every pull
   request and a maintainer confirms a real desktop session. Do not upgrade a support claim because a
   build or test run succeeded once.
-  request. Do not upgrade a support claim because a build succeeded once.
 - Documentation QA: `mdbook build docs` must pass, every `SUMMARY.md` target must exist, internal
   links must resolve, and `README.md`/`README.pt-BR.md` must stay in sync.
 
@@ -329,5 +247,5 @@ Expectations:
 4. Does it add a user-visible behaviour? Add a `CHANGELOG.md` entry.
 5. Did it change `README.md`? Mirror it in `README.pt-BR.md`.
 6. Run the gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-   `cargo test --workspace --locked`, and `mdbook build docs`.
-6. Run the gates that exist: `mdbook build docs`, plus the Cargo gates once the workspace lands.
+   `cargo test --workspace --locked`, and `mdbook build docs`. For doc-only changes, `mdbook build docs`
+   is the required proof; cargo gates apply when Rust code or workspace behaviour changes.

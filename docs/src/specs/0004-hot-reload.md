@@ -1,6 +1,6 @@
 # 0004 - Hot reload
 
-**Status:** Draft - revised after Slice 0 feasibility spike; implementation not started
+**Status:** Draft - revised after Slice 0 feasibility spike and Option 1 consolidation (prototype evidence); implementation not started
 
 Spec 0001 closed Phase 0 with a relaunch loop and recorded ~60 s save-to-visible on the development
 machine (relink dominates). This spec defines the contract that must replace that loop for UI work:
@@ -36,6 +36,45 @@ warm incremental builds, `gpui = "=0.2.2"` (registry, rlib-only upstream crate),
 **Conclusion:** the drafted `cdylib`/`libloading` swap of GPUI view/render code is **rejected** for the
 current stack (GPUI 0.2.2, standard linkage). The observable hot-reload contract remains; the
 mechanism must be revised (see [D1](#d1---long-lived-dev-host-same-process-reload-mechanism-tbd)).
+
+
+## Option 1 consolidation spike (2026-11-16)
+
+Follow-up throwaway prototypes (not integrated into `auro` crates/CLI) evaluated the leading
+same-process candidate on Linux 7.3.4-1-cachyos x86_64, Wayland/niri (`:0`/`wayland-1`), 12 CPUs,
+22 GiB RAM, rustc 1.99.1/cargo 1.99.1 (stable), `dx 0.7.10`, `subsecond 0.7.10`,
+`dioxus-devtools 0.7.10`, `gpui = "=0.2.2"` (registry, rlib-only), debug profile `debug = 0`, warm
+`dx serve --hot-patch`, xattr patch as in workspace. Artifacts: `/tmp/auro-option1-spike`
+(`subsecond-plain`, `gpui-subsecond-spike`, scenario logs/JSON).
+
+**Mechanism exercised:** tip-crate function-level hot-patching (jump-table/ThinLink) with explicit
+stable `subsecond::HotFn::current(...)` boundaries; `dioxus_devtools::connect_subsecond()`;
+host-owned GPUI `Application`/window/event loop and entity/managed state in the same process/type
+universe (root entity `counter` ticker + stable host string).
+
+| Case | Observation |
+|---|---|
+| Plain Rust (non-GPUI) `HotFn` patch | `rev=0`→`rev=1` in tip-crate function: `Hot-patching ... took 125ms`, output changed while loop counter continued (state/process preserved). |
+| s1 warm latency/state, minimal GPUI app (N=10, sequential trivial label edits) | 10/10 visible, host `counter`/`stable`/pid preserved. Save→first-new-render: 438,409,371,422,372,406,339,343,350,300 ms (median 371.5, min 300, max 438). `dx` hot-patch: 351,328,326,322,322,304,289,297,293,284 ms. |
+| s2 view/helper/layout/style (4 edits) | Helper-only change (label unchanged) 304 ms; label+added child 292 ms; style/bg 297 ms; helper+label 383 ms; helper changes visible; host state preserved. |
+| s3 outside boundary / init not retroactive | Patches visible (314,321 ms), state preserved. `Render` impl change outside `HotFn` boundary not reflected in rendered stable value; init-created host state literal not retroactive. |
+| s4 tip-crate statics/reset | Before: `n=23 tip=1022 counter=19`; first patched render: `n=1 tip=1000 counter=24`, `stable` preserved. Tip-crate counters/statics reset; host entity state preserved. |
+| s5 build/syntax failure + recovery | Broken edit kept app alive on previous `v0` with progressing counter (no crash/apply of broken code); fix patched (`314 ms`) to `v1-fixed` with `n=1 tip=1000 counter=1247`, state preserved. |
+| s6 longevity (N=20) | 20/20 visible, all state preserved, final `v20`, same pid. Save→first-new-render median 346 ms (min 271, max 370). |
+| s7 init-captured async work | Ticker-interval source edit (100→400 ms) patched but running ticker rate unchanged (~10.00→10.00 cps): captured future not retroactive. |
+| s8 coordinated transient struct layout change | Added `Vm` field with coordinated construct/log/UI update in same edit: visible (362 ms), `extra` logged, counter progressed, no error. |
+| s9 multi-module tip crate | Baseline `ex=m0`. Module-only edit visible as `ex=m1` (269 ms) with host state preserved; module+main visible as `v1 ex=m2`; `dx` logged hot-patches for `src/extra.rs` and `src/main.rs` (functionally applied). |
+| s10 no dx/devserver | `cargo build` + run without DIOXUS/devserver: alive, 59 renders, counter 0→56 progressed, no panic (SIGINT exit) - instrumented app runs without hotpatch tooling. |
+| s11 `thread_local!` in patched path | `Failed to generate patch` (`rust-lld` `R_X86_64_TPOFF32 ... cannot be used with -shared`), no patch applied, app stayed alive on `v0` with progressing counter (honest failure). |
+
+**Conclusion:** subsecond/dx tip-crate `HotFn` patching is a **viable experimental same-process
+candidate** on Linux x86_64/GPUI 0.2.2 in minimal prototype conditions (sub-500 ms warm view edits
+and preserved host state demonstrated), but **not** integrated into `auro dev` and **not** a D6 claim
+for representative Auro scaffolds/apps or other platforms/profiles. Required follow-up: Auro project
+layout/tip-crate/build strategy, host-owned versioned snapshot/restore and incompatible-change
+classification/reset, `auro dev` opt-in integration (dx/devserver or equivalent driver, target-dir
+isolation, timing/trace and diagnostics), and representative D6 measurements.
+
 
 ## Scope
 
@@ -82,8 +121,9 @@ session. UI code changes that are classified as reloadable must become visible w
 window and without losing opted-in state, by applying updated code/state in the same process and
 same GPUI/App/type universe.
 
-The concrete reload mechanism is **not yet selected**. It must satisfy the observable contract in
-this spec (D3, D4, D6, D7) and be proven by prototype/measurement before being declared supported.
+The concrete reload mechanism is **not yet selected for product integration**. It must satisfy the
+observable contract in this spec (D3, D4, D6, D7) and be proven by prototype/measurement and
+integrated safely before being declared supported.
 
 **Rejected by Slice 0:** compiling UI as a separately loaded/unloaded `cdylib` and swapping it via
 `libloading` for GPUI view/render code. This is infeasible with GPUI 0.2.2 under standard builds due
@@ -92,10 +132,19 @@ instance and host `App`, upstream GPUI being rlib-only, and prohibitive relink c
 view library. It must not be reintroduced for GPUI view code without new evidence resolving mount,
 type/instance identity, unload safety, and measured performance.
 
-**Leading direction to investigate:** same-process, in-process update of UI code (e.g.
-function-level/in-process hotpatching, subject to OS/architecture/toolchain support and GPUI
-compatibility) or another approach that avoids crossing GPUI/runtime instance boundaries and avoids
-full relink of the affected UI as the hot path.
+**Evidenced candidate (Option 1 consolidation, 2026-11-16, prototype, not integrated):**
+same-process function-level hot-patching of the tip crate via `subsecond 0.7.10` +
+`dioxus-devtools 0.7.10` driven by `dx 0.7.10` (jump-table/ThinLink), with explicit stable
+`HotFn::current(...)` boundaries in reloadable view code and host-owned GPUI
+application/window/entities/managed state. On Linux x86_64/Wayland (`gpui = "=0.2.2"`, rustc/cargo
+1.99.1, debug `debug = 0`, warm minimal app), observed save-to-first-new-render was ~271-450 ms
+with host state preserved (s1: median 371.5 ms, N=10; s6: median 346 ms, N=20, 20/20 stable), and
+core contract properties were demonstrated in prototype scenarios (patch visibility, host-state
+preservation, build/syntax-error recovery keeping previous UI, patch-generation failure keeping app
+alive on previous code). Documented constraints: patchable code limited to tip-crate hot
+boundaries (outside-boundary/init-captured work not retroactive), tip-crate statics/reset on
+patch, `thread_local!` in patched path can fail patch generation, and tooling/layout/snapshot/
+classification/integration and representative Auro-scaffold D6 measurement remain pending.
 
 *Rejected:* recompiling and relinking the whole app process on every save as the hot path. *Rejected:*
 claiming a process restart is hot reload (forbidden by ADR 0008). *Rejected:* discarding the window
@@ -304,7 +353,11 @@ implementing change.
 Checks are runnable by someone who did not write the implementation. Items that require a real
 display or platform-specific behaviour are marked; headless/CI-safe subsets are preferred where
 possible. Acceptance 1-5 define the contract a proven mechanism must satisfy; they are not met by the
-current relaunch loop.
+current relaunch loop. Prototype evidence (Option 1 consolidation, 2026-11-16, not integrated)
+demonstrated analogous contract properties in minimal GPUI 0.2.2 scenarios (host-state
+preservation across patches, build/syntax failure keeping previous UI alive, patch-generation
+failure keeping app on previous code, and warm view-only save-to-first-new-render ~271-450 ms,
+s1/s6) but does not satisfy these acceptance items for `auro dev`/Auro integration.
 
 1. **Reload correctness (headless where feasible):** a host test harness mounts/runs a reloadable UI
    fixture, applies a state mutation, applies a newly built fixture with changed view output, and
@@ -341,7 +394,7 @@ budget), published numbers, and a stable documented author contract for reloadab
 
 | Question | Where it settles |
 |---|---|
-| Reload mechanism: in-process/function-level patching feasibility (e.g. subsecond-style) on Linux x86_64 with GPUI 0.2.2, and alternatives if not viable | Follow-up spike/prototype; mechanism recorded here and ADR added/revised if architectural |
+| Reload mechanism: in-process/function-level patching feasibility (e.g. subsecond-style) on Linux x86_64 with GPUI 0.2.2, and alternatives if not viable | **Partially evidenced (prototype, 2026-11-16):** subsecond/dx tip-crate `HotFn` patching viable in minimal GPUI 0.2.2 cases with constraints; productization, representative D6, and other platforms remain open. Mechanism recorded here; ADR revision/addition only if decision changes. |
 | Exact scaffold/layout/build flags for hot-reload-capable projects and migration from Phase 0 layout | Implementation of this spec; recorded here when chosen |
 | Canonical snapshot encoding (JSON, CBOR, postcard/bincode-class) and compatibility policy | Implementation; must remain `serde`-compatible at the API boundary |
 | How managed `State<T>` participates when its type is defined in reloadable code vs host-stable code | Implementation + follow-up ADR/spec if it changes state ownership rules (D5 of spec 0001) |
