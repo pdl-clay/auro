@@ -121,6 +121,15 @@ the web. This is *the* bet of the project.
   fail patch generation while the app stays on previous code, and tooling/layout/snapshot
   integration plus representative Auro-scaffold D6 measurement remain pending. `auro dev` remains
   relaunch by default.
+  integration plus representative Auro-scaffold D6 measurement remain pending. A Windows 11 x86_64
+  plain (non-GPUI) prototype follow-up in a WinBoat guest (same dx/subsecond/dioxus-devtools 0.7.10
+  stack, rustc/cargo 1.99.0 MSVC, clean target, external logs,
+  `dx serve --hot-patch --interactive false --platform desktop`) completed build in 30.66 s and
+  applied 3/3 warm patches in 484/504/499 ms with monotonic counter continuity
+  `rev0 1..361 -> rev1 421..781 -> rev2 841..1261 -> rev3 1321..1741` in the same process
+  (`plain-proofwin-20261116152539.*`), showing mechanism viability on Windows for this minimal plain
+  case only; GPUI-on-Windows was prepared but not built/tested. `auro dev` remains relaunch by
+  default.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 
