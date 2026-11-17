@@ -298,8 +298,14 @@ temporary file plus rename) and `load_from` separates "missing" (`None`) from "u
 so a corrupted file never looks like fresh state. `auro_core::Autosave` captures watched entries on
 the thread that calls `tick()` (UI state stays on the main thread; no background reader), writes
 after a 250 ms quiet period, and exposes `flush()` for an explicit save; the dev path is
-`<platform data dir>/<identifier>/dev-snapshot.json`. Not yet wired to capture/restore around a
-reload or a state-preserving restart.
+`<platform data dir>/<identifier>/dev-snapshot.json`. The scaffold wires it: `CounterState`
+implements `ReloadSnapshot`, the view restores on start and prints `auro: state restored from <path>`
+or `auro: state reset: <reason>`, and a click marks dirty then ticks 350 ms later. Verified on
+niri/Wayland 2026-11-16: a hand-written snapshot with `count: 7` restored (`state restored`), and the
+same entry with `version: 2` produced `state reset: snapshot entry version 2 cannot be read by
+version 1; state starts from its default`; both runs opened the window and exited 0, and the file was
+left untouched because no click happened. Not yet wired to capture/restore around a reload or a
+state-preserving restart.
 
 ### D4 - Successful reload, failed build, and fallback are distinct outcomes
 

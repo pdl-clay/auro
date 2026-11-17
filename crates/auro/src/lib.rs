@@ -36,4 +36,5 @@ pub mod prelude {
     pub use auro_ui::prelude::*;
 
     pub use crate::App;
+    pub use crate::{Autosave, ReloadSnapshot, ResetReason, Restored, Snapshot};
 }

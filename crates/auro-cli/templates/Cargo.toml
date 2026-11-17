@@ -6,4 +6,5 @@ rust-version = "1.90"
 
 [dependencies]
 auro = { path = "{{auro_path}}" }
+serde = { version = "1", features = ["derive"] }
 {{patch}}

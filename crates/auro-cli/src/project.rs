@@ -40,7 +40,10 @@ pub fn new(path: &Path) -> Result<(), AuroError> {
             .replace("{{identifier}}", &identifier),
     )?;
     write(&path.join("src/main.rs"), MAIN_RS)?;
-    write(&path.join("src/views/mod.rs"), VIEW_RS)?;
+    write(
+        &path.join("src/views/mod.rs"),
+        &VIEW_RS.replace("{{identifier}}", &identifier),
+    )?;
     write(&path.join("src/services/mod.rs"), SERVICE_RS)?;
     write(&path.join(".gitignore"), GITIGNORE)?;
 
@@ -196,6 +199,17 @@ mod tests {
         assert_eq!(
             config.default_window().map(|window| window.label.as_str()),
             Some("main")
+        );
+
+        // A leftover `{{identifier}}` would not compile in the generated app.
+        let view = std::fs::read_to_string(target.join("src/views/mod.rs")).expect("view");
+        assert!(
+            view.contains("com.example.demo"),
+            "identifier must reach the view: {view}"
+        );
+        assert!(
+            !view.contains("{{identifier}}"),
+            "placeholder must be substituted: {view}"
         );
     }
 

@@ -25,6 +25,10 @@ installable `auro-cli` yet.
   `load_from` separates a missing file from an unreadable one; `Autosave` captures watched entries on
   the caller's thread and writes after a 250 ms quiet period (`tick`) or on `flush`, to
   `<platform data dir>/<identifier>/dev-snapshot.json`. Not yet wired to a reload or restart.
+- Scaffolded apps opt their counter into that snapshot: `CounterState` implements
+  `ReloadSnapshot`, the view restores on start (`auro: state restored from <path>` or
+  `auro: state reset: <reason>`) and saves 350 ms after a click; the generated manifest gains
+  `serde` with the `derive` feature.
 - Workspace of six crates: `auro` (builder), `auro-core` (config, state), `auro-ipc` (commands,
   runtime bridge), `auro-macros` (`#[command]`, `generate_handler!`), `auro-ui` (GPUI re-exports,
   `Button`, tokens) and `auro-cli` (`new`, `dev`, `build`, `doctor`).
