@@ -492,6 +492,7 @@ dependencies = [
  "gpui",
  "serde_json",
  "subsecond",
+ "tokio",
  "tracing",
 ]
 
