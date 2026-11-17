@@ -305,6 +305,13 @@ scopes; the plugin host that consumes it is Phase 3.
 Space (spec 0023). AccessKit is absent from GPUI 0.2.2, so the screen-reader/IME portion of the
 accessibility pass remains blocked upstream.
 
+**Phase 2 technical status (2026-11-17):** bundling; signed manifests, staging and Linux AppImage
+apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
+`auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
+Windows/macOS/package updater apply, deltas/staged rollout, single-instance
+forwarding/activation, tray menus/shortcut callbacks, and AccessKit/IME. The exit criterion also
+needs three real apps and published benchmarks; it is not met by the workspace alone.
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 
