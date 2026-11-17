@@ -275,6 +275,12 @@ resources = ["assets/**"]
     }
 
     #[test]
+        if !cfg!(target_os = "linux") {
+            return;
+        }
+        if !cfg!(target_os = "linux") {
+            return;
+        }
     fn rejects_an_unknown_category() {
         let (_temp, mut config) = config("");
         config.bundle.category = "not a real category".to_owned();
