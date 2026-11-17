@@ -200,11 +200,15 @@ resources = ["assets/**"]
 
     #[test]
     fn explicit_targets_map_to_package_types() {
-        let (_temp, config) = config("targets = [\"deb\"]");
-        // Only assert on Linux where deb is a valid host target.
-        if cfg!(target_os = "linux") {
-            assert_eq!(package_types(&config).expect("types"), [PackageType::Deb]);
-        }
+        let host = host_targets();
+        let Some(name) = host.first() else {
+            return;
+        };
+        let (_temp, config) = config(&format!("targets = [\"{name}\"]"));
+        assert_eq!(
+            package_types(&config).expect("types"),
+            [PackageType::from_short_name(name).expect("known target")]
+        );
     }
 
     #[test]
@@ -230,6 +234,9 @@ resources = ["assets/**"]
 
     #[test]
     fn appimage_requires_a_square_png() {
+        if !cfg!(target_os = "linux") {
+            return;
+        }
         let (_temp, config) = config("targets = [\"appimage\"]");
         let error = bundle(Path::new("."), &config, "demo").expect_err("icon");
         assert!(error.to_string().contains("square PNG"), "{error}");
@@ -237,6 +244,9 @@ resources = ["assets/**"]
 
     #[test]
     fn a_square_png_satisfies_the_appimage_preflight() {
+        if !cfg!(target_os = "linux") {
+            return;
+        }
         let (temp, config) = config("targets = [\"appimage\"]");
         let icon = temp.path().join("icons/icon.png");
         fs::create_dir_all(icon.parent().unwrap()).expect("icons");
