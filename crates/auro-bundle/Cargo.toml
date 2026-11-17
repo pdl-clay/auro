@@ -1,0 +1,17 @@
+[package]
+name = "auro-bundle"
+description = "Platform packaging for Auro applications"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+auro-core.workspace = true
+tauri-bundler = "=2.10.5"
+
+[dev-dependencies]
+tempfile.workspace = true

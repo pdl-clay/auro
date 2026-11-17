@@ -60,8 +60,25 @@ pub fn new(path: &Path) -> Result<(), AuroError> {
 /// `cargo build --release`, after checking the config's version against the manifest.
 pub fn build(dir: &Path) -> Result<(), AuroError> {
     let dir = dir.canonicalize()?;
-    load_checked(&dir)?;
+    let config = load_checked(&dir)?;
+    build_release(&dir, &config)
+}
 
+/// Builds the release binary and hands it to `auro-bundle`.
+pub fn bundle(dir: &Path) -> Result<(), AuroError> {
+    let dir = dir.canonicalize()?;
+    let config = load_checked(&dir)?;
+    build_release(&dir, &config)?;
+
+    let binary = binary_name(&dir)?;
+    let artifacts = auro_bundle::bundle(&dir, &config, &binary)?;
+    for artifact in artifacts {
+        println!("{}", artifact.display());
+    }
+    Ok(())
+}
+
+fn build_release(dir: &Path, _config: &Config) -> Result<(), AuroError> {
     let status = Command::new("cargo")
         .arg("build")
         .arg("--release")
@@ -73,6 +90,24 @@ pub fn build(dir: &Path) -> Result<(), AuroError> {
         return Err(AuroError::Message("cargo build failed".to_owned()));
     }
     Ok(())
+}
+
+/// The executable cargo places in `target/release`: `default-run`, or the package name.
+fn binary_name(dir: &Path) -> Result<String, AuroError> {
+    let manifest = dir.join("Cargo.toml");
+    let text = fs::read_to_string(&manifest)?;
+    let value: toml::Value = toml::from_str(&text).map_err(|error: toml::de::Error| {
+        AuroError::config(&manifest, None, format!("invalid Cargo.toml: {error}"))
+    })?;
+    let package = value
+        .get("package")
+        .ok_or_else(|| AuroError::config(&manifest, None, "missing [package]"))?;
+    let name = package
+        .get("default-run")
+        .or_else(|| package.get("name"))
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| AuroError::config(&manifest, Some("package.name"), "missing name"))?;
+    Ok(name.to_owned())
 }
 
 /// Loads `Auro.toml` and rejects a version that disagrees with the manifest (spec 0002).
@@ -309,5 +344,23 @@ version = "{manifest_version}"
     fn accepts_matching_versions() {
         let temp = app_with_versions("0.1.0", "0.1.0");
         load_checked(temp.path()).expect("matching versions");
+    }
+
+    #[test]
+    fn reads_the_binary_name_from_the_manifest() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("manifest");
+        assert_eq!(binary_name(temp.path()).expect("name"), "demo");
+
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\ndefault-run = \"server\"\n",
+        )
+        .expect("manifest");
+        assert_eq!(binary_name(temp.path()).expect("default-run"), "server");
     }
 }

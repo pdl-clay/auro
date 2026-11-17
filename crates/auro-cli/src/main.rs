@@ -41,6 +41,12 @@ enum Command {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+    /// Build the app and produce its installers
+    Bundle {
+        /// App directory (defaults to the current one)
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
     /// Report toolchain, config and platform status
     Doctor {
         /// App directory (defaults to the current one)
@@ -57,6 +63,7 @@ fn main() {
         Command::New { path } => project::new(&path),
         Command::Dev { dir, overrides } => dev::run(dir.unwrap_or_else(current), &overrides),
         Command::Build { dir } => project::build(&dir.unwrap_or_else(current)),
+        Command::Bundle { dir } => project::bundle(&dir.unwrap_or_else(current)),
         Command::Doctor { dir } => doctor::run(&dir.unwrap_or_else(current)),
     };
 

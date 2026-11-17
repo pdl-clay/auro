@@ -24,6 +24,7 @@
 - [0008 - Hot reload mechanism revised after feasibility spike](decisions/0008-hot-reload-mechanism-revision.md)
 - [0009 - Toolkits are the application's choice](decisions/0009-toolkits-are-app-level.md)
 - [0010 - Typed events, delivered on the main thread](decisions/0010-typed-events-main-thread.md)
+- [0011 - Bundling delegates to tauri-bundler](decisions/0011-bundling-delegates.md)
 
 # Specifications
 
@@ -37,6 +38,7 @@
 - [0007 - Typed application events](specs/0007-events.md)
 - [0008 - Command schema registry](specs/0008-command-schema.md)
 - [0009 - Window manager](specs/0009-window-manager.md)
+- [0010 - Bundling](specs/0010-bundling.md)
 
 # Reference
 

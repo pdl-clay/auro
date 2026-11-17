@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "crates/auro",
+  "crates/auro-bundle",
   "crates/auro-cli",
   "crates/auro-core",
   "crates/auro-ipc",
@@ -20,6 +21,7 @@ publish = false
 
 [workspace.dependencies]
 auro = { path = "crates/auro", version = "0.0.0" }
+auro-bundle = { path = "crates/auro-bundle", version = "0.0.0" }
 auro-core = { path = "crates/auro-core", version = "0.0.0" }
 auro-ipc = { path = "crates/auro-ipc", version = "0.0.0" }
 auro-macros = { path = "crates/auro-macros", version = "0.0.0" }
@@ -33,6 +35,7 @@ semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 subsecond = "=0.7.10"
+tauri-bundler = "=2.10.5"
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time"] }

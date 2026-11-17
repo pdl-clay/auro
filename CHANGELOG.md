@@ -13,6 +13,10 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `auro-bundle` and `auro bundle`: map `[bundle]` onto `tauri-bundler 2.10.5`, build the release
+  binary, and emit host artifacts. Linux `.deb`, `.rpm` and `.AppImage` were produced for a fixture
+  app; AppImage preflight rejects a missing square PNG with a typed error instead of letting the
+  bundler panic. Spec 0010 and ADR 0011 record the delegation and its limits.
 - `examples/log-viewer`: the Phase 1 reference app (log viewer plus settings window) built with
   Auro and application-level `gpui-component 0.5.1`. It exercises the toolkit seam, typed events
   from a background thread, lifecycle cleanup, and `auro::windows` open/close by label.
@@ -234,6 +238,8 @@ installable `auro-cli` yet.
 
 ### Changed
 
+- Phase 2 is in progress: the bundler slice is in tree and Linux packaging is verified. Phase 1 is
+  closed; README/README.pt-BR/book status reflect both.
 - Phase 1 is closed: the toolkit seam, lifecycle events, typed events, command schemas, window
   manager and the log-viewer reference app are in place, and README/README.pt-BR/book status say
   Phase 1 is complete. The command registry remains unwired until plugins; hot reload stays

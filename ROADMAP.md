@@ -271,6 +271,13 @@ toolkit the app chooses.
 - `auro-perms`: manifest plus runtime enforcement.
 - Accessibility (AccessKit), IME and keyboard navigation pass.
 
+**Progress (2026-11-17):** `auro-bundle` maps `[bundle]` onto `tauri-bundler 2.10.5` and
+`auro bundle` builds the release binary first. On Linux a fixture app produced `.deb`, `.rpm` and
+`.AppImage` artifacts; AppImage preflight now rejects a missing square PNG with
+`AuroError::Bundle` instead of letting the bundler panic. macOS/Windows formats are wired but
+pending CI, and signing/notarization, the updater, platform services and the accessibility pass
+remain.
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 

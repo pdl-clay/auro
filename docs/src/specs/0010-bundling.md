@@ -1,0 +1,130 @@
+# 0010 - Bundling
+
+**Status:** Implemented (Linux verified 2026-11-17; macOS/Windows pending CI)
+
+Phase 2 needs installable artifacts. Auro does not write a bundler: `auro-bundle` maps the
+`[bundle]` section of `Auro.toml` onto `tauri-bundler` 2.10 and delegates the platform formats to it
+([ADR 0011](../decisions/0011-bundling-delegates.md)).
+
+## Scope
+
+- The `auro-bundle` crate: config-to-bundler mapping and artifact paths.
+- The `auro bundle` CLI command: release build, then bundle.
+- Host formats: macOS `app`/`dmg`, Windows `msi`/`nsis`, Linux `appimage`/`deb`/`rpm`.
+- Mapping of identity, descriptions, license, category, icons and resources.
+- Typed errors (`AuroError::Bundle`).
+
+## Out of scope
+
+- Code signing, notarization and the signed updater (later Phase 2 specs).
+- Cross-compilation as a supported workflow; the bundler warns and is not exercised by CI.
+- Custom installer UI, installer hooks and file associations.
+- Generating icon assets; apps provide them through `[bundle].icon`.
+- Package formats outside the config schema (APK, Snap, Flatpak, …).
+
+## Decisions
+
+### D1 - Delegate to `tauri-bundler`, pinned exactly
+
+`tauri-bundler = "=2.10.5"` is pinned in the workspace. Its own documentation warns that minor
+releases may change the API; an upgrade is a deliberate change that must run the three-OS CI. The
+bundler crate is an implementation detail of `auro-bundle`, not Auro's public API.
+
+### D2 - The config is the only input
+
+`auro-bundle` reads the already-validated `Config`. It does not read `Cargo.toml` package metadata
+except through the binary name the CLI supplies. Mapping:
+
+| `Auro.toml` | `tauri-bundler` |
+|---|---|
+| `app.identifier` | `BundleSettings::identifier` |
+| `app.product-name` | `PackageSettings::product_name` |
+| `app.version` | `PackageSettings::version` |
+| `app.description` | `PackageSettings::description` (product name when empty) |
+| `app.authors` / `app.homepage` | `PackageSettings` fields; homepage also in bundle settings |
+| `app.license` | `BundleSettings::license` |
+| `bundle.category` | `BundleSettings::category` (`AppCategory`) |
+| `bundle.short-description` / `long-description` | bundle settings |
+| `bundle.copyright` / `license-file` | bundle settings |
+| `bundle.icon` / `resources` | absolute paths derived from the app directory |
+| `bundle.targets` | `PackageType` list; `"all"` uses the host set |
+
+An unknown category or package format is `AuroError::Bundle`, not a bundler panic.
+
+### D3 - `auro bundle` builds first
+
+`auro bundle` loads and version-checks the config, runs `cargo build --release`, resolves the
+executable name (`package.default-run`, else `package.name`), then calls
+`auro_bundle::bundle(dir, &config, &binary)`. The bundler's project output directory is
+`<app>/target/release`, so artifacts land under `target/release/bundle/<format>/`. Every produced
+path is printed, one per line.
+
+The app directory is canonicalised, so bundler paths are stable regardless of where the command is
+run.
+
+### D4 - Host formats only
+
+Phase 2 supports the host's formats. `bundle.targets` is already validated per host in spec 0002;
+`"all"` resolves to the host set. Cross-compilation is not a supported CLI workflow and is not a
+claim; the bundler's experimental warning is not suppressed.
+
+### D5 - Signing is not claimed yet
+
+`auro bundle` does not configure signing identities, certificates, notarization or an updater.
+`tauri-bundler` may sign when the host environment provides credentials; Auro does not promise it.
+The signing spec and the updater spec own those contracts.
+
+## Interfaces
+
+```rust,ignore
+pub fn host_targets() -> &'static [&'static str];
+pub fn package_types(config: &Config) -> Result<Vec<PackageType>, AuroError>;
+pub fn bundle(dir: &Path, config: &Config, binary: &str) -> Result<Vec<PathBuf>, AuroError>;
+```
+
+```text
+auro bundle [--dir <app>]
+```
+
+`AuroError::Bundle { message }` has kind `"bundle"`.
+
+## Acceptance
+
+1. Explicit targets map to the requested `PackageType`s; `"all"` maps to the host set
+   (`auro-bundle` unit tests).
+2. The manifest metadata reaches the bundler settings: identifier, icons, binary name, category,
+   output directory, and package types (`maps_the_manifest_metadata`).
+3. An unknown category is a typed bundle error, not a panic (`rejects_an_unknown_category`).
+4. `binary_name` prefers `package.default-run` and falls back to `package.name`
+   (`auro-cli` test).
+5. `auro bundle` on a real scaffolded app builds release and produces the host's requested
+   artifacts, printing their paths. Recorded with host, formats and environment.
+6. `cargo fmt --all --check`,
+   `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+   `cargo test --workspace --locked`, and `mdbook build docs` pass.
+
+## Status (2026-11-17)
+
+Linux verified on x86_64 with `tauri-bundler 2.10.5`. A fixture app (plain release binary,
+`targets = ["deb", "rpm", "appimage"]`, a 512x512 PNG icon) produced:
+
+```
+target/release/bundle/deb/Bundle Demo_0.1.0_amd64.deb
+target/release/bundle/rpm/Bundle Demo-0.1.0-1.x86_64.rpm
+target/release/bundle/appimage/Bundle Demo_0.1.0_amd64.AppImage
+```
+
+`auro bundle` printed each path. A missing/non-square AppImage icon is rejected before the bundler
+runs, because `tauri-bundler` panics in that case. macOS `.app`/`.dmg` and Windows MSI/NSIS are
+wired through the same mapping but have not been produced on those hosts in this environment; the
+three-OS CI is the place to verify them.
+
+## Open questions
+
+| Question | Where it settles |
+|---|---|
+| Codesign/notarization and Windows signing | Signing spec |
+| Signed manifests, deltas, staged rollout, rollback | Updater spec |
+| Icon placeholders in the scaffold | Bundling follow-up; apps may supply icons today |
+| Cross-compilation | Not planned for 1.0; revisit if demand appears |
+| AppImage tool downloads and offline builds | Document the bundler's cache/tooling behavior |

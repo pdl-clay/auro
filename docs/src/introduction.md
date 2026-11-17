@@ -7,10 +7,10 @@ with [GPUI](https://gpui.rs), Zed's GPU-accelerated Rust UI toolkit.
 
 The frontend is Rust. There is no HTML, no CSS engine and no JavaScript in the app runtime.
 
-> **Status: pre-alpha.** The workspace exists, Phase 0 and Phase 1 are complete, but nothing is
-> published on crates.io and there is no released CLI. This book documents the architecture and the
-> contracts the code is being written against; it is reference material, not end-user release
-> documentation.
+> **Status: pre-alpha.** The workspace exists, Phase 0 and Phase 1 are complete, and Phase 2 is in
+> progress, but nothing is published on crates.io and there is no released CLI. This book documents
+> the architecture and the contracts the code is being written against; it is reference material,
+> not end-user release documentation.
 
 ## Where to start
 
