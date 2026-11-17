@@ -42,10 +42,12 @@ installable `auro-cli` yet.
   pluggable backend trait for tests (spec 0018).
 - `auro-services`: `Keychain` stores, reads and deletes one secret through `keyring`, with a
   pluggable store trait for tests (spec 0019).
-- `auro-services`: `Shortcuts` registers and unregisters global hotkeys through `global-hotkey`,
-  with a pluggable backend trait for tests (spec 0020).
-- `auro-services`: `Tray` shows and hides a tray icon and sets its tooltip through `tray-icon`,
-  with a pluggable backend trait for tests (spec 0021).
+- `auro-services`: `Shortcuts` registers and unregisters global hotkeys through `global-hotkey`
+  and dispatches pressed-hotkey callbacks on a background thread, with a pluggable backend trait
+  for tests (spec 0020).
+- `auro-services`: `Tray` shows and hides a tray icon, sets its tooltip, installs a flat menu and
+  dispatches menu/click callbacks through `tray-icon`, with a pluggable backend trait for tests
+  (spec 0021).
 - `auro-ui`: `Button` is a focusable tab stop and activates its click handler on Enter or Space
   without modifiers; held keys do not repeat (spec 0023). AccessKit and IME remain upstream gaps.
 - `auro-services`: `AppLinks` parses, filters and queues URL-scheme deep links;

@@ -56,8 +56,8 @@ Every spec carries:
 | [0017](0017-autostart.md) | Autostart service | 2 | Implemented |
 | [0018](0018-notifications.md) | Notifications service | 2 | Implemented |
 | [0019](0019-keychain.md) | Keychain service | 2 | Implemented |
-| [0020](0020-shortcuts.md) | Global shortcuts service | 2 | Implemented (events/callbacks pending) |
-| [0021](0021-tray.md) | Tray service | 2 | Implemented (menus/click handlers pending) |
+| [0020](0020-shortcuts.md) | Global shortcuts service | 2 | Implemented (pressed callbacks) |
+| [0021](0021-tray.md) | Tray service | 2 | Implemented (menus and click callbacks) |
 | [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (forwarded-argument wiring pending) |
 | [0023](0023-keyboard-activation.md) | Keyboard activation for Button | 2 | Implemented (AccessKit/IME pending) |
 | [0024](0024-alpha-release.md) | Alpha release: version, publish order, facade features, scaffold | 2 | Draft (alpha candidate; publication pending) |

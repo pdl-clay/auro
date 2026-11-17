@@ -279,8 +279,8 @@ cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.
 the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
-notarization, updater installers beyond AppImage, deltas/rollout, single-instance activation, tray
-menus/shortcut callbacks, AccessKit/IME, and the product exit remain.
+notarization, updater installers beyond AppImage, deltas/rollout, single-instance activation,
+AccessKit/IME, and the product exit remain.
 
 **Signing/update foundations (2026-11-17):** `auro-sign` provides Ed25519 keys/signatures and
 SHA-256 hashes; `[bundle.macos]`/`[bundle.windows]` map signing inputs to the bundler; `auro-update`
@@ -298,9 +298,9 @@ a local socket; the primary receives `InstanceMessage` on its event pump. Automa
 activation remains app policy. GPUI supplies clipboard, file dialogs and open/reveal path/URL
 primitives; `auro-services` implements autostart, notifications, keychain, global shortcuts, tray
 and deep-link parsing/queue (`Autostart`, `Notifications`, `Keychain`, `Shortcuts`, `Tray`,
-`AppLinks`, specs 0017-0022). Tray menus/click handlers and shortcut callbacks remain.
-`auro-perms` implements the capability `Policy` with deny-by-default grants and compiled glob
-scopes; the plugin host that consumes it is Phase 3.
+`AppLinks`, specs 0017-0022). Tray menus/click handlers and shortcut callbacks are implemented;
+tray icon selection and persistence remain. `auro-perms` implements the capability `Policy` with
+deny-by-default grants and compiled glob scopes; the plugin host that consumes it is Phase 3.
 
 **Keyboard (2026-11-17):** `Button` is focusable, a tab stop, and activates on unmodified Enter or
 Space (spec 0023). AccessKit is absent from GPUI 0.2.2, so the screen-reader/IME portion of the
@@ -309,9 +309,9 @@ accessibility pass remains blocked upstream.
 **Phase 2 technical status (2026-11-17):** bundling; signed manifests, staging and Linux AppImage
 apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
 `auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
-Windows/macOS/package updater apply, deltas/staged rollout, single-instance activation, tray
-menus/shortcut callbacks, and AccessKit/IME. The exit criterion also needs three real apps and
-published benchmarks; it is not met by the workspace alone.
+Windows/macOS/package updater apply, deltas/staged rollout, single-instance activation, and
+AccessKit/IME. The exit criterion also needs three real apps and published benchmarks; it is not
+met by the workspace alone.
 
 **Alpha candidate (2026-11-17):** the workspace and internal requirements are
 `0.1.0-alpha.1`; every crate has a README, homepage and discovery metadata; the facade's services

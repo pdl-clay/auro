@@ -27,7 +27,9 @@ pub mod services {
     };
 
     #[cfg(feature = "tray")]
-    pub use auro_services::{Tray, TrayBackend, TrayError};
+    pub use auro_services::{
+        Tray, TrayBackend, TrayButton, TrayButtonState, TrayClick, TrayError, TrayMenuItem,
+    };
 }
 
 mod app;

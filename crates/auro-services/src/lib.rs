@@ -21,7 +21,9 @@ pub use keychain::{CredentialStore, Keychain, KeychainError};
 pub use notifications::{Notifications, NotificationsBackend, NotificationsError};
 pub use shortcuts::{ShortcutBackend, Shortcuts, ShortcutsError};
 #[cfg(feature = "tray")]
-pub use tray::{Tray, TrayBackend, TrayError};
+pub use tray::{
+    Tray, TrayBackend, TrayButton, TrayButtonState, TrayClick, TrayError, TrayMenuItem,
+};
 
 /// Why an autostart operation failed.
 #[derive(Debug, thiserror::Error)]
