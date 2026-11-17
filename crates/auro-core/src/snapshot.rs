@@ -149,6 +149,59 @@ impl Snapshot {
         }
         Ok(snapshot)
     }
+
+    /// Writes the envelope to `path`, replacing it atomically.
+    ///
+    /// The bytes go to a sibling temporary file which is then renamed, so a crash or a kill leaves
+    /// either the previous snapshot or the new one, never a half-written file.
+    pub fn save_to(&self, path: &std::path::Path) -> Result<(), AuroError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let temporary = path.with_extension("json.tmp");
+        std::fs::write(&temporary, self.encode()?)?;
+        std::fs::rename(&temporary, path)?;
+        Ok(())
+    }
+
+    /// Reads an envelope, or `None` when the file does not exist yet.
+    ///
+    /// A file that exists but cannot be read is an error: treating it as absent would silently
+    /// discard the user's state.
+    pub fn load_from(path: &std::path::Path) -> Result<Option<Self>, AuroError> {
+        match std::fs::read_to_string(path) {
+            Ok(raw) => Snapshot::decode(&raw).map(Some),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Path of the dev snapshot for this app identifier.
+    ///
+    /// Platform data directory: `%LOCALAPPDATA%` on Windows, `Application Support` on macOS,
+    /// `$XDG_DATA_HOME` (or `~/.local/share`) elsewhere.
+    pub fn dev_path(identifier: &str) -> Option<std::path::PathBuf> {
+        let base = if cfg!(windows) {
+            std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from)
+        } else if cfg!(target_os = "macos") {
+            std::env::var_os("HOME")
+                .map(|home| std::path::PathBuf::from(home).join("Library/Application Support"))
+        } else {
+            std::env::var_os("XDG_DATA_HOME")
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME")
+                        .map(|home| std::path::PathBuf::from(home).join(".local").join("share"))
+                })
+        }?;
+        Some(Self::path_in(&base, identifier))
+    }
+
+    /// The dev snapshot path under an explicit data directory. Split out so it is testable
+    /// without touching the process environment.
+    pub fn path_in(base: &std::path::Path, identifier: &str) -> std::path::PathBuf {
+        base.join(identifier).join("dev-snapshot.json")
+    }
 }
 
 #[cfg(test)]

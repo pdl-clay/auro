@@ -21,7 +21,10 @@ installable `auro-cli` yet.
 - `auro-core::snapshot`, re-exported from `auro`: a JSON envelope with `format_version`, build
   identity and per-entry `version`/payload, plus the `ReloadSnapshot` opt-in trait. `restore`
   reports a reset (`Missing`, `VersionMismatch`, `Decode`) instead of defaulting silently, and an
-  unknown format version fails to decode (spec 0004, D3). Not yet wired to a reload or restart.
+  unknown format version fails to decode (spec 0004, D3). `Snapshot::save_to` writes atomically and
+  `load_from` separates a missing file from an unreadable one; `Autosave` captures watched entries on
+  the caller's thread and writes after a 250 ms quiet period (`tick`) or on `flush`, to
+  `<platform data dir>/<identifier>/dev-snapshot.json`. Not yet wired to a reload or restart.
 - Workspace of six crates: `auro` (builder), `auro-core` (config, state), `auro-ipc` (commands,
   runtime bridge), `auro-macros` (`#[command]`, `generate_handler!`), `auro-ui` (GPUI re-exports,
   `Button`, tokens) and `auro-cli` (`new`, `dev`, `build`, `doctor`).

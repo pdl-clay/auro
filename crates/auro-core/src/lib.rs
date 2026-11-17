@@ -4,11 +4,13 @@
 //!
 //! Renderer-agnostic on purpose: nothing here names GPUI.
 
+pub mod autosave;
 pub mod config;
 pub mod snapshot;
 
 pub use auro_ipc::AuroError;
 pub use auro_ipc::runtime;
 pub use auro_ipc::state::{State, StateStore};
+pub use autosave::{Autosave, DEFAULT_DEBOUNCE};
 pub use config::{AppConfig, BundleConfig, BundleTargets, Config, DevConfig, Theme, WindowConfig};
 pub use snapshot::{FORMAT_VERSION, ReloadSnapshot, ResetReason, Restored, Snapshot};

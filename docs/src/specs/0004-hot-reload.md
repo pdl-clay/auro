@@ -293,8 +293,13 @@ to default state on mismatch.
 its `KEY` and `VERSION`. `Snapshot::restore` consumes one entry; a missing key, a version mismatch or
 an undecodable payload drops **only that entry** and returns `Restored::Reset(reason)` whose
 `message()` is printable — nothing defaults silently. A `format_version` this build does not
-understand makes `Snapshot::decode` fail outright. Not yet wired to capture/restore around a reload
-or a state-preserving restart, and no on-disk location is fixed.
+understand makes `Snapshot::decode` fail outright. `Snapshot::save_to` writes atomically (sibling
+temporary file plus rename) and `load_from` separates "missing" (`None`) from "unreadable" (error),
+so a corrupted file never looks like fresh state. `auro_core::Autosave` captures watched entries on
+the thread that calls `tick()` (UI state stays on the main thread; no background reader), writes
+after a 250 ms quiet period, and exposes `flush()` for an explicit save; the dev path is
+`<platform data dir>/<identifier>/dev-snapshot.json`. Not yet wired to capture/restore around a
+reload or a state-preserving restart.
 
 ### D4 - Successful reload, failed build, and fallback are distinct outcomes
 
