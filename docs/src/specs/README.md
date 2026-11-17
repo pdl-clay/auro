@@ -60,3 +60,4 @@ Every spec carries:
 | [0021](0021-tray.md) | Tray service | 2 | Implemented (menus/click handlers pending) |
 | [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (forwarding pending) |
 | [0023](0023-keyboard-activation.md) | Keyboard activation for Button | 2 | Implemented (AccessKit/IME pending) |
+| [0024](0024-alpha-release.md) | Alpha release: version, publish order, facade features, scaffold | 2 | Draft (alpha candidate; publication pending) |

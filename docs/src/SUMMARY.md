@@ -54,6 +54,7 @@
 - [0021 - Tray](specs/0021-tray.md)
 - [0022 - Deep links](specs/0022-deep-links.md)
 - [0023 - Keyboard activation](specs/0023-keyboard-activation.md)
+- [0024 - Alpha release](specs/0024-alpha-release.md)
 
 # Reference
 

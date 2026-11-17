@@ -4,7 +4,7 @@
 
 Phase 2 needs apps to be able to show desktop notifications. This spec fixes the notification
 service contract. The backend is pluggable so tests can record calls instead of firing a real
-notification.
+notification. The `auro::services` re-export requires the facade's `services` feature.
 
 ## Scope
 

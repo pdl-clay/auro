@@ -3,7 +3,8 @@
 **Status:** Implemented (2026-11-17; macOS bundle registration is packager-owned)
 
 Phase 2 needs apps to accept URL-scheme launches. This spec fixes the deep-link service contract:
-scheme validation, registration, parsing and a queue that waits for the app.
+scheme validation, registration, parsing and a queue that waits for the app. The `auro::services`
+re-export requires the facade's `services` feature.
 
 ## Scope
 

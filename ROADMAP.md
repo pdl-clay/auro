@@ -312,6 +312,12 @@ Windows/macOS/package updater apply, deltas/staged rollout, single-instance
 forwarding/activation, tray menus/shortcut callbacks, and AccessKit/IME. The exit criterion also
 needs three real apps and published benchmarks; it is not met by the workspace alone.
 
+**Alpha candidate (2026-11-17):** the workspace and internal requirements are
+`0.1.0-alpha.1`; every crate has a README, homepage and discovery metadata; the facade's services
+and tray are opt-in features; and an installed `auro-cli` scaffolds a versioned `auro` dependency.
+The leaf crates package and verify, and `auro-perms` passes `cargo publish --dry-run` with the
+release switch enabled. Actual publication, the release tag and the ordered upload remain.
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 

@@ -6,21 +6,31 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage = "https://pdl-clay.github.io/auro/"
+keywords = ["gui", "desktop", "gpui", "tauri", "framework"]
+categories = ["gui", "development-tools"]
 authors.workspace = true
 publish = false
+
+[package.metadata.docs.rs]
+features = ["services", "tray", "updater"]
 
 [features]
 # Experimental in-process hot boundaries (spec 0004). Off by default; `auro dev` relaunches.
 hot-reload = ["dep:subsecond", "dep:dioxus-devtools"]
 # Signed update manifests and the staged updater runtime (specs 0012, 0013).
 updater = ["dep:auro-update"]
+# Platform services. Off by default so the facade does not pull OS integrations.
+services = ["dep:auro-services"]
+# Tray icon support requires the platform services and GTK/AppIndicator on Linux.
+tray = ["services", "auro-services/tray"]
 
 [dependencies]
 auro-core.workspace = true
 auro-ipc.workspace = true
 auro-macros.workspace = true
 auro-perms.workspace = true
-auro-services.workspace = true
+auro-services = { workspace = true, optional = true }
 auro-ui.workspace = true
 auro-update = { workspace = true, optional = true }
 dioxus-devtools = { workspace = true, optional = true }

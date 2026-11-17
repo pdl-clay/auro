@@ -4,7 +4,8 @@
 
 Phase 2 needs apps to be able to opt into launching at login. This spec fixes the autostart service
 contract. It delegates the platform mechanics to `auto-launch` and always uses the
-least-privileged Windows mode.
+least-privileged Windows mode. The `auro::services` re-export requires the facade's `services`
+feature.
 
 ## Scope
 

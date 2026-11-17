@@ -6,8 +6,18 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage = "https://pdl-clay.github.io/auro/"
+keywords = ["gui", "desktop", "notifications", "keychain", "tray"]
+categories = ["gui", "os"]
 authors.workspace = true
 publish = false
+
+[package.metadata.docs.rs]
+features = ["tray"]
+
+[features]
+default = []
+tray = ["dep:tray-icon"]
 
 [dependencies]
 auto-launch = "0.6"
@@ -15,7 +25,7 @@ global-hotkey = "0.10"
 keyring = "4"
 notify-rust = "4"
 thiserror.workspace = true
-tray-icon = "0.26"
+tray-icon = { version = "0.26", optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

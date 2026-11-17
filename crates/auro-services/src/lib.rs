@@ -14,11 +14,13 @@ pub mod deep_link;
 pub mod keychain;
 pub mod notifications;
 pub mod shortcuts;
+#[cfg(feature = "tray")]
 pub mod tray;
 pub use deep_link::{AppLinks, DeepLink, DeepLinkError};
 pub use keychain::{CredentialStore, Keychain, KeychainError};
 pub use notifications::{Notifications, NotificationsBackend, NotificationsError};
 pub use shortcuts::{ShortcutBackend, Shortcuts, ShortcutsError};
+#[cfg(feature = "tray")]
 pub use tray::{Tray, TrayBackend, TrayError};
 
 /// Why an autostart operation failed.

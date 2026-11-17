@@ -4,7 +4,7 @@
 
 Phase 2 needs apps to be able to register global keyboard shortcuts. This spec fixes the shortcut
 service contract. The backend is pluggable so tests can record calls instead of grabbing an
-OS-level hotkey.
+OS-level hotkey. The `auro::services` re-export requires the facade's `services` feature.
 
 ## Scope
 

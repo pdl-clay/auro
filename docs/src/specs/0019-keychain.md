@@ -3,7 +3,8 @@
 **Status:** Implemented (2026-11-17)
 
 Phase 2 needs apps to be able to persist a secret in the platform keychain. This spec fixes the
-keychain service contract. The store is pluggable so tests can use an in-memory backend.
+keychain service contract. The store is pluggable so tests can use an in-memory backend. The
+`auro::services` re-export requires the facade's `services` feature.
 
 ## Scope
 

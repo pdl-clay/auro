@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage = "https://pdl-clay.github.io/auro/"
+keywords = ["gui", "macros", "commands", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers"]
 authors.workspace = true
 publish = false
 

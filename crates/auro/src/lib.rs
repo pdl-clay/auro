@@ -17,12 +17,16 @@ pub mod perms {
     pub use auro_perms::{Capability, Denied, Grant, Policy, PolicyError, UnknownCapability};
 }
 
+#[cfg(feature = "services")]
 pub mod services {
     pub use auro_services::{
         AppLinks, AppPath, Autostart, AutostartError, CredentialStore, DeepLink, DeepLinkError,
         Keychain, KeychainError, Notifications, NotificationsBackend, NotificationsError,
-        ShortcutBackend, Shortcuts, ShortcutsError, Tray, TrayBackend, TrayError,
+        ShortcutBackend, Shortcuts, ShortcutsError,
     };
+
+    #[cfg(feature = "tray")]
+    pub use auro_services::{Tray, TrayBackend, TrayError};
 }
 
 mod app;

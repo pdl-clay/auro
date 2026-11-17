@@ -50,6 +50,14 @@ installable `auro-cli` yet.
 - `auro-services`: `AppLinks` parses, filters and queues URL-scheme deep links;
   `register_scheme` writes per-user Windows/Linux registrations (macOS stays packager-owned)
   (spec 0022).
+- `auro`: platform services are opt-in (`services`), and `tray` is a separate feature because
+  `tray-icon` requires GTK/AppIndicator development libraries on Linux.
+- `auro new`: an installed CLI now emits `auro = "0.1.0-alpha.1"` (the CLI version) instead of an
+  invalid `path = "0.0.0"`; in-repo runs still emit the workspace path.
+- `[Unreleased] alpha preparation`: workspace and all internal dependencies are
+  `0.1.0-alpha.1`; every crate has a crate-root README, homepage, keywords and categories; the
+  facade's services/tray features and the scaffold's installed-version mode are in place. Spec 0024
+  records the version, metadata, feature and publish order contract. Publication is still pending.
 - `[bundle.macos]` and `[bundle.windows]` signing inputs (identity, entitlements, hardened runtime,
   certificate thumbprint, timestamping, custom sign command/args); Windows keeps WebView2 skipped.
 - `auro generate-key --out <path>` and `auro manifest --artifact ... --key ... --out ...`.

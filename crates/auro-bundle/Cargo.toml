@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage = "https://pdl-clay.github.io/auro/"
+keywords = ["gui", "desktop", "bundler", "installer", "packaging"]
+categories = ["development-tools::build-utils", "gui"]
 authors.workspace = true
 publish = false
 

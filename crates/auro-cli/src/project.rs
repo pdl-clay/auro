@@ -31,7 +31,13 @@ pub fn new(path: &Path) -> Result<(), AuroError> {
         &path.join("Cargo.toml"),
         &CARGO_TOML
             .replace("{{name}}", &name)
-            .replace("{{auro_path}}", &auro_path())
+            .replace(
+                "{{auro_dependency}}",
+                &auro_dependency(
+                    Path::new(env!("CARGO_MANIFEST_DIR")),
+                    env!("CARGO_PKG_VERSION"),
+                ),
+            )
             .replace("{{patch}}", &xattr_patch()),
     )?;
     write(
@@ -208,17 +214,16 @@ fn package_name(path: &Path) -> String {
     }
 }
 
-/// In-repo, the generated app points at the workspace. A published CLI would emit a version
-/// requirement instead; that lands with the first release.
-fn auro_path() -> String {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    if let Some(repo) = manifest.parent().and_then(Path::parent) {
+/// In-repo, the generated app points at the workspace. An installed CLI emits the matching
+/// crates.io version instead.
+fn auro_dependency(manifest_dir: &Path, version: &str) -> String {
+    if let Some(repo) = manifest_dir.parent().and_then(Path::parent) {
         let candidate = repo.join("crates").join("auro");
         if candidate.is_dir() {
-            return toml_path(&candidate);
+            return format!("{{ path = \"{}\" }}", toml_path(&candidate));
         }
     }
-    "0.0.0".to_owned()
+    format!("\"{version}\"")
 }
 
 /// The generated app is its own workspace, so it does not inherit this repository's
@@ -274,6 +279,10 @@ mod tests {
         let manifest =
             std::fs::read_to_string(target.join("Cargo.toml")).expect("generated manifest");
         assert!(
+            manifest.contains("auro = { path ="),
+            "in-repo scaffolds point at the workspace: {manifest}"
+        );
+        assert!(
             manifest.contains("[workspace]"),
             "the app must be its own workspace: {manifest}"
         );
@@ -313,6 +322,27 @@ mod tests {
     fn normalises_names() {
         assert_eq!(package_name(Path::new("/tmp/My App!")), "my-app");
         assert_eq!(package_name(Path::new("/tmp/2cool")), "app-2cool");
+    }
+
+    #[test]
+    fn published_cli_uses_the_crate_version() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manifest = temp.path().join("registry").join("auro-cli-0.1.0-alpha.1");
+        std::fs::create_dir_all(&manifest).expect("manifest dir");
+        assert_eq!(
+            auro_dependency(&manifest, "0.1.0-alpha.1"),
+            "\"0.1.0-alpha.1\""
+        );
+    }
+
+    #[test]
+    fn in_repo_cli_uses_the_workspace_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let manifest = temp.path().join("crates").join("auro-cli");
+        std::fs::create_dir_all(temp.path().join("crates").join("auro")).expect("workspace crate");
+        std::fs::create_dir_all(&manifest).expect("manifest dir");
+        let dependency = auro_dependency(&manifest, "0.1.0-alpha.1");
+        assert!(dependency.starts_with("{ path = \""), "{dependency}");
     }
 
     fn app_with_versions(config_version: &str, manifest_version: &str) -> tempfile::TempDir {
