@@ -226,7 +226,8 @@ headless test asserts the title reaches the window.
 ### Phase 1 - v0.1 "Hello, native" (weeks 4-8)
 
 - `auro-core`: multi-window lifecycle, app-wide events, command registry with schema, state store
-  (the config schema landed in Phase 0).
+  (the config schema landed in Phase 0; lifecycle events landed in
+  [spec 0006](docs/src/specs/0006-lifecycle-events.md)).
 - `auro-ui`: GPUI re-export, tokens, and the minimal primitives the scaffold needs; **no component
   toolkit** ([ADR 0009](docs/src/decisions/0009-toolkits-are-app-level.md)).
 - Toolkit seam: `App::setup` and `App::root_with` let the app initialize and wrap the toolkit it

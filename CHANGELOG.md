@@ -13,6 +13,10 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `LifecycleEvent` and `App::on_lifecycle`: main-thread handlers for `Ready`, `WindowOpened`,
+  `WindowClosed` and `Exiting`, in registration order. Auro tracks the window handles it opened so
+  a close is attributed to the configured label; the last close emits `Exiting` before quitting
+  (spec 0006). User-defined app events and runtime window management are the next core slices.
 - `App::setup` and `App::root_with`: an app can initialize the component toolkit it chose (for
   example `gpui_component::init`) and build its window root (for example a toolkit `Root`), while
   `App::root` stays the `Default`-view shortcut. `Theme` is re-exported for the config handoff.

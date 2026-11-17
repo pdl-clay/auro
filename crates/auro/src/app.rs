@@ -1,15 +1,40 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
-use auro_core::{AuroError, Config, StateStore, WindowConfig};
+use auro_core::{AuroError, Config, LifecycleEvent, StateStore, WindowConfig};
 use auro_ui::{
-    App as GpuiApp, AppContext, Application, Bounds, Entity, Pixels, Render, Size, TitlebarOptions,
-    Window, WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowOptions, px, size,
+    AnyWindowHandle, App as GpuiApp, AppContext, Application, Bounds, Entity, Pixels, Render, Size,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowDecorations,
+    WindowOptions, px, size,
 };
 
 type Setup = Box<dyn Fn(&mut GpuiApp, &Config)>;
-type OpenWindow = Box<dyn Fn(&mut GpuiApp, &Config, &WindowConfig)>;
+type OpenWindow = Box<dyn Fn(&mut GpuiApp, &Config, &WindowConfig) -> Option<AnyWindowHandle>>;
+type LifecycleHandler = Rc<dyn Fn(&LifecycleEvent, &mut GpuiApp)>;
+
+/// Main-thread lifecycle subscribers, in registration order.
+#[derive(Default)]
+struct Lifecycle {
+    handlers: RefCell<Vec<LifecycleHandler>>,
+}
+
+impl Lifecycle {
+    fn on(&self, handler: impl Fn(&LifecycleEvent, &mut GpuiApp) + 'static) {
+        self.handlers.borrow_mut().push(Rc::new(handler));
+    }
+
+    fn emit(&self, event: &LifecycleEvent, cx: &mut GpuiApp) {
+        // Clone the handles so a handler that closes a window can re-enter `emit` without
+        // tripping the `RefCell` borrow.
+        let handlers: Vec<_> = self.handlers.borrow().iter().cloned().collect();
+        for handler in handlers {
+            handler(event, cx);
+        }
+    }
+}
 
 /// Set by `auro dev`; the app then reports when each window's first repaint is requested.
 const TRACE_ENV: &str = "AURO_DEV_TRACE";
@@ -23,6 +48,7 @@ pub struct App {
     states: Arc<StateStore>,
     roots: Vec<(&'static str, OpenWindow)>,
     setups: Vec<Setup>,
+    lifecycle: Rc<Lifecycle>,
 }
 
 impl App {
@@ -31,6 +57,7 @@ impl App {
             states: Arc::new(StateStore::new()),
             roots: Vec::new(),
             setups: Vec::new(),
+            lifecycle: Rc::new(Lifecycle::default()),
         }
     }
 
@@ -47,6 +74,17 @@ impl App {
     /// registration order, once per app, after GPUI starts.
     pub fn setup(mut self, setup: impl Fn(&mut GpuiApp, &Config) + 'static) -> Self {
         self.setups.push(Box::new(setup));
+        self
+    }
+
+    /// Registers a main-thread lifecycle handler.
+    ///
+    /// Handlers run synchronously, in registration order, when the app becomes
+    /// [`LifecycleEvent::Ready`], when a tracked window opens or closes, and when the last window
+    /// closes ([`LifecycleEvent::Exiting`]). They may update entities and state; they must not
+    /// block. A panic propagates through the app. Exit cannot be cancelled in Phase 1.
+    pub fn on_lifecycle(self, handler: impl Fn(&LifecycleEvent, &mut GpuiApp) + 'static) -> Self {
+        self.lifecycle.on(handler);
         self
     }
 
@@ -80,9 +118,7 @@ impl App {
     ) -> Self {
         self.roots.push((
             label,
-            Box::new(move |cx, config, window| {
-                open_window_with(cx, config, window, &build);
-            }),
+            Box::new(move |cx, config, window| open_window_with(cx, config, window, &build)),
         ));
         self
     }
@@ -97,20 +133,42 @@ impl App {
             states,
             roots,
             setups,
+            lifecycle,
         } = self;
 
         Application::new().run(move |cx| {
             // Held for the process lifetime: commands resolve state through this store.
             let _states = states;
-            open_all(cx, &config, setups, &roots);
+            let open_windows = Rc::new(RefCell::new(Vec::<(AnyWindowHandle, String)>::new()));
 
-            // Closing the last window ends the app; `auro dev` and acceptance expect exit 0.
-            cx.on_window_closed(|cx| {
+            // Register before setups/Ready so a handler that closes a window still gets the close
+            // path; the registry fills in as windows open.
+            let closed_lifecycle = Rc::clone(&lifecycle);
+            let closed_windows = Rc::clone(&open_windows);
+            cx.on_window_closed(move |cx| {
+                let open = cx.windows();
+                let mut closed = Vec::new();
+                closed_windows.borrow_mut().retain(|(handle, label)| {
+                    if open.contains(handle) {
+                        true
+                    } else {
+                        closed.push(label.clone());
+                        false
+                    }
+                });
+
+                for label in closed {
+                    closed_lifecycle.emit(&LifecycleEvent::WindowClosed { label }, cx);
+                }
+
                 if cx.windows().is_empty() {
+                    closed_lifecycle.emit(&LifecycleEvent::Exiting, cx);
                     cx.quit();
                 }
             })
             .detach();
+
+            open_all(cx, &config, setups, &roots, &lifecycle, &open_windows);
             cx.activate(true);
         });
 
@@ -138,6 +196,8 @@ fn open_all(
     config: &Config,
     setups: Vec<Setup>,
     roots: &[(&'static str, OpenWindow)],
+    lifecycle: &Lifecycle,
+    open_windows: &RefCell<Vec<(AnyWindowHandle, String)>>,
 ) {
     for setup in setups {
         setup(cx, config);
@@ -146,9 +206,19 @@ fn open_all(
     for window in &config.app.windows {
         match roots.iter().find(|(label, _)| *label == window.label) {
             Some((_, open)) => {
-                open(cx, config, window);
-                if std::env::var_os(TRACE_ENV).is_some() {
-                    eprintln!("auro:trace window_requested {}", window.label);
+                if let Some(handle) = open(cx, config, window) {
+                    lifecycle.emit(
+                        &LifecycleEvent::WindowOpened {
+                            label: window.label.clone(),
+                        },
+                        cx,
+                    );
+                    open_windows
+                        .borrow_mut()
+                        .push((handle, window.label.clone()));
+                    if std::env::var_os(TRACE_ENV).is_some() {
+                        eprintln!("auro:trace window_requested {}", window.label);
+                    }
                 }
             }
             None => tracing::error!(
@@ -157,14 +227,16 @@ fn open_all(
             ),
         }
     }
+
+    lifecycle.emit(&LifecycleEvent::Ready, cx);
 }
 
 fn open_window<V: Render + Default + 'static>(
     cx: &mut GpuiApp,
     config: &Config,
     window: &WindowConfig,
-) {
-    open_window_with(cx, config, window, &|_, cx| cx.new(|_cx| V::default()));
+) -> Option<AnyWindowHandle> {
+    open_window_with(cx, config, window, &|_, cx| cx.new(|_cx| V::default()))
 }
 
 fn open_window_with<V: Render + 'static>(
@@ -172,18 +244,22 @@ fn open_window_with<V: Render + 'static>(
     config: &Config,
     window: &WindowConfig,
     build: &dyn Fn(&mut Window, &mut GpuiApp) -> Entity<V>,
-) {
+) -> Option<AnyWindowHandle> {
     let title = window_title(config, window);
     let options = window_options(config, window, &title, cx);
 
     // GPUI 0.2.2 applies `WindowOptions::titlebar.title` on X11, Windows and macOS but not on
     // Wayland, where the compositor then reports no title. Setting it on the window is the path
     // every platform honors, and it keeps the title identical across backends.
-    if let Err(error) = cx.open_window(options, |gpui_window, cx| {
+    match cx.open_window(options, |gpui_window, cx| {
         gpui_window.set_window_title(&title);
         build(gpui_window, cx)
     }) {
-        tracing::error!(window = window.label, %error, "failed to open window");
+        Ok(handle) => Some(*handle),
+        Err(error) => {
+            tracing::error!(window = window.label, %error, "failed to open window");
+            None
+        }
     }
 }
 
@@ -312,12 +388,11 @@ mod tests {
     fn opens_window_with_the_configured_title() {
         let cx = TestAppContext::single();
         let config = config(Some("Custom title"));
-        cx.update(|cx| open_window::<Blank>(cx, &config, &config.app.windows[0]));
+        let handle = cx
+            .update(|cx| open_window::<Blank>(cx, &config, &config.app.windows[0]))
+            .expect("the window opens");
 
-        let windows = cx.windows();
-        assert_eq!(windows.len(), 1, "the declared window must open");
-
-        let mut vcx = VisualTestContext::from_window(windows[0], &cx);
+        let mut vcx = VisualTestContext::from_window(handle, &cx);
         assert_eq!(vcx.window_title().as_deref(), Some("Custom title"));
     }
 
@@ -347,12 +422,17 @@ mod tests {
     }
 
     #[test]
-    fn setup_runs_before_roots_and_root_with_uses_the_app_builder() {
+    fn setup_runs_before_roots_and_lifecycle_reports_ready() {
         use std::sync::{Arc, Mutex};
 
         let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
         let setup_order = Arc::clone(&order);
         let root_order = Arc::clone(&order);
+        let events = Arc::new(Mutex::new(Vec::<LifecycleEvent>::new()));
+        let lifecycle_events = Arc::clone(&events);
+        let lifecycle_order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let first_handler = Arc::clone(&lifecycle_order);
+        let second_handler = Arc::clone(&lifecycle_order);
         let mut config = config(Some("Custom title"));
         config.app.windows[0].theme = Theme::Dark;
 
@@ -365,22 +445,82 @@ mod tests {
             .root_with::<Wrapped>("main", move |_window, cx| {
                 root_order.lock().expect("order").push("root");
                 cx.new(|_| Wrapped)
+            })
+            .on_lifecycle(move |event, _cx| {
+                lifecycle_events.lock().expect("events").push(event.clone());
+            })
+            .on_lifecycle(move |_event, _cx| {
+                first_handler.lock().expect("order").push("first");
+            })
+            .on_lifecycle(move |_event, _cx| {
+                second_handler.lock().expect("order").push("second");
             });
 
         let App {
             states: _,
             roots,
             setups,
+            lifecycle,
         } = app;
+        let open_windows = RefCell::new(Vec::new());
         let cx = TestAppContext::single();
-        cx.update(|cx| open_all(cx, &config, setups, &roots));
+        cx.update(|cx| open_all(cx, &config, setups, &roots, &lifecycle, &open_windows));
 
         assert_eq!(
             order.lock().expect("order").as_slice(),
             ["setup", "root"],
             "setups must run before a root builder"
         );
+        assert_eq!(
+            events.lock().expect("events").as_slice(),
+            [
+                LifecycleEvent::WindowOpened {
+                    label: "main".to_owned()
+                },
+                LifecycleEvent::Ready
+            ],
+            "window events precede Ready"
+        );
+        assert_eq!(
+            lifecycle_order.lock().expect("order").as_slice(),
+            ["first", "second", "first", "second"],
+            "lifecycle handlers run in registration order for each event"
+        );
         assert_eq!(cx.windows().len(), 1, "the declared window must open");
+        assert_eq!(open_windows.borrow().len(), 1, "the handle is tracked");
+    }
+
+    #[test]
+    fn lifecycle_reports_window_close_and_exit() {
+        use std::sync::{Arc, Mutex};
+
+        let events = Arc::new(Mutex::new(Vec::<LifecycleEvent>::new()));
+        let recorded = Arc::clone(&events);
+        let lifecycle = Lifecycle::default();
+        lifecycle.on(move |event, _cx| {
+            recorded.lock().expect("events").push(event.clone());
+        });
+
+        let cx = TestAppContext::single();
+        cx.update(|cx| {
+            lifecycle.emit(
+                &LifecycleEvent::WindowClosed {
+                    label: "main".to_owned(),
+                },
+                cx,
+            );
+            lifecycle.emit(&LifecycleEvent::Exiting, cx);
+        });
+
+        assert_eq!(
+            events.lock().expect("events").as_slice(),
+            [
+                LifecycleEvent::WindowClosed {
+                    label: "main".to_owned()
+                },
+                LifecycleEvent::Exiting
+            ]
+        );
     }
 
     #[test]

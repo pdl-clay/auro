@@ -32,6 +32,7 @@
 - [0002 - Configuration](specs/0002-config.md)
 - [0004 - Hot reload](specs/0004-hot-reload.md)
 - [0005 - Toolkit seam](specs/0005-toolkit-seam.md)
+- [0006 - Lifecycle events](specs/0006-lifecycle-events.md)
 
 # Reference
 
