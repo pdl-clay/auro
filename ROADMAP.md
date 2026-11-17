@@ -238,8 +238,25 @@ headless test asserts the title reaches the window.
   as the tested integration while GPUI is pinned.
 - Theming: Auro tokens for its primitives; themes belong to the app's toolkit (the `theme` config
   is passed to `App::setup`).
+- Reference app: [`examples/log-viewer`](examples/log-viewer/README.md) — log viewer plus a
+  settings window, using `gpui-component 0.5.1` at the app level. It is the phase's manual exit
+  proof and is not built by the main CI matrix.
 - `auro dev`: watch + rebuild + relaunch. Experimental hot reload (mechanism under [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 - CLI: `new`, `dev`, `build`, `doctor`.
+
+**Progress (2026-11-17):** the toolkit seam ([spec 0005](docs/src/specs/0005-toolkit-seam.md)),
+lifecycle events ([0006](docs/src/specs/0006-lifecycle-events.md)), typed app events
+([0007](docs/src/specs/0007-events.md)), command schemas
+([0008](docs/src/specs/0008-command-schema.md)), the window manager
+([0009](docs/src/specs/0009-window-manager.md)) and the reference app are in place. The command
+handler is still not wired into `App` (plugins are the consumer), and hot reload remains
+experimental.
+
+**Phase 1 closed (2026-11-17):** the exit criterion is met by
+[`examples/log-viewer`](examples/log-viewer/README.md), a two-window log viewer built with Auro and
+an application-level toolkit. The core slices are implemented and accepted; the command registry is
+deliberately not wired into `App` until plugins, and `auro dev` still relaunches by default with
+experimental hot mode under [spec 0004](docs/src/specs/0004-hot-reload.md).
 
 **Exit:** a real internal tool can be built with it (log viewer plus a settings window) using the
 toolkit the app chooses.

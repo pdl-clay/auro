@@ -68,6 +68,9 @@ toolkit's size; the framework's minimal app does not.
 These numbers are context, not a benchmark contract. Re-measure when the toolkit or GPUI line
 changes, and record the environment with the result.
 
+The working integration is in [`examples/log-viewer`](../../examples/log-viewer/README.md): two
+windows, a background event stream, and settings, all with the toolkit at the app level.
+
 ## What Auro will not do
 
 - Add a toolkit to `auro-ui` or `auro-core`.

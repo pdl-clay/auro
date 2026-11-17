@@ -1,0 +1,13 @@
+[package]
+name = "log-viewer"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+auro = { path = "../../crates/auro" }
+gpui-component = "=0.5.1"
+
+[patch.crates-io]
+xattr = { path = "../../vendor/xattr" }

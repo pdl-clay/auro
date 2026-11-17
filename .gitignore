@@ -6,6 +6,7 @@
 # auro
 /auro-dist
 *.auro-build
+/examples/log-viewer/target
 
 # docs
 /docs/book

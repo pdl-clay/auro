@@ -13,6 +13,9 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `examples/log-viewer`: the Phase 1 reference app (log viewer plus settings window) built with
+  Auro and application-level `gpui-component 0.5.1`. It exercises the toolkit seam, typed events
+  from a background thread, lifecycle cleanup, and `auro::windows` open/close by label.
 - `windows` manager: `open`, `close`, `focus`, `is_open` and `handle` by the labels declared in
   `Auro.toml`. Startup uses the same path; open is idempotent, close is attributed by the existing
   lifecycle observer, and an undeclared label or missing root returns `AuroError::Window`
@@ -231,6 +234,10 @@ installable `auro-cli` yet.
 
 ### Changed
 
+- Phase 1 is closed: the toolkit seam, lifecycle events, typed events, command schemas, window
+  manager and the log-viewer reference app are in place, and README/README.pt-BR/book status say
+  Phase 1 is complete. The command registry remains unwired until plugins; hot reload stays
+  experimental.
 - Auro ships no component toolkit: Phase 1 no longer promises ~20 components in `auro-ui`.
   Toolkits are application dependencies, initialized in `App::setup` and wrapped with
   `App::root_with`; the book documents `gpui-component 0.5.x` as the tested line while GPUI is

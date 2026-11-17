@@ -1,0 +1,19 @@
+[app]
+identifier = "com.example.logviewer"
+product-name = "Log Viewer"
+version = "0.1.0"
+description = "Auro Phase 1 example: log viewer with a settings window"
+authors = ["The Auro Authors"]
+license = "MIT OR Apache-2.0"
+
+[[app.windows]]
+label = "main"
+title = "Log Viewer"
+width = 1000
+height = 680
+
+[[app.windows]]
+label = "settings"
+title = "Settings"
+width = 460
+height = 420
