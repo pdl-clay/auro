@@ -298,7 +298,8 @@ temporary file plus rename) and `load_from` separates "missing" (`None`) from "u
 so a corrupted file never looks like fresh state. `auro_core::Autosave` captures watched entries on
 the thread that calls `tick()` (UI state stays on the main thread; no background reader), writes
 after a 250 ms quiet period, and exposes `flush()` for an explicit save; the dev path is
-`<platform data dir>/<identifier>/dev-snapshot.json`. The scaffold wires it: `CounterState`
+`<platform data dir>/<identifier>/dev-snapshot.json`; a leading UTF-8 BOM is tolerated on load. The
+scaffold wires it: `CounterState`
 implements `ReloadSnapshot`, the view restores on start and prints `auro: state restored from <path>`
 or `auro: state reset: <reason>`, and a click marks dirty then ticks 350 ms later. Verified on
 niri/Wayland 2026-11-16: a hand-written snapshot with `count: 7` restored (`state restored`), and the
@@ -323,6 +324,16 @@ replaced code can run; the host must not invoke replaced code after a failed or 
 
 *Rejected:* applying partial/broken reloads. *Rejected:* leaving tasks running against replaced code.
 *Rejected:* presenting a restart as hot reload.
+
+**Implemented (2026-11-16, relaunch mode).** The dev loop reads the app's snapshot report from its
+stderr and prints the label for the relaunch that follows a save: `auro: restarted (state restored)`
+or `auro: restarted (state reset: <reason>)`. The first launch prints no label because nothing
+restarted. A failed rebuild prints the tail of the compiler output and keeps the previous UI running.
+On Windows the app runs from `target/auro-dev/<stem>-<pid>-<n>.exe`: a running image cannot be
+relinked, and a staging failure is reported while the previous UI stays up. Verified on niri/Wayland
+and on Windows 11 (WinBoat), both with a hand-written snapshot: restore and version-mismatch reset
+each produced the matching label, initial start produced none, and the two relaunches were traced at
+2408/2357/2380 ms (Linux) and 10754/8159 ms (Windows) save-to-build, `debug`, warm dependency cache.
 
 ### D5 - Compatibility is enforced, not assumed
 

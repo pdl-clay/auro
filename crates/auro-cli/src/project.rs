@@ -97,6 +97,12 @@ pub fn check_version(dir: &Path, config: &Config) -> Result<(), AuroError> {
     Ok(())
 }
 
+/// TOML basic strings treat `\` as an escape, and a Windows path full of backslashes breaks the
+/// generated manifest (`\U` is a unicode escape). Cargo accepts forward slashes on every platform.
+fn toml_path(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
+}
+
 fn write(path: &Path, contents: &str) -> Result<(), AuroError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -146,7 +152,7 @@ fn auro_path() -> String {
     if let Some(repo) = manifest.parent().and_then(Path::parent) {
         let candidate = repo.join("crates").join("auro");
         if candidate.is_dir() {
-            return candidate.display().to_string();
+            return toml_path(&candidate);
         }
     }
     "0.0.0".to_owned()
@@ -170,7 +176,7 @@ fn xattr_patch() -> String {
          # the dependency chain stops pulling xattr 0.2.\n\
          [patch.crates-io]\n\
          xattr = {{ path = \"{}\" }}\n",
-        vendored.display()
+        toml_path(&vendored)
     )
 }
 
@@ -201,6 +207,13 @@ mod tests {
             Some("main")
         );
 
+        let manifest =
+            std::fs::read_to_string(target.join("Cargo.toml")).expect("generated manifest");
+        assert!(
+            manifest.contains("[workspace]"),
+            "the app must be its own workspace: {manifest}"
+        );
+
         // A leftover `{{identifier}}` would not compile in the generated app.
         let view = std::fs::read_to_string(target.join("src/views/mod.rs")).expect("view");
         assert!(
@@ -219,6 +232,12 @@ mod tests {
         std::fs::write(temp.path().join("keep.txt"), "x").expect("write");
         let error = new(temp.path()).expect_err("refuses");
         assert!(error.to_string().contains("not empty"), "{error}");
+    }
+
+    #[test]
+    fn generated_manifest_paths_use_forward_slashes() {
+        assert_eq!(toml_path(Path::new(r"C:\Users\a\auro")), "C:/Users/a/auro");
+        assert_eq!(toml_path(Path::new("/home/a/auro")), "/home/a/auro");
     }
 
     #[test]

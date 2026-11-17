@@ -8,3 +8,6 @@ rust-version = "1.90"
 auro = { path = "{{auro_path}}" }
 serde = { version = "1", features = ["derive"] }
 {{patch}}
+
+# Its own workspace: a parent manifest must never capture the generated app.
+[workspace]

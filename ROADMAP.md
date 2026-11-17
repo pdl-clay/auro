@@ -202,7 +202,10 @@ The phase is still in progress until the exit criterion and acceptance are fully
 broken-then-fixed edit kept the previous window and app alive during the failure and produced a new
 app process 3 s after the fix (spec 0004 D4, implemented the same day). The dev loop now emits a JSON
 trace per save: median **2380 ms** save→build and **2730 ms** save→repaint-requested (three saves,
-debug, warm cache, 50 ms resolution; spec 0004 D6). Remaining acceptance gaps:
+debug, warm cache, 50 ms resolution; spec 0004 D6). Relaunches are labelled from the app's snapshot
+report (`restarted (state restored)` / `restarted (state reset: <reason>)`), verified on Linux and on
+Windows 11, where the dev loop now runs the app from a copy under `target/auro-dev/` because Windows
+locks a running image; the Windows traces were 10.8 s and 8.2 s save→build (debug, warm cache). Remaining acceptance gaps:
 automated (process-level) window-close coverage, and the observed `(unset)` window title reported by
 the compositor even though the config sets one (not diagnosed).
 

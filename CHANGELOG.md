@@ -18,6 +18,9 @@ installable `auro-cli` yet.
   when `AURO_DEV_TRACE` is set, so save-to-visible is computed without a stopwatch (spec 0004, D6).
   First measured run in relaunch mode: 2730 ms median save→repaint-requested on niri/Wayland, warm
   cache, debug build.
+- `auro dev` labels each relaunch by what happened to the snapshot: `auro: restarted (state restored)`
+  or `auro: restarted (state reset: <reason>)`. A first start has nothing to restart, so it prints no
+  label (spec 0004, D4).
 - `auro-core::snapshot`, re-exported from `auro`: a JSON envelope with `format_version`, build
   identity and per-entry `version`/payload, plus the `ReloadSnapshot` opt-in trait. `restore`
   reports a reset (`Missing`, `VersionMismatch`, `Decode`) instead of defaulting silently, and an
@@ -143,6 +146,19 @@ installable `auro-cli` yet.
   after the replacement binary exists, so a typo keeps the previous UI alive and the session
   reports `build failed, previous UI still running` (spec 0004, D4).
 
+- `auro new` on Windows wrote `path = "C:\..."` into the generated `Cargo.toml`; TOML reads `\U` as a
+  unicode escape and rejected the manifest, so the app could not build at all. Generated paths now use
+  forward slashes, which cargo accepts on every platform.
+- Generated apps declare `[workspace]`, so a parent `Cargo.toml` above the app cannot capture it. On
+  Windows an orphan manifest in `%USERPROFILE%` broke the build before any crate compiled.
+- `auro dev` on Windows runs the app from `target/auro-dev/<stem>-<pid>-<n>.exe`: Windows locks a
+  running image, so relinking the cargo artifact failed with the previous window still open. Failing
+  to stage a new copy is recoverable and keeps the previous UI; copies are named per dev session so a
+  stale process cannot collide with the next one.
+- A failed rebuild prints the tail of cargo's stderr instead of a generic "cargo build failed", which
+  had hidden a locked-executable error on Windows.
+- `Snapshot::load_from` tolerates a UTF-8 BOM, which some tools write by default; without this the
+  snapshot was reported unreadable and state silently started from defaults.
 - `auro dev` rebuilt in a loop: the watcher treated file *reads* as changes, and the app opening
   `Auro.toml` on every start re-triggered the build that had just started it.
 - Closing the last window now quits the Auro app (GPUI `on_window_closed` + `quit`), and `auro dev`

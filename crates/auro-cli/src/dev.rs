@@ -12,22 +12,36 @@ use notify::{RecursiveMode, Watcher};
 const READY_MARKER: &str = "auro:trace window_requested";
 const TRACE_ENV: &str = "AURO_DEV_TRACE";
 
+/// What the child reports to the dev loop over stderr.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ChildEvent {
+    /// First repaint was requested for this window label.
+    Ready(String),
+    /// The app restored or reset its snapshot; the payload is the user-facing label.
+    State(String),
+}
+
 /// Builds, spawns and watches the app. A change rebuilds and relaunches; Ctrl-C leaves nothing
 /// behind.
+///
+/// On Windows a running executable cannot be replaced, so the dev loop runs a copy from
+/// `target/auro-dev/` and leaves the cargo artifact free to be relinked.
 pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     let dir = dir.canonicalize()?;
     let config_path = dir.join(auro_core::config::CONFIG_FILE);
     let config = Config::load_from(&config_path)?;
     let patch = overrides_json(overrides)?;
 
-    let mut binary = build(&dir, &config)?;
-    println!("auro: running {}", binary.display());
-    let (ready_tx, ready_rx) = mpsc::channel::<String>();
+    let first = build(&dir, &config)?;
+    let mut generation = 1u64;
+    let mut running = deploy(&first, &dir, generation)?;
+    println!("auro: running {}", running.display());
+    let (child_tx, child_rx) = mpsc::channel::<ChildEvent>();
     let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(spawn(
-        &binary,
+        &running,
         &dir,
         patch.as_deref(),
-        ready_tx.clone(),
+        child_tx.clone(),
     )?)));
     // Save-to-window bookkeeping for the trace line (spec 0004, D6).
     let mut saved_at: Option<Instant> = None;
@@ -74,15 +88,26 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
                 println!("auro: change detected, rebuilding");
                 match build(&dir, &config) {
                     Ok(next) => {
-                        // Only stop the app once the replacement binary exists: a failed build
-                        // must leave the previous UI running (spec 0004, D4).
-                        stop(&slot);
-                        while ready_rx.try_recv().is_ok() {}
+                        while child_rx.try_recv().is_ok() {}
                         built_at = Some(Instant::now());
-                        binary = next;
-                        let child = spawn(&binary, &dir, patch.as_deref(), ready_tx.clone())?;
-                        println!("auro: rebuilt, running {}", binary.display());
-                        *slot.lock().expect("dev slot poisoned") = Some(child);
+                        match deploy(&next, &dir, generation + 1) {
+                            Ok(deployed) => {
+                                generation += 1;
+                                stop(&slot);
+                                let previous = std::mem::replace(&mut running, deployed);
+                                if previous != running {
+                                    // Best effort: Windows may still hold the old image.
+                                    let _ = std::fs::remove_file(previous);
+                                }
+                                let child =
+                                    spawn(&running, &dir, patch.as_deref(), child_tx.clone())?;
+                                println!("auro: rebuilt, running {}", running.display());
+                                *slot.lock().expect("dev slot poisoned") = Some(child);
+                            }
+                            Err(error) => eprintln!(
+                                "auro: could not stage the new binary, previous UI still running: {error}"
+                            ),
+                        }
                     }
                     Err(error) => {
                         eprintln!("auro: build failed, previous UI still running: {error}")
@@ -90,17 +115,28 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if let (Some(saved), Some(built)) = (saved_at, built_at)
-                    && let Ok(label) = ready_rx.try_recv()
-                {
-                    let now = Instant::now();
-                    println!(
-                        "{}",
-                        trace_line(&label, now - saved, built - saved, now - built)
-                    );
-                    // One trace per save: the next edit starts a new measurement.
-                    saved_at = None;
-                    built_at = None;
+                while let Ok(event) = child_rx.try_recv() {
+                    match event {
+                        ChildEvent::Ready(label) => {
+                            if let (Some(saved), Some(built)) = (saved_at, built_at) {
+                                let now = Instant::now();
+                                println!(
+                                    "{}",
+                                    trace_line(&label, now - saved, built - saved, now - built)
+                                );
+                                // One trace per save: the next edit starts a new measurement.
+                                saved_at = None;
+                                built_at = None;
+                            }
+                        }
+                        ChildEvent::State(label) => {
+                            // Only a relaunch has a save pending; a first launch restores the
+                            // snapshot without any restart to report.
+                            if saved_at.is_some() {
+                                println!("auro: {label}");
+                            }
+                        }
+                    }
                 }
                 if let Some(status) = child_exited(&slot) {
                     if status.success() {
@@ -139,9 +175,15 @@ fn build(dir: &Path, config: &Config) -> Result<PathBuf, AuroError> {
 
     let output = command.output()?;
     if !output.status.success() {
-        return Err(AuroError::Message(
-            "cargo build failed; see the output above".to_owned(),
-        ));
+        // The compiler already printed to its own stderr; keep the tail so a failed rebuild says
+        // why (a locked executable on Windows was invisible without this).
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail: Vec<&str> = stderr.lines().rev().take(12).collect();
+        let tail: Vec<&str> = tail.into_iter().rev().collect();
+        return Err(AuroError::Message(format!(
+            "cargo build failed:\n{}",
+            tail.join("\n")
+        )));
     }
 
     let mut binary = None;
@@ -159,11 +201,32 @@ fn build(dir: &Path, config: &Config) -> Result<PathBuf, AuroError> {
     binary.ok_or_else(|| AuroError::Message("cargo produced no binary to run".to_owned()))
 }
 
+/// Path the app is launched from.
+///
+/// Windows locks a running image, and `cargo build` must be able to overwrite its artifact, so each
+/// generation runs from its own copy. Other platforms run the artifact directly.
+fn deploy(binary: &Path, dir: &Path, generation: u64) -> Result<PathBuf, AuroError> {
+    if !cfg!(windows) {
+        return Ok(binary.to_path_buf());
+    }
+    let folder = dir.join("target").join("auro-dev");
+    std::fs::create_dir_all(&folder)?;
+    // Names unique per dev session: a copy left running by an earlier session must never collide
+    // with this one (`fs::copy` over a running image fails with a sharing violation).
+    let stem = binary
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("app");
+    let copy = folder.join(format!("{stem}-{}-{generation}.exe", std::process::id()));
+    std::fs::copy(binary, &copy)?;
+    Ok(copy)
+}
+
 fn spawn(
     binary: &Path,
     dir: &Path,
     patch: Option<&str>,
-    ready: mpsc::Sender<String>,
+    events: mpsc::Sender<ChildEvent>,
 ) -> Result<Child, AuroError> {
     let mut command = Command::new(binary);
     command.current_dir(dir);
@@ -182,7 +245,9 @@ fn spawn(
             use std::io::{BufRead, BufReader};
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                 if let Some(label) = ready_label(&line) {
-                    let _ = ready.send(label.to_owned());
+                    let _ = events.send(ChildEvent::Ready(label.to_owned()));
+                } else if let Some(label) = relaunch_label(&line) {
+                    let _ = events.send(ChildEvent::State(label));
                 }
                 eprintln!("{line}");
             }
@@ -195,6 +260,15 @@ fn spawn(
 /// `auro:trace window_requested main` -> `main`; any other line is not a marker.
 fn ready_label(line: &str) -> Option<&str> {
     line.strip_prefix(READY_MARKER).map(str::trim)
+}
+
+/// Turns the app's snapshot report into the relaunch label required by spec 0004, D4.
+fn relaunch_label(line: &str) -> Option<String> {
+    if line.starts_with("auro: state restored") {
+        return Some("restarted (state restored)".to_owned());
+    }
+    let reason = line.strip_prefix("auro: state reset: ")?;
+    Some(format!("restarted (state reset: {reason})"))
 }
 
 /// One machine-readable line per save, so save-to-visible can be computed without a stopwatch.
@@ -320,6 +394,20 @@ mod tests {
         );
         assert_eq!(ready_label("auro: running /tmp/app"), None);
         assert_eq!(ready_label(""), None);
+    }
+
+    #[test]
+    fn labels_a_relaunch_by_what_happened_to_the_snapshot() {
+        assert_eq!(
+            relaunch_label("auro: state restored from /tmp/dev-snapshot.json").as_deref(),
+            Some("restarted (state restored)")
+        );
+        assert_eq!(
+            relaunch_label("auro: state reset: snapshot entry version 2 cannot be read").as_deref(),
+            Some("restarted (state reset: snapshot entry version 2 cannot be read)")
+        );
+        assert_eq!(relaunch_label("auro: rebuilt, running /tmp/app"), None);
+        assert_eq!(relaunch_label(""), None);
     }
 
     #[test]

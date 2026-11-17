@@ -276,7 +276,10 @@ Runnables, in order, on a clean checkout:
 - 1: **met in CI.** CI is green on macOS, Windows, `ubuntu-latest` and `ubuntu-22.04` (latest:
   runs `43783852871`/`43783852868` for `78871e2`; earlier run `43776830848` for `5a5d389` remained
   the first green after adding `libxkbcommon-x11-dev`). Not verified on a real desktop session.
-- 2: **met** locally (`/tmp/auro-demo` builds).
+- 2: **met** locally (`/tmp/auro-demo` builds) and on Windows 11 (`auro new` then `cargo build` in
+  274 s in the guest), after fixing two scaffold defects found there: a backslash `path` that TOML
+  rejected as a unicode escape, and a missing `[workspace]` that let a parent manifest capture the
+  app.
 - 3: **partially verified.** Window opens and the rebuild/relaunch cycle work locally; a headless
   GPUI test clicks the button, dispatches the async `#[auro::command]` and asserts the view update
   (`auro` integration test `clicking_button_dispatches_async_command_and_updates_view`). Closing

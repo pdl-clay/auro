@@ -170,7 +170,8 @@ impl Snapshot {
     /// discard the user's state.
     pub fn load_from(path: &std::path::Path) -> Result<Option<Self>, AuroError> {
         match std::fs::read_to_string(path) {
-            Ok(raw) => Snapshot::decode(&raw).map(Some),
+            // A UTF-8 BOM is legal in a text file and some tools always write one.
+            Ok(raw) => Snapshot::decode(raw.trim_start_matches('\u{feff}')).map(Some),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
         }
@@ -320,6 +321,22 @@ mod tests {
         assert_eq!(
             loaded.restore::<Filter>(),
             Restored::Restored(Filter { text: "abc".into() })
+        );
+    }
+
+    #[test]
+    fn accepts_a_utf8_bom() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("dev-snapshot.json");
+        let mut saved = Snapshot::new("build-1");
+        saved.insert(&Counter { count: 5 }).expect("insert");
+        let json = format!("\u{feff}{}", saved.encode().expect("encode"));
+        std::fs::write(&path, json).expect("write");
+
+        let mut loaded = Snapshot::load_from(&path).expect("load").expect("file");
+        assert_eq!(
+            loaded.restore::<Counter>(),
+            Restored::Restored(Counter { count: 5 })
         );
     }
 
