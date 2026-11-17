@@ -279,8 +279,8 @@ cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.
 the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
-notarization, updater installers beyond AppImage, deltas/rollout, the remaining platform services
-and the accessibility pass remain.
+notarization, updater installers beyond AppImage, deltas/rollout, single-instance
+forwarding/activation, tray menus/shortcut callbacks, AccessKit/IME, and the product exit remain.
 
 **Signing/update foundations (2026-11-17):** `auro-sign` provides Ed25519 keys/signatures and
 SHA-256 hashes; `[bundle.macos]`/`[bundle.windows]` map signing inputs to the bundler; `auro-update`
