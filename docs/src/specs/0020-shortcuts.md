@@ -34,8 +34,12 @@ and already handles the quirks.
 `Shortcuts::with_backend` accepts any `ShortcutBackend`. Tests can inject a recorder and verify
 register/unregister calls without touching OS state. Production code uses `Shortcuts::new()`.
 
+`ShortcutBackend` is not `Send + Sync`, because `global-hotkey`'s Windows manager holds a raw
+pointer. The service stores the backend in an `Rc`, so it is main-thread-only like a GPUI view.
+
 *Rejected:* a mock flag on the production type. It keeps the boundary explicit and makes the test
-double a test-only type.
+double a test-only type. *Rejected:* wrapping the manager in a mutex. It would still not be `Send`
+on Windows and would add no useful sharing.
 
 ### D3 - No callback yet
 

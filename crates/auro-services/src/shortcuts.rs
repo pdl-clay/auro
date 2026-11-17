@@ -5,7 +5,7 @@
 //! The backend is pluggable so tests can record register/unregister calls instead of grabbing an
 //! OS-level hotkey. The default backend is `global-hotkey`.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use thiserror::Error;
 
@@ -21,19 +21,19 @@ pub enum ShortcutsError {
 }
 
 /// A backend that can register and unregister global hotkeys.
-pub trait ShortcutBackend: Send + Sync {
+pub trait ShortcutBackend {
     fn register(&self, hotkey: &str) -> Result<(), ShortcutsError>;
     fn unregister(&self, hotkey: &str) -> Result<(), ShortcutsError>;
 }
 
 struct GlobalHotkeys {
-    manager: Arc<global_hotkey::GlobalHotKeyManager>,
+    manager: Rc<global_hotkey::GlobalHotKeyManager>,
 }
 
 impl GlobalHotkeys {
     fn new() -> Result<Self, ShortcutsError> {
         Ok(GlobalHotkeys {
-            manager: Arc::new(global_hotkey::GlobalHotKeyManager::new()?),
+            manager: Rc::new(global_hotkey::GlobalHotKeyManager::new()?),
         })
     }
 }
@@ -59,7 +59,7 @@ fn parse_hotkey(hotkey: &str) -> Result<global_hotkey::hotkey::HotKey, Shortcuts
 /// Registers global keyboard shortcuts.
 #[derive(Clone)]
 pub struct Shortcuts {
-    backend: Arc<dyn ShortcutBackend>,
+    backend: Rc<dyn ShortcutBackend>,
 }
 
 impl Shortcuts {
@@ -71,7 +71,7 @@ impl Shortcuts {
     /// Creates a shortcuts service with the given backend.
     pub fn with_backend(backend: impl ShortcutBackend + 'static) -> Self {
         Shortcuts {
-            backend: Arc::new(backend),
+            backend: Rc::new(backend),
         }
     }
 
