@@ -19,7 +19,7 @@ Nine crates are materialized now; the rest arrive with the phase that needs them
 | `auro-plugins` | library | plugin manifest and host (in-process and out-of-process) | planned, Phase 3 |
 | `auro-bundle` | library | platform packaging via `tauri-bundler` (spec 0010) | Phase 2, in tree |
 | `auro-sign` | library | Ed25519 keys, signatures, SHA-256 (spec 0011) | Phase 2, in tree |
-| `auro-update` | library | signed update manifests (spec 0012) | Phase 2, in tree |
+| `auro-update` | library | signed update manifests and the check/download/stage runtime (specs 0012, 0013) | Phase 2, in tree |
 
 ## Dependency rules
 
@@ -55,5 +55,6 @@ Nine crates are materialized now; the rest arrive with the phase that needs them
 ## Open questions
 
 - Whether `auro` is a separate facade crate or `auro-core` re-exported under a shorter name.
-- Whether `auro-update` and `auro-sign` are two crates or one crate with features. They are named separately in the roadmap and only `auro-cli` consumes them, so this
-  can be settled when Phase 2 starts.
+- Whether `auro-update` and `auro-sign` are two crates or one crate with features. They are named
+  separately in the roadmap, and their consumers are narrow (`auro-cli` and `auro-update`), so this
+  can be settled when the updater API stabilizes.

@@ -4,13 +4,15 @@
 //!
 //! A manifest describes one release artifact: version, platform, URL, size and SHA-256. Its
 //! signature covers a canonical JSON payload with the signature field omitted, so changing any
-//! signed field invalidates it. This crate is the format and verification layer; download,
-//! staging and platform application are separate concerns.
+//! signed field invalidates it. [`Updater`] adds the runtime half: it checks the offer, downloads
+//! the artifact, verifies its size and SHA-256, and stages it. Platform installation and rollback
+//! are separate concerns.
 
 use std::fs;
 use std::path::Path;
 
-use auro_sign::{PublicKey, SignError, SigningKey};
+pub use auro_sign::PublicKey;
+use auro_sign::{SignError, SigningKey};
 use serde::{Deserialize, Serialize};
 
 /// The manifest format this build understands.
@@ -38,9 +40,34 @@ pub enum UpdateError {
     #[error("artifact size mismatch: manifest says {expected}, file is {actual}")]
     ArtifactSize { expected: u64, actual: u64 },
 
+    #[error("artifact is larger than the manifest size of {expected} bytes")]
+    ArtifactTooLarge { expected: u64 },
+
     #[error("artifact SHA-256 mismatch")]
     ArtifactHash,
+
+    #[error("manifest field `{field}` {reason}")]
+    InvalidField {
+        field: &'static str,
+        reason: &'static str,
+    },
+
+    #[error("invalid {field} `{value}`; expected a semantic version")]
+    InvalidVersion { field: &'static str, value: String },
+
+    #[error("manifest platform `{actual}` does not match this build `{expected}`")]
+    PlatformMismatch { expected: String, actual: String },
+
+    #[error("offered version {offered} is not newer than the running version {current}")]
+    NotNewer { current: String, offered: String },
+
+    #[error("download failed: {0}")]
+    Http(#[from] ureq::Error),
 }
+
+mod runtime;
+
+pub use runtime::{StagedUpdate, UpdateDecision, Updater};
 
 /// A signed release manifest.
 ///
@@ -123,10 +150,22 @@ impl Manifest {
         Ok(self)
     }
 
-    /// Verifies the format and the signature. Does not download or hash the artifact.
+    /// Verifies the format, the SHA-256 shape and the signature. Does not download or hash the
+    /// artifact.
     pub fn verify(&self, key: &PublicKey) -> Result<(), UpdateError> {
         if self.format != FORMAT_VERSION {
             return Err(UpdateError::UnsupportedFormat(self.format));
+        }
+        if self.sha256.len() != 64
+            || !self
+                .sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(UpdateError::InvalidField {
+                field: "sha256",
+                reason: "must be 64 lowercase hexadecimal characters",
+            });
         }
         if self.signature.is_empty() {
             return Err(UpdateError::MissingSignature);
@@ -182,13 +221,15 @@ pub fn current_platform() -> String {
 mod tests {
     use super::*;
 
+    const SHA256: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     fn manifest() -> Manifest {
         Manifest::new(
             "1.2.3",
             "linux-x86_64",
             "https://example.test/app-1.2.3.tar.gz",
             42,
-            "0123456789abcdef",
+            SHA256,
             "notes",
             "2026-11-17T12:00:00Z",
         )
@@ -220,6 +261,20 @@ mod tests {
         assert!(matches!(
             future.verify(&key.public_key()),
             Err(UpdateError::UnsupportedFormat(2))
+        ));
+    }
+
+    #[test]
+    fn rejects_a_malformed_artifact_hash() {
+        let key = SigningKey::generate();
+        let mut signed = manifest().sign(&key).expect("sign");
+        signed.sha256 = "not-a-sha256".to_owned();
+        assert!(matches!(
+            signed.verify(&key.public_key()),
+            Err(UpdateError::InvalidField {
+                field: "sha256",
+                ..
+            })
         ));
     }
 

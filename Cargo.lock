@@ -550,6 +550,7 @@ dependencies = [
  "auro-ipc",
  "auro-macros",
  "auro-ui",
+ "auro-update",
  "dioxus-devtools",
  "gpui",
  "serde_json",
@@ -644,10 +645,12 @@ name = "auro-update"
 version = "0.0.0"
 dependencies = [
  "auro-sign",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "ureq",
 ]
 
 [[package]]

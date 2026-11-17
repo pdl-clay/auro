@@ -12,12 +12,15 @@ publish = false
 [features]
 # Experimental in-process hot boundaries (spec 0004). Off by default; `auro dev` relaunches.
 hot-reload = ["dep:subsecond", "dep:dioxus-devtools"]
+# Signed update manifests and the staged updater runtime (specs 0012, 0013).
+updater = ["dep:auro-update"]
 
 [dependencies]
 auro-core.workspace = true
 auro-ipc.workspace = true
 auro-macros.workspace = true
 auro-ui.workspace = true
+auro-update = { workspace = true, optional = true }
 dioxus-devtools = { workspace = true, optional = true }
 subsecond = { workspace = true, optional = true }
 tokio.workspace = true

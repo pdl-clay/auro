@@ -17,6 +17,12 @@ installable `auro-cli` yet.
   0600 on Unix and debug output hides the seed.
 - `auro-update`: signed update manifest format v1 with canonical JSON payloads, artifact
   size/SHA-256 verification, and `auro manifest`.
+- `auro-update`: runtime `Updater` checks signature/platform/semantic version, downloads with
+  connect/per-call/per-read timeouts and an exact manifest-size bound, verifies SHA-256, and stages
+  content-addressed artifacts atomically; `stage_from_path` uses the same path for local artifacts.
+  Staged files that still verify are reused. Install/apply, rollback, deltas and staged rollout are
+  not implemented (spec 0013). The facade exposes this as `auro::update` behind the opt-in
+  `updater` feature; `PublicKey` is re-exported for key loading.
 - `[bundle.macos]` and `[bundle.windows]` signing inputs (identity, entitlements, hardened runtime,
   certificate thumbprint, timestamping, custom sign command/args); Windows keeps WebView2 skipped.
 - `auro generate-key --out <path>` and `auro manifest --artifact ... --key ... --out ...`.

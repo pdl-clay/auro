@@ -42,6 +42,7 @@
 - [0010 - Bundling](specs/0010-bundling.md)
 - [0011 - Signing](specs/0011-signing.md)
 - [0012 - Update manifests](specs/0012-update-manifests.md)
+- [0013 - Updater runtime](specs/0013-updater-runtime.md)
 
 # Reference
 

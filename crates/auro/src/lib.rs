@@ -15,6 +15,17 @@ pub use auro_ui::gpui;
 mod app;
 pub mod windows;
 
+#[cfg(feature = "updater")]
+/// Signed update manifests and the staged updater runtime (specs 0012, 0013).
+///
+/// Enable the `updater` feature to use this module.
+pub mod update {
+    pub use auro_update::{
+        FORMAT_VERSION, Manifest, PublicKey, StagedUpdate, UpdateDecision, UpdateError, Updater,
+        current_platform,
+    };
+}
+
 #[cfg(feature = "hot-reload")]
 pub mod hot;
 

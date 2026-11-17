@@ -35,7 +35,7 @@ direction as later phases land.
 | `auro-ipc` | typed command transport, schema derivation, event delivery | decide policy |
 | `auro-perms` | capability manifests, runtime enforcement for plugin and content boundaries | guard code that the compiler already guards |
 | `auro-plugins` | plugin manifests, in-process `cdylib` hosts, out-of-process RPC | assume plugin code is trusted |
-| `auro-bundle`, `auro-update`, `auro-sign` | packaging per platform, signed manifests, key handling | run inside the app's main loop |
+| `auro-bundle`, `auro-update`, `auro-sign` | packaging per platform, signed manifests and staged downloads, key handling | run inside the app's main loop |
 
 ## Data flow of one interaction
 

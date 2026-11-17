@@ -1,11 +1,12 @@
 # 0012 - Update manifests
 
-**Status:** Implemented (manifest format, signing, verification and CLI; runtime apply, deltas,
-rollout and rollback are not implemented)
+**Status:** Implemented (manifest format, signing, verification and CLI; runtime download/staging is
+[spec 0013](0013-updater-runtime.md); install/apply, deltas, rollout and rollback are not
+implemented)
 
 Phase 2 needs a signed description of a release artifact. This spec fixes the manifest format and
-its verification; it deliberately stops before the updater runtime (download, stage, apply,
-rollback), which is a separate contract.
+its verification; it deliberately stops before the updater runtime, which is specified separately
+([0013](0013-updater-runtime.md) covers check/download/stage; apply and rollback remain open).
 
 ## Scope
 
@@ -16,7 +17,8 @@ rollback), which is a separate contract.
 
 ## Out of scope
 
-- Downloading or applying an update, staging, restart orchestration.
+- Downloading, staging, applying or rolling back an update (download and staging are
+  [spec 0013](0013-updater-runtime.md); apply/rollback remain separate).
 - Deltas, binary patches, staged rollout percentages, channels, rollback execution.
 - Hosting and CDN behavior.
 - Key distribution beyond the public key string; no built-in key pinning in this slice.
@@ -41,6 +43,8 @@ rollback), which is a separate contract.
 ```
 
 Unknown fields are rejected. `format` other than 1 is an unsupported-format error, not a guess.
+`sha256` is exactly 64 lowercase hexadecimal characters; verification rejects anything else before
+hashing an artifact.
 
 ### D2 - Signature covers a canonical payload
 
@@ -73,10 +77,11 @@ auro manifest \
 The platform defaults to `<std::env::consts::OS>-<std::env::consts::ARCH>`. The command prints the
 manifest path.
 
-### D5 - No runtime claim
+### D5 - No install claim
 
-The signature and hash prevent a tampered manifest/artifact from being accepted by a future client,
-but nothing downloads or applies an update yet. `auro dev` and `auro bundle` are unaffected.
+The signature and hash prevent a tampered manifest/artifact from being accepted. [Spec
+0013](0013-updater-runtime.md) downloads and stages a verified artifact; nothing applies an update,
+replaces the running app or rolls back yet. `auro dev` and `auro bundle` are unaffected.
 
 ## Interfaces
 
@@ -108,8 +113,8 @@ impl Manifest {
 
 1. Signed manifest verifies; tampering with a field fails (`signs_and_verifies_a_manifest`,
    `rejects_a_tampered_field`).
-2. Empty signature and unknown format fail with the typed errors
-   (`rejects_an_empty_signature_and_unknown_format`).
+2. Empty signature, unknown format and malformed SHA-256 fail with the typed errors
+   (`rejects_an_empty_signature_and_unknown_format`, `rejects_a_malformed_artifact_hash`).
 3. Artifact size/hash and manifest signature are both checked; a changed artifact fails
    (`verifies_an_artifact_and_its_metadata`).
 4. JSON round-trips byte-for-byte at the value level (`json_round_trips`).
@@ -122,7 +127,7 @@ impl Manifest {
 
 | Question | Where it settles |
 |---|---|
-| Download/apply/staging/restart and rollback | Updater runtime spec |
+| Download/apply/staging/restart and rollback | [Updater runtime](0013-updater-runtime.md) / apply spec |
 | Deltas/patches and staged rollout percentages | Updater rollout spec |
 | Key pinning and rotation inside the app | Trust/update client spec |
 | Update channels and UI | Platform/update UX follow-up |
