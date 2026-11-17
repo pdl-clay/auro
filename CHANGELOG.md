@@ -154,6 +154,11 @@ installable `auro-cli` yet.
 
 ### Fixed
 
+- A window's configured title now reaches the compositor on Wayland. GPUI 0.2.2 applies
+  `WindowOptions::titlebar.title` on X11, Windows and macOS but not on Wayland, so `App` sets the
+  title on the window it opens; niri now reports `auro-demo` instead of `(unset)`. Covered by a
+  headless unit test that opens a window and reads its title back.
+
 - `auro dev` no longer closes the running window when a rebuild fails: the app is stopped only
   after the replacement binary exists, so a typo keeps the previous UI alive and the session
   reports `build failed, previous UI still running` (spec 0004, D4).

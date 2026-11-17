@@ -210,8 +210,10 @@ debug, warm cache, 50 ms resolution; spec 0004 D6). Relaunches are labelled from
 report (`restarted (state restored)` / `restarted (state reset: <reason>)`), verified on Linux and on
 Windows 11, where the dev loop now runs the app from a copy under `target/auro-dev/` because Windows
 locks a running image; the Windows traces were 10.8 s and 8.2 s save→build (debug, warm cache). Remaining acceptance gaps:
-automated (process-level) window-close coverage, and the observed `(unset)` window title reported by
-the compositor even though the config sets one (not diagnosed).
+automated (process-level) window-close coverage. The `(unset)` window title was diagnosed and fixed
+on 2026-11-16: GPUI 0.2.2 applies `WindowOptions::titlebar.title` on X11, Windows and macOS but not
+on Wayland, so `App` now sets the title on the opened window; niri reports `auro-demo`, and a
+headless test asserts the title reaches the window.
 
 ### Phase 1 - v0.1 "Hello, native" (weeks 4-8)
 

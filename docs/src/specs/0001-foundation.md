@@ -286,9 +286,12 @@ Runnables, in order, on a clean checkout:
   the last window now quits the app and was verified to exit 0 on a local niri/Wayland session
   (`/tmp/auro-demo` binary); closing through `auro dev` also exits 0 (measured 2026-11-16:
   warm `auro dev` → window in 2 s, close → `DEV_EXIT=0`). Automated process-level window-close
-  coverage is not yet added. Observed gap (2026-11-16, niri/Wayland): the window title reaches the
-  compositor as `(unset)` even though `Auro.toml`/`WindowOptions` set it; the `app_id`
-  (`com.example.aurodemo`) is correct. Not diagnosed.
+  coverage is not yet added. The window-title gap observed on 2026-11-16 (niri/Wayland reported
+  `(unset)` although `Auro.toml` set one, while `app_id` was correct) was diagnosed and fixed the
+  same day: GPUI 0.2.2 applies `WindowOptions::titlebar.title` on X11, Windows and macOS but not on
+  Wayland, so `App` now calls `Window::set_window_title` when opening each window. Verified on
+  niri (`title: "auro-demo"` from `niri msg --json windows`) and covered by the headless unit test
+  `app::tests::opens_window_with_the_configured_title`.
 - 4: **met** locally (Ctrl-C exits 0, no orphan).
 - 5: **met** locally (fmt, clippy `-D warnings`, tests).
 - 6: **met** (config parse/merge/unknown-key refusal, `State` extraction, sync and async dispatch,

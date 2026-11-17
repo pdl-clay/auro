@@ -39,14 +39,7 @@ impl App {
     pub fn root<V: Render + Default + 'static>(mut self, label: &'static str) -> Self {
         self.roots.push((
             label,
-            Box::new(|cx, config, window| {
-                let options = window_options(config, window, cx);
-                if let Err(error) =
-                    cx.open_window(options, |_window, cx| cx.new(|_cx| V::default()))
-                {
-                    tracing::error!(window = window.label, %error, "failed to open window");
-                }
-            }),
+            Box::new(|cx, config, window| open_window::<V>(cx, config, window)),
         ));
         self
     }
@@ -108,17 +101,43 @@ impl Default for App {
     }
 }
 
-fn window_options(config: &Config, window: &WindowConfig, cx: &mut GpuiApp) -> WindowOptions {
+fn open_window<V: Render + Default + 'static>(
+    cx: &mut GpuiApp,
+    config: &Config,
+    window: &WindowConfig,
+) {
+    let title = window_title(config, window);
+    let options = window_options(config, window, &title, cx);
+
+    // GPUI 0.2.2 applies `WindowOptions::titlebar.title` on X11, Windows and macOS but not on
+    // Wayland, where the compositor then reports no title. Setting it on the window is the path
+    // every platform honors, and it keeps the title identical across backends.
+    if let Err(error) = cx.open_window(options, |gpui_window, cx| {
+        gpui_window.set_window_title(&title);
+        cx.new(|_cx| V::default())
+    }) {
+        tracing::error!(window = window.label, %error, "failed to open window");
+    }
+}
+
+fn window_title(config: &Config, window: &WindowConfig) -> String {
+    window
+        .title
+        .clone()
+        .unwrap_or_else(|| config.app.product_name.clone())
+}
+
+fn window_options(
+    config: &Config,
+    window: &WindowConfig,
+    title: &str,
+    cx: &mut GpuiApp,
+) -> WindowOptions {
     let bounds = Bounds::centered(
         None,
         size(px(window.width as f32), px(window.height as f32)),
         cx,
     );
-
-    let title = window
-        .title
-        .clone()
-        .unwrap_or_else(|| config.app.product_name.clone());
 
     WindowOptions {
         window_bounds: Some(if window.fullscreen {
@@ -127,7 +146,7 @@ fn window_options(config: &Config, window: &WindowConfig, cx: &mut GpuiApp) -> W
             WindowBounds::Windowed(bounds)
         }),
         titlebar: Some(TitlebarOptions {
-            title: Some(title.into()),
+            title: Some(title.to_owned().into()),
             ..Default::default()
         }),
         app_id: Some(config.app.identifier.clone()),
@@ -142,5 +161,78 @@ fn min_size(window: &WindowConfig) -> Option<Size<Pixels>> {
     match (window.min_width, window.min_height) {
         (Some(width), Some(height)) => Some(size(px(width as f32), px(height as f32))),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use auro_core::{AppConfig, BundleConfig, DevConfig, Theme};
+    use auro_ui::gpui::{
+        Context, IntoElement, Render, TestAppContext, VisualTestContext, Window, div,
+    };
+
+    #[derive(Default)]
+    struct Blank;
+
+    impl Render for Blank {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    fn config(title: Option<&str>) -> Config {
+        Config {
+            schema: None,
+            app: AppConfig {
+                identifier: "com.example.test".to_owned(),
+                product_name: "Product".to_owned(),
+                version: "0.1.0".to_owned(),
+                description: String::new(),
+                authors: Vec::new(),
+                homepage: String::new(),
+                license: String::new(),
+                default_window: None,
+                windows: vec![WindowConfig {
+                    label: "main".to_owned(),
+                    title: title.map(str::to_owned),
+                    width: 960,
+                    height: 640,
+                    min_width: None,
+                    min_height: None,
+                    max_width: None,
+                    max_height: None,
+                    resizable: true,
+                    decorations: true,
+                    transparent: false,
+                    always_on_top: false,
+                    visible: true,
+                    center: true,
+                    fullscreen: false,
+                    theme: Theme::System,
+                }],
+            },
+            dev: DevConfig::default(),
+            bundle: BundleConfig::default(),
+        }
+    }
+
+    #[test]
+    fn opens_window_with_the_configured_title() {
+        let cx = TestAppContext::single();
+        let config = config(Some("Custom title"));
+        cx.update(|cx| open_window::<Blank>(cx, &config, &config.app.windows[0]));
+
+        let windows = cx.windows();
+        assert_eq!(windows.len(), 1, "the declared window must open");
+
+        let mut vcx = VisualTestContext::from_window(windows[0], &cx);
+        assert_eq!(vcx.window_title().as_deref(), Some("Custom title"));
+    }
+
+    #[test]
+    fn window_title_falls_back_to_the_product_name() {
+        let config = config(None);
+        assert_eq!(window_title(&config, &config.app.windows[0]), "Product");
     }
 }
