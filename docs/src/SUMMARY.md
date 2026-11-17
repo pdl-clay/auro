@@ -8,6 +8,7 @@
 - [Crates and layering](architecture/crates.md)
 - [Threading and IPC](architecture/threading-and-ipc.md)
 - [Capabilities](architecture/capabilities.md)
+- [Choosing a toolkit](architecture/toolkits.md)
 - [Hot reload](architecture/hot-reload.md)
 
 # Decisions
@@ -21,6 +22,7 @@
 - [0006 - Dual MIT/Apache-2.0](decisions/0006-dual-license.md)
 - [0007 - No styling language in 1.0](decisions/0007-no-styling-language.md)
 - [0008 - Hot reload mechanism revised after feasibility spike](decisions/0008-hot-reload-mechanism-revision.md)
+- [0009 - Toolkits are the application's choice](decisions/0009-toolkits-are-app-level.md)
 
 # Specifications
 
@@ -29,6 +31,7 @@
 - [0001 - Foundation](specs/0001-foundation.md)
 - [0002 - Configuration](specs/0002-config.md)
 - [0004 - Hot reload](specs/0004-hot-reload.md)
+- [0005 - Toolkit seam](specs/0005-toolkit-seam.md)
 
 # Reference
 

@@ -45,7 +45,7 @@ boundary is the thing the project is built around; it gets its own crate from da
 | `auro-core` | lib | ipc | config loading, state store; re-exports the IPC runtime; **no renderer types** (lifecycle and events in Phase 1) |
 | `auro-ipc` | lib | - | `CommandArg`, `IpcResponse`, `Invoke`, registry, `AuroError`, tokio runtime bridge |
 | `auro-macros` | proc-macro | - | `#[command]`, `generate_handler!` |
-| `auro-ui` | lib | core | the only crate that names `gpui`; primitives, tokens, `Render` re-export (themes in Phase 1) |
+| `auro-ui` | lib | core | the only crate that names `gpui`; primitives, tokens, `Render` re-export; themes are toolkit-owned ([ADR 0009](../decisions/0009-toolkits-are-app-level.md)) |
 | `auro-cli` | bin | core | `new`, `dev`, `build`, `doctor`; no runtime logic |
 
 Rules: no cycles; `auro-ui` holds no policy (no filesystem, no config reads); `gpui` is a
@@ -180,9 +180,11 @@ months of edge cases that are not the product.
 
 GPUI 0.2.2 has no max-size, no always-on-top, no per-window theme setter, and its decorations
 switch is platform-specific. Phase 0 maps size, position policy (`center`), minimum size,
-resizability, visibility, fullscreen, transparency and decorations onto `WindowOptions`; the rest
-is parsed, validated, and **reported by `auro doctor`** as "accepted, not honored on this
-platform". A config key that silently does nothing is worse than one that says so.
+resizability, visibility, fullscreen, transparency and decorations onto `WindowOptions`. `theme`
+is parsed and handed to the app through `App::setup`; the chosen toolkit applies it
+([ADR 0009](../decisions/0009-toolkits-are-app-level.md)). The remaining keys are parsed,
+validated, and **reported by `auro doctor`** as "accepted, not honored on this platform". A config
+key that silently does nothing is worse than one that says so.
 
 *Rejected:* implementing platform-specific window code in Phase 0. It is a Phase 2 item, and it
 belongs in `auro-ui` with the rest of the renderer.
@@ -331,7 +333,7 @@ conversion tests the specs required.
 
 | Question | Where it settles |
 |---|---|
-| Component kit: own primitives vs `gpui-component` | Phase 1 spec |
+| Component kit: own primitives vs `gpui-component` | **Resolved:** Auro ships no toolkit; the app chooses one ([ADR 0009](../decisions/0009-toolkits-are-app-level.md), [spec 0005](0005-toolkit-seam.md)) |
 | Hot reload mechanism and its measurability | Spec 0004 |
 | Plugin isolation: out-of-process first or in-process | Phase 3 RFC |
 | Does release embed config or ship `Auro.toml` next to the binary | Phase 2 spec |

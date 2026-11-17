@@ -38,6 +38,7 @@ Every spec carries:
 | # | Spec | Phase | Status |
 |---|---|---|---|
 | - | [What Auro takes from Tauri](tauri-basis.md) | evidence | living |
-| [0001](0001-foundation.md) | Foundation: workspace, runtime seam, commands, state, dev loop | 0 | Approved |
-| [0002](0002-config.md) | `Auro.toml` schema, merge rules, validation | 0 | Approved |
+| [0001](0001-foundation.md) | Foundation: workspace, runtime seam, commands, state, dev loop | 0 | Implemented |
+| [0002](0002-config.md) | `Auro.toml` schema, merge rules, validation | 0 | Implemented |
 | [0004](0004-hot-reload.md) | Hot reload: save-to-visible with preserved state, measurability, mechanism under revision | 1, 3 | Draft |
+| [0005](0005-toolkit-seam.md) | Toolkit seam: setup hook, app-owned root, no framework toolkit | 1 | Implemented |

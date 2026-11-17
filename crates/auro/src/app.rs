@@ -4,10 +4,11 @@ use std::sync::Arc;
 
 use auro_core::{AuroError, Config, StateStore, WindowConfig};
 use auro_ui::{
-    App as GpuiApp, AppContext, Application, Bounds, Pixels, Render, Size, TitlebarOptions,
-    WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowOptions, px, size,
+    App as GpuiApp, AppContext, Application, Bounds, Entity, Pixels, Render, Size, TitlebarOptions,
+    Window, WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowOptions, px, size,
 };
 
+type Setup = Box<dyn Fn(&mut GpuiApp, &Config)>;
 type OpenWindow = Box<dyn Fn(&mut GpuiApp, &Config, &WindowConfig)>;
 
 /// Set by `auro dev`; the app then reports when each window's first repaint is requested.
@@ -16,9 +17,12 @@ const TRACE_ENV: &str = "AURO_DEV_TRACE";
 /// The application builder.
 ///
 /// Windows and identity come from `Auro.toml`; the builder attaches a root view to a window label.
+/// Auro is the application layer: the component toolkit (or none) is the app's choice, initialized
+/// in [`App::setup`] and wrapped by [`App::root_with`] when it needs a custom root.
 pub struct App {
     states: Arc<StateStore>,
     roots: Vec<(&'static str, OpenWindow)>,
+    setups: Vec<Setup>,
 }
 
 impl App {
@@ -26,12 +30,23 @@ impl App {
         App {
             states: Arc::new(StateStore::new()),
             roots: Vec::new(),
+            setups: Vec::new(),
         }
     }
 
     /// Stores application state reachable from commands as `State<T>`.
     pub fn manage<T: Send + Sync + 'static>(self, value: T) -> Self {
         self.states.insert(value);
+        self
+    }
+
+    /// Runs before any window opens, for toolkit and theme initialization.
+    ///
+    /// Auro ships no component kit. This is where an app initializes the toolkit it chose (for
+    /// example `gpui_component::init(cx)`) and applies the theme from `Auro.toml`. Setups run in
+    /// registration order, once per app, after GPUI starts.
+    pub fn setup(mut self, setup: impl Fn(&mut GpuiApp, &Config) + 'static) -> Self {
+        self.setups.push(Box::new(setup));
         self
     }
 
@@ -44,34 +59,50 @@ impl App {
         self
     }
 
+    /// Attaches a root view built by the app instead of `V::default()`.
+    ///
+    /// Use this when the app's toolkit needs to own the window root (dialogs, notifications,
+    /// focus state) or when the view needs constructor arguments:
+    ///
+    /// ```rust,ignore
+    /// App::new()
+    ///     .setup(|cx, _config| gpui_component::init(cx))
+    ///     .root_with::<gpui_component::Root>("main", |window, cx| {
+    ///         let view = cx.new(|_| Editor::default());
+    ///         cx.new(|cx| gpui_component::Root::new(view, window, cx))
+    ///     })
+    ///     .run();
+    /// ```
+    pub fn root_with<V: Render + 'static>(
+        mut self,
+        label: &'static str,
+        build: impl Fn(&mut Window, &mut GpuiApp) -> Entity<V> + 'static,
+    ) -> Self {
+        self.roots.push((
+            label,
+            Box::new(move |cx, config, window| {
+                open_window_with(cx, config, window, &build);
+            }),
+        ));
+        self
+    }
+
     /// Runs the app, returning before the event loop starts if configuration is invalid.
     pub fn try_run(self) -> Result<(), AuroError> {
         #[cfg(feature = "hot-reload")]
         crate::hot::install();
 
         let config = Config::load(&std::env::current_dir()?)?;
-        let App { states, roots } = self;
+        let App {
+            states,
+            roots,
+            setups,
+        } = self;
 
         Application::new().run(move |cx| {
             // Held for the process lifetime: commands resolve state through this store.
             let _states = states;
-
-            for window in &config.app.windows {
-                match roots.iter().find(|(label, _)| *label == window.label) {
-                    Some((_, open)) => {
-                        open(cx, &config, window);
-                        if std::env::var_os(TRACE_ENV).is_some() {
-                            eprintln!("auro:trace window_requested {}", window.label);
-                        }
-                    }
-                    None => {
-                        tracing::error!(
-                            window = window.label,
-                            "no root view attached to this window"
-                        )
-                    }
-                }
-            }
+            open_all(cx, &config, setups, &roots);
 
             // Closing the last window ends the app; `auro dev` and acceptance expect exit 0.
             cx.on_window_closed(|cx| {
@@ -101,10 +132,46 @@ impl Default for App {
     }
 }
 
+/// Runs the app's setups and opens every configured window that has a root.
+fn open_all(
+    cx: &mut GpuiApp,
+    config: &Config,
+    setups: Vec<Setup>,
+    roots: &[(&'static str, OpenWindow)],
+) {
+    for setup in setups {
+        setup(cx, config);
+    }
+
+    for window in &config.app.windows {
+        match roots.iter().find(|(label, _)| *label == window.label) {
+            Some((_, open)) => {
+                open(cx, config, window);
+                if std::env::var_os(TRACE_ENV).is_some() {
+                    eprintln!("auro:trace window_requested {}", window.label);
+                }
+            }
+            None => tracing::error!(
+                window = window.label,
+                "no root view attached to this window"
+            ),
+        }
+    }
+}
+
 fn open_window<V: Render + Default + 'static>(
     cx: &mut GpuiApp,
     config: &Config,
     window: &WindowConfig,
+) {
+    open_window_with(cx, config, window, &|_, cx| cx.new(|_cx| V::default()));
+}
+
+fn open_window_with<V: Render + 'static>(
+    cx: &mut GpuiApp,
+    config: &Config,
+    window: &WindowConfig,
+    build: &dyn Fn(&mut Window, &mut GpuiApp) -> Entity<V>,
 ) {
     let title = window_title(config, window);
     let options = window_options(config, window, &title, cx);
@@ -114,7 +181,7 @@ fn open_window<V: Render + Default + 'static>(
     // every platform honors, and it keeps the title identical across backends.
     if let Err(error) = cx.open_window(options, |gpui_window, cx| {
         gpui_window.set_window_title(&title);
-        cx.new(|_cx| V::default())
+        build(gpui_window, cx)
     }) {
         tracing::error!(window = window.label, %error, "failed to open window");
     }
@@ -268,6 +335,52 @@ mod tests {
         let minimum = min_size(&window).expect("one dimension is enough");
         assert_eq!(minimum.width, px(320.0));
         assert_eq!(minimum.height, px(0.0));
+    }
+
+    #[derive(Default)]
+    struct Wrapped;
+
+    impl Render for Wrapped {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    #[test]
+    fn setup_runs_before_roots_and_root_with_uses_the_app_builder() {
+        use std::sync::{Arc, Mutex};
+
+        let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let setup_order = Arc::clone(&order);
+        let root_order = Arc::clone(&order);
+        let mut config = config(Some("Custom title"));
+        config.app.windows[0].theme = Theme::Dark;
+
+        let app = App::new()
+            .setup(move |_cx, config| {
+                assert_eq!(config.app.product_name, "Product");
+                assert_eq!(config.app.windows[0].theme, Theme::Dark);
+                setup_order.lock().expect("order").push("setup");
+            })
+            .root_with::<Wrapped>("main", move |_window, cx| {
+                root_order.lock().expect("order").push("root");
+                cx.new(|_| Wrapped)
+            });
+
+        let App {
+            states: _,
+            roots,
+            setups,
+        } = app;
+        let cx = TestAppContext::single();
+        cx.update(|cx| open_all(cx, &config, setups, &roots));
+
+        assert_eq!(
+            order.lock().expect("order").as_slice(),
+            ["setup", "root"],
+            "setups must run before a root builder"
+        );
+        assert_eq!(cx.windows().len(), 1, "the declared window must open");
     }
 
     #[test]

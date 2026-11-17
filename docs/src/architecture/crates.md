@@ -11,8 +11,8 @@ Six crates are materialized now; the rest arrive with the phase that needs them.
 |---|---|---|---|
 | `auro` | library | facade re-exporting the supported API surface (`auro::prelude`) | Phase 0, in tree |
 | `auro-cli` | binary | `new`, `dev`, `build`, `bundle`, `add`, `doctor` | Phase 0, in tree (`new`, `dev`, `build`, `doctor`) |
-| `auro-core` | library | app builder, window manager, config schema, lifecycle, command registry, state store, event bus | Phase 0, in tree (config, state; broader surface later) |
-| `auro-ui` | library | GPUI re-export, components, tokens, themes | Phase 0, in tree (re-exports, `Button`, tokens) |
+| `auro-core` | library | config schema, state store, runtime bridge; lifecycle, command registry and app-wide events arrive in Phase 1 | Phase 0, in tree (config, state) |
+| `auro-ui` | library | GPUI re-export, tokens, minimal primitives; **no component toolkit** ([ADR 0009](../decisions/0009-toolkits-are-app-level.md)) | Phase 0, in tree (re-exports, `Button`, tokens) |
 | `auro-ipc` | library | typed transport, schema derivation, event delivery | Phase 0, in tree (commands, runtime bridge) |
 | `auro-macros` | proc-macro | `#[command]`, `generate_handler!` | Phase 0, in tree |
 | `auro-perms` | library | capability manifests and runtime enforcement | planned, Phase 2 |
@@ -28,11 +28,14 @@ Six crates are materialized now; the rest arrive with the phase that needs them.
 2. **`auro-core` composes; it is not a dumping ground.** Anything that only one platform or one
    subcommand needs belongs in that crate.
 3. **`auro-ui` has no policy.** No permission checks, no filesystem access, no config reads.
-   A component that needs data takes it as an argument.
+   A primitive that needs data takes it as an argument.
 4. **`auro-perms` has no I/O.** It answers "is this capability granted for this subject?" and
    returns a verdict. Enforcement points live at the call sites that perform the effect.
-5. **GPUI is not re-exported wholesale.** `auro-ui` re-exports what the component kit actually
-   supports, so upstream churn is absorbed in one place.
+5. **GPUI is not re-exported wholesale.** `auro-ui` re-exports only the GPUI surface Auro's
+   primitives use, so upstream churn is absorbed in one place.
+6. **No toolkit in the framework.** `gpui-component` and similar crates are application
+   dependencies, initialized through `App::setup` and wrapped with `App::root_with`
+   ([ADR 0009](../decisions/0009-toolkits-are-app-level.md)).
 
 ## Rules for tracking GPUI upstream
 

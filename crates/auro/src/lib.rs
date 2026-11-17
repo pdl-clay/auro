@@ -7,7 +7,7 @@
 
 extern crate self as auro;
 
-pub use auro_core::{AuroError, Config, State, StateStore};
+pub use auro_core::{AuroError, Config, State, StateStore, Theme};
 pub use auro_core::{Autosave, ReloadSnapshot, ResetReason, Restored, Snapshot};
 pub use auro_macros::{command, generate_handler};
 pub use auro_ui::gpui;
@@ -31,7 +31,7 @@ pub mod ipc {
 }
 
 pub mod prelude {
-    pub use auro_core::{AuroError, Config, State};
+    pub use auro_core::{AuroError, Config, State, Theme};
     pub use auro_macros::{command, generate_handler};
     pub use auro_ui::prelude::*;
 

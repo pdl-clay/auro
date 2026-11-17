@@ -118,6 +118,9 @@ call. Type errors are compile errors.
 - **Not a webview wrapper.** A webview exists only as an explicitly scoped escape hatch for
   OAuth and embedded docs; it is not the foundation.
 - **Not a GUI toolkit.** That is GPUI. Auro is an *application* framework.
+- **Not a component library.** Auro ships the application layer; use GPUI directly or pick a
+  toolkit such as `gpui-component`. `App::setup` and `App::root_with` are the seam; the
+  framework does not bundle widgets.
 - **Not a GPUI fork.** We track upstream and keep a thin compatibility layer.
 - **Not "CSS for Rust".** There will be no styling language. If you want CSS, use Tauri.
 
@@ -140,7 +143,7 @@ Six phases, ~42 weeks to 1.0. Full detail in [ROADMAP.md](ROADMAP.md).
 | Phase | Codename | Goal |
 |---|---|---|
 | 0 | Foundations | `auro new` to a window, in under two minutes |
-| 1 | Hello, native | Core + 20 components + `auro dev` |
+| 1 | Hello, native | App layer + typed IPC + `auro dev`, toolkit of your choice |
 | 2 | Ship it | Bundling, signed updates, platform services, a11y |
 | 3 | Extensible | Out-of-process plugins, hot reload GA |
 | 4 | Ecosystem | Web escape hatch, templates, docs |

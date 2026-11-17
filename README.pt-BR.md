@@ -118,6 +118,9 @@ chamada Rust. Erro de tipo é erro de compilação.
 - **Não é wrapper de webview.** Webview só existe como escape hatch com escopo explícito para
   OAuth e docs embutidos; não é a fundação.
 - **Não é toolkit de GUI.** Isso é o GPUI. Auro é framework de *aplicação*.
+- **Não é biblioteca de componentes.** O Auro entrega a camada de aplicação; use o GPUI direto ou
+  escolha um toolkit como `gpui-component`. `App::setup` e `App::root_with` são a costura; o
+  framework não empacota widgets.
 - **Não é fork do GPUI.** Acompanhamos upstream com uma camada fina de compatibilidade.
 - **Não é "CSS para Rust".** Não vai existir linguagem de estilo. Se você quer CSS, use Tauri.
 
@@ -140,7 +143,7 @@ Seis fases, ~42 semanas até o 1.0. Detalhe completo no [ROADMAP.md](ROADMAP.md)
 | Fase | Codinome | Objetivo |
 |---|---|---|
 | 0 | Foundations | `auro new` até uma janela, em menos de dois minutos |
-| 1 | Hello, native | Core + 20 componentes + `auro dev` |
+| 1 | Hello, native | App layer + IPC tipado + `auro dev`, toolkit à sua escolha |
 | 2 | Ship it | Empacotamento, updates assinados, serviços de plataforma, a11y |
 | 3 | Extensible | Plugins out-of-process, hot reload GA |
 | 4 | Ecosystem | Escape hatch de webview, templates, docs |

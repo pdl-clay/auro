@@ -163,8 +163,10 @@ drag-and-drop, print/PDF, spellcheck. Each one is a schedule line item, not a de
 
 ### Layout and styling
 
-Web developers will arrive expecting a stylesheet. GPUI is `div().flex().gap_2().p_4()`. Plan: a
-`style!` macro, design tokens, TOML themes, and a docs page titled "thinking without CSS".
+Web developers will arrive expecting a stylesheet. GPUI is `div().flex().gap_2().p_4()`. Plan:
+Auro tokens for its own primitives, and a docs page titled "thinking without CSS". There is no
+`style!` macro and no Auro-owned theme system: the app's toolkit supplies styling and themes
+([ADR 0009](docs/src/decisions/0009-toolkits-are-app-level.md)).
 
 ### Windows and Linux parity
 
@@ -225,13 +227,18 @@ headless test asserts the title reaches the window.
 
 - `auro-core`: multi-window lifecycle, app-wide events, command registry with schema, state store
   (the config schema landed in Phase 0).
-- `auro-ui`: GPUI re-export plus ~20 components (Button, Input, List, Table, Tabs, Dialog, Toast,
-  Menu, Tooltip, Sidebar, Command palette).
-- Theming: tokens, light/dark, three built-in themes.
+- `auro-ui`: GPUI re-export, tokens, and the minimal primitives the scaffold needs; **no component
+  toolkit** ([ADR 0009](docs/src/decisions/0009-toolkits-are-app-level.md)).
+- Toolkit seam: `App::setup` and `App::root_with` let the app initialize and wrap the toolkit it
+  chose ([spec 0005](docs/src/specs/0005-toolkit-seam.md)); the book names `gpui-component 0.5.x`
+  as the tested integration while GPUI is pinned.
+- Theming: Auro tokens for its primitives; themes belong to the app's toolkit (the `theme` config
+  is passed to `App::setup`).
 - `auro dev`: watch + rebuild + relaunch. Experimental hot reload (mechanism under [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 - CLI: `new`, `dev`, `build`, `doctor`.
 
-**Exit:** a real internal tool can be built with it (log viewer plus a settings window).
+**Exit:** a real internal tool can be built with it (log viewer plus a settings window) using the
+toolkit the app chooses.
 
 ### Phase 2 - v0.3 "Ship it" (weeks 9-16)
 
@@ -251,8 +258,9 @@ Tauri and Electron.
 - `auro-plugins`: out-of-process RPC plugins (crash isolation, any language) plus in-process
   `dylib` plugins behind a feature flag. Manifest, versioning, permission scopes.
 - Plugin index (static first, marketplace later).
-- `auro-ui` grows: virtualized data table, charts, markdown/rich text, syntax highlighting
-  (reusing Zed crates).
+- `auro-ui` stays toolkit-free; optional integration crates (for example
+  `auro-gpui-component`) wrap advanced widgets such as a virtualized data table, charts, markdown
+  and syntax highlighting.
 - Hot reload GA with state preservation (mechanism/measurability per [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 
 **Exit:** a third-party plugin published by someone outside the core team.
@@ -309,9 +317,9 @@ typical app is the post that travels.
 
 1. **Scripting:** Rust-only frontend, or a layer (Rhai/Lua) for plugin UIs?
 2. **Plugin isolation:** out-of-process first (safer, slower) or in-process first (faster)?
-3. **Opinionated or not:** ship our own component kit, or let crates like `gpui-component` fill
-   in?
-4. **Brand:** name, logo, domain, org.
+3. **Brand:** name, logo, domain, org.
 
 Resolved: **license** — dual MIT/Apache-2.0 (see [ADR 0006](docs/src/decisions/0006-dual-license.md)
-and `LICENSE-MIT`, `LICENSE-APACHE`).
+and `LICENSE-MIT`, `LICENSE-APACHE`). **Component kit** — Auro ships no toolkit; the app chooses
+one ([ADR 0009](docs/src/decisions/0009-toolkits-are-app-level.md),
+[spec 0005](docs/src/specs/0005-toolkit-seam.md)).

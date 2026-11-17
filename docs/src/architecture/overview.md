@@ -31,7 +31,7 @@ direction as later phases land.
 |---|---|---|
 | `auro-cli` | project scaffolding, dev loop, bundling entry points, diagnostics | contain runtime logic the app needs |
 | `auro-core` | `App`, window manager, config, lifecycle, command registry, state store, event bus | render anything |
-| `auro-ui` | GPUI re-export, component kit, theming tokens | check permissions |
+| `auro-ui` | GPUI re-export, toolkit seam, tokens, minimal primitives | ship a component toolkit; check permissions |
 | `auro-ipc` | typed command transport, schema derivation, event delivery | decide policy |
 | `auro-perms` | capability manifests, runtime enforcement for plugin and content boundaries | guard code that the compiler already guards |
 | `auro-plugins` | plugin manifests, in-process `cdylib` hosts, out-of-process RPC | assume plugin code is trusted |
@@ -77,7 +77,10 @@ reference to app state, and nothing on the main thread blocks on I/O.
 Tracked in [ROADMAP §8](https://github.com/pdl-clay/auro/blob/main/ROADMAP.md#8-open-questions):
 
 - a scripting layer for plugin UIs, or Rust only;
-- out-of-process plugins first, or in-process first;
-- shipping our own component kit versus adopting `gpui-component`.
+- out-of-process plugins first, or in-process first.
+
+Resolved: **component kit** — Auro ships no toolkit; the application chooses one
+([ADR 0009](../decisions/0009-toolkits-are-app-level.md),
+[choosing a toolkit](toolkits.md)).
 
 Anything in this book that depends on those answers is marked as open where it appears.

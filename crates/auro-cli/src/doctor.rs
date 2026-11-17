@@ -82,7 +82,7 @@ fn unhonored(config: &Config) -> Vec<String> {
         }
         if window.theme != Theme::System {
             notes.push(format!(
-                "app.windows.{}.theme: accepted, not honored by GPUI 0.2",
+                "app.windows.{}.theme: accepted; apply it in App::setup (the chosen toolkit owns themes)",
                 window.label
             ));
         }
@@ -132,6 +132,29 @@ fn gpui_pin(dir: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reports_a_non_system_theme_as_toolkit_owned() {
+        let config: Config = toml::from_str(
+            r#"
+[app]
+identifier = "com.example.theme"
+product-name = "Theme"
+version = "0.1.0"
+
+[[app.windows]]
+label = "main"
+theme = "dark"
+"#,
+        )
+        .expect("config");
+
+        let notes = unhonored(&config);
+        assert!(
+            notes.iter().any(|note| note.contains("App::setup")),
+            "{notes:?}"
+        );
+    }
 
     #[test]
     fn reads_the_gpui_pin_from_the_lockfile() {

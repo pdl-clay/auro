@@ -13,6 +13,11 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `App::setup` and `App::root_with`: an app can initialize the component toolkit it chose (for
+  example `gpui_component::init`) and build its window root (for example a toolkit `Root`), while
+  `App::root` stays the `Default`-view shortcut. `Theme` is re-exported for the config handoff.
+  Auro itself ships no component toolkit (ADR 0009, spec 0005).
+- `auro doctor` reports a non-system `theme` as toolkit-owned, pointing at `App::setup`.
 - `auro doctor` reports the `gpui` version the app resolves, read from its `Cargo.lock` (spec 0001).
 - `[dev] hot = true` runs the hot-patch devserver (`dx serve --hot-patch`) instead of rebuilding and
   relaunching: the loop forwards devserver output, timestamps saves and prints
@@ -208,6 +213,10 @@ installable `auro-cli` yet.
 
 ### Changed
 
+- Auro ships no component toolkit: Phase 1 no longer promises ~20 components in `auro-ui`.
+  Toolkits are application dependencies, initialized in `App::setup` and wrapped with
+  `App::root_with`; the book documents `gpui-component 0.5.x` as the tested line while GPUI is
+  pinned (ADR 0009, spec 0005). `auro-ui` keeps re-exports, tokens and minimal primitives.
 - Phase 0 is closed: specs 0001 and 0002 are `Implemented`, their acceptance items are recorded as
   met, and `README.md`, `README.pt-BR.md` and the book status say so. App-wide events and lifecycle
   moved to Phase 1; scaffold icons move to Phase 2 with the bundler.
