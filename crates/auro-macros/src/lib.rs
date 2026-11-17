@@ -18,7 +18,7 @@ pub fn command(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Builds a [`CommandHandler`] from a list of command paths.
+/// Builds a `CommandHandler` from a list of command paths.
 ///
 /// Paths are required when the command lives in another module (`services::save_document`); a bare
 /// name works in the module where the command is defined.
