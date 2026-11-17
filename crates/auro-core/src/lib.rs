@@ -20,6 +20,6 @@ pub use config::{
     WindowConfig, WindowsBundleConfig,
 };
 pub use events::EventSender;
-pub use instance::AppInstance;
+pub use instance::{AppInstance, InstanceListener, InstanceMessage};
 pub use lifecycle::LifecycleEvent;
 pub use snapshot::{FORMAT_VERSION, ReloadSnapshot, ResetReason, Restored, Snapshot};

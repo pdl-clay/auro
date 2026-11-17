@@ -1,17 +1,51 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! A process-wide single-instance guard.
+//! A process-wide single-instance guard and forwarding channel.
 //!
 //! The guard is an advisory file lock in a per-user runtime directory. The OS releases the lock
-//! when the process exits, including a crash; the lock file itself is left in place. This detects
-//! duplicates but does not forward arguments or activate the primary window yet.
+//! when the process exits, including a crash; the lock file itself is left in place. The primary
+//! instance listens on a local socket; a secondary instance forwards its arguments and working
+//! directory before exiting.
 
 use std::fs::{File, OpenOptions, TryLockError};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::thread::{self, JoinHandle};
+
+#[cfg(unix)]
+use interprocess::local_socket::GenericFilePath;
+#[cfg(windows)]
+use interprocess::local_socket::GenericNamespaced;
+use interprocess::local_socket::{ListenerOptions, Name, prelude::*};
+#[cfg(unix)]
+use interprocess::os::unix::local_socket::ListenerOptionsExt as _;
+use serde::{Deserialize, Serialize};
 
 use crate::AuroError;
 
-/// Holds the primary-instance lock for as long as it is alive.
+/// Maximum bytes read from one forwarding connection.
+const MAX_MESSAGE_BYTES: u64 = 64 * 1024;
+
+/// The message a secondary instance sends to the primary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceMessage {
+    /// Arguments after the executable name.
+    pub args: Vec<String>,
+    /// The secondary process's working directory.
+    pub cwd: PathBuf,
+}
+
+impl InstanceMessage {
+    /// Creates a forwarding message.
+    pub fn new(args: Vec<String>, cwd: impl Into<PathBuf>) -> Self {
+        InstanceMessage {
+            args,
+            cwd: cwd.into(),
+        }
+    }
+}
+
+/// Holds the primary-instance lock and, when listening, the forwarding thread.
 #[derive(Debug)]
 pub struct AppInstance {
     file: File,
@@ -24,9 +58,9 @@ impl AppInstance {
     /// Tries to become the primary instance for `name`.
     ///
     /// `name` is normally the app identifier from `Auro.toml`. It is sanitised into a lock-file
-    /// name; the lock lives under `XDG_RUNTIME_DIR` on Linux when available, otherwise the
-    /// per-user temporary directory. A secondary instance gets `is_primary() == false` rather than
-    /// an error.
+    /// and local-socket name; the lock lives under `XDG_RUNTIME_DIR` on Linux when available,
+    /// otherwise the per-user temporary directory. A secondary instance gets
+    /// `is_primary() == false` rather than an error.
     pub fn acquire(name: &str) -> Result<Self, AuroError> {
         let name = name.trim();
         if name.is_empty() {
@@ -76,6 +110,105 @@ impl AppInstance {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Forwards arguments and the working directory to the primary instance.
+    ///
+    /// Only a secondary instance may forward. The primary must have called [`Self::listen`]
+    /// first; if it has not, the OS returns a connection error.
+    pub fn forward(&self, message: &InstanceMessage) -> Result<(), AuroError> {
+        if self.primary {
+            return Err(AuroError::instance(
+                &self.name,
+                "the primary instance cannot forward to itself",
+            ));
+        }
+
+        let name = socket_name(&self.name)?;
+        let mut stream = LocalSocketStream::connect(name).map_err(|error| {
+            AuroError::instance(
+                &self.name,
+                format!("cannot connect to the primary instance: {error}"),
+            )
+        })?;
+        serde_json::to_writer(&mut stream, message)?;
+        stream.write_all(b"\n")?;
+        Ok(())
+    }
+
+    /// Starts the primary's forwarding listener and hands each message to `handler`.
+    ///
+    /// The returned [`InstanceListener`] owns the lock and the listener thread. Drop it when the
+    /// app exits; the thread is detached and the process exit releases the socket.
+    pub fn listen(
+        self,
+        handler: impl Fn(InstanceMessage) + Send + 'static,
+    ) -> Result<InstanceListener, AuroError> {
+        if !self.primary {
+            return Err(AuroError::instance(
+                &self.name,
+                "a secondary instance cannot listen",
+            ));
+        }
+
+        let name = socket_name(&self.name)?;
+        #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+        let mut options = ListenerOptions::new().name(name).try_overwrite(true);
+        #[cfg(target_os = "linux")]
+        {
+            // An abstract socket cannot be permission-checked. The filesystem socket lives in a
+            // private runtime directory; mode 0600 also protects the `/tmp` fallback.
+            options = options.mode(0o600);
+        }
+        let listener = options.create_sync().map_err(|error| {
+            AuroError::instance(
+                &self.name,
+                format!("cannot listen for a second instance: {error}"),
+            )
+        })?;
+        let thread_name = self.name.clone();
+        let thread = thread::Builder::new()
+            .name(format!("auro-instance-{thread_name}"))
+            .spawn(move || {
+                for connection in listener.incoming() {
+                    let stream = match connection {
+                        Ok(stream) => stream,
+                        Err(error) => {
+                            tracing::warn!(%error, "instance listener accept failed");
+                            continue;
+                        }
+                    };
+                    let mut reader = BufReader::new(stream).take(MAX_MESSAGE_BYTES);
+                    let mut line = String::new();
+                    if let Err(error) = reader.read_line(&mut line) {
+                        tracing::warn!(%error, "instance listener read failed");
+                        continue;
+                    }
+                    match serde_json::from_str::<InstanceMessage>(line.trim()) {
+                        Ok(message) => handler(message),
+                        Err(error) => {
+                            tracing::warn!(%error, "instance listener received invalid JSON");
+                        }
+                    }
+                }
+            })
+            .map_err(|error| {
+                AuroError::instance(
+                    &self.name,
+                    format!("cannot start the instance listener: {error}"),
+                )
+            })?;
+
+        Ok(InstanceListener {
+            _guard: self,
+            _thread: thread,
+        })
+    }
+}
+
+/// Keeps the primary lock and forwarding thread alive for the app's lifetime.
+pub struct InstanceListener {
+    _guard: AppInstance,
+    _thread: JoinHandle<()>,
 }
 
 impl Drop for AppInstance {
@@ -86,7 +219,36 @@ impl Drop for AppInstance {
     }
 }
 
-fn lock_path(name: &str) -> PathBuf {
+#[cfg(unix)]
+fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
+    let path = lock_dir().join(format!("auro-{}.sock", sanitized_name(name, 32)));
+    path.as_os_str()
+        .to_fs_name::<GenericFilePath>()
+        .map(Name::into_owned)
+        .map_err(|error| {
+            AuroError::instance(
+                name,
+                format!("cannot create the instance socket name: {error}"),
+            )
+        })
+}
+
+#[cfg(windows)]
+fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
+    let socket = format!("auro-{}", sanitized_name(name, 32));
+    socket
+        .as_str()
+        .to_ns_name::<GenericNamespaced>()
+        .map(Name::into_owned)
+        .map_err(|error| {
+            AuroError::instance(
+                name,
+                format!("cannot create the instance socket name: {error}"),
+            )
+        })
+}
+
+fn sanitized_name(name: &str, limit: usize) -> String {
     let sanitized: String = name
         .chars()
         .map(|character| {
@@ -96,15 +258,17 @@ fn lock_path(name: &str) -> PathBuf {
                 '-'
             }
         })
-        .take(128)
+        .take(limit)
         .collect();
-    let sanitized = if sanitized.is_empty() {
+    if sanitized.is_empty() {
         "app".to_owned()
     } else {
         sanitized
-    };
+    }
+}
 
-    lock_dir().join(format!("auro-{sanitized}.lock"))
+fn lock_path(name: &str) -> PathBuf {
+    lock_dir().join(format!("auro-{}.lock", sanitized_name(name, 128)))
 }
 
 fn lock_dir() -> PathBuf {
@@ -119,7 +283,8 @@ fn lock_dir() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use super::*;
 
@@ -145,6 +310,42 @@ mod tests {
         drop(first);
         let third = AppInstance::acquire(&name).expect("third");
         assert!(third.is_primary());
+    }
+
+    #[test]
+    fn forwards_a_message_to_the_primary_listener() {
+        let name = unique_name();
+        let (tx, rx) = mpsc::channel();
+        let primary = AppInstance::acquire(&name).expect("primary");
+        let _listener = primary
+            .listen(move |message| {
+                let _ = tx.send(message);
+            })
+            .expect("listener");
+
+        let secondary = AppInstance::acquire(&name).expect("secondary");
+        assert!(!secondary.is_primary());
+        let message = InstanceMessage::new(vec!["--open".to_owned()], "/tmp");
+        secondary.forward(&message).expect("forward");
+
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).expect("message"),
+            message
+        );
+    }
+
+    #[test]
+    fn primary_cannot_forward_or_secondary_cannot_listen() {
+        let name = unique_name();
+        let primary = AppInstance::acquire(&name).expect("primary");
+        assert!(
+            primary
+                .forward(&InstanceMessage::new(Vec::new(), "/tmp"))
+                .is_err()
+        );
+
+        let secondary = AppInstance::acquire(&name).expect("secondary");
+        assert!(secondary.listen(|_| {}).is_err());
     }
 
     #[test]

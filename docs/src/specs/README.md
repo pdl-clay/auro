@@ -51,13 +51,13 @@ Every spec carries:
 | [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (download/stage in 0013; AppImage apply in 0014) |
 | [0013](0013-updater-runtime.md) | Updater runtime: check, download, verify and stage | 2 | Implemented (AppImage apply in 0014; other installers pending) |
 | [0014](0014-appimage-apply.md) | AppImage apply: atomic replacement and rollback receipt | 2 | Implemented (Linux only) |
-| [0015](0015-single-instance.md) | Single instance: advisory lock before startup | 2 | Implemented (forwarding/activation pending) |
+| [0015](0015-single-instance.md) | Single instance: advisory lock, argument forwarding | 2 | Implemented (automatic activation pending) |
 | [0016](0016-capabilities.md) | Capability manifests and enforcement | 2 | Implemented (host wiring pending) |
 | [0017](0017-autostart.md) | Autostart service | 2 | Implemented |
 | [0018](0018-notifications.md) | Notifications service | 2 | Implemented |
 | [0019](0019-keychain.md) | Keychain service | 2 | Implemented |
 | [0020](0020-shortcuts.md) | Global shortcuts service | 2 | Implemented (events/callbacks pending) |
 | [0021](0021-tray.md) | Tray service | 2 | Implemented (menus/click handlers pending) |
-| [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (forwarding pending) |
+| [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (forwarded-argument wiring pending) |
 | [0023](0023-keyboard-activation.md) | Keyboard activation for Button | 2 | Implemented (AccessKit/IME pending) |
 | [0024](0024-alpha-release.md) | Alpha release: version, publish order, facade features, scaffold | 2 | Draft (alpha candidate; publication pending) |
