@@ -7,6 +7,7 @@ members = [
   "crates/auro-core",
   "crates/auro-sign",
   "crates/auro-update",
+  "crates/auro-perms",
   "crates/auro-ipc",
   "crates/auro-macros",
   "crates/auro-ui",
@@ -29,6 +30,7 @@ auro-sign = { path = "crates/auro-sign", version = "0.0.0" }
 auro-update = { path = "crates/auro-update", version = "0.0.0" }
 auro-ipc = { path = "crates/auro-ipc", version = "0.0.0" }
 auro-macros = { path = "crates/auro-macros", version = "0.0.0" }
+auro-perms = { path = "crates/auro-perms", version = "0.0.0" }
 auro-ui = { path = "crates/auro-ui", version = "0.0.0" }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }

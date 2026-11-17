@@ -19,7 +19,8 @@ What remains is a real security boundary:
 - **Scopes are data, not strings in code.** The app ships a manifest; the host compiles it and
   answers verdicts. A path or host pattern is matched against the compiled form, not re-parsed per
   call.
-- **The check sits next to the effect.** `auro-perms` returns a verdict; the code that opens the
+- **The check sits next to the effect.** [`auro-perms`](../specs/0016-capabilities.md) returns a
+  verdict; the code that opens the
   file or spawns the process is the code that asks. A single choke point far from the effect is
   how permission models rot.
 - **Compile-time first.** If the compiler can prevent it, a runtime check is not the answer. Do not
@@ -33,8 +34,8 @@ What remains is a real security boundary:
 A denial is a typed error returned to the caller, not a panic and not a silently ignored call:
 
 ```rust,ignore
-// Planned shape (capability enforcement not implemented yet).
-let file = perms.fs_read(&plugin_id, path).await?; // Err(CapabilityDenied { scope, subject })
+// Implemented shape (spec 0016); the plugin host wiring is still pending.
+policy.check_scope("plugin:notes", auro::perms::Capability::Fs, "/var/lib/notes/a.txt")?;
 ```
 
 The error names the scope, the subject and the pattern that failed to match, so a plugin author

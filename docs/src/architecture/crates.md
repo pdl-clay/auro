@@ -5,7 +5,7 @@ what comes next; it is deliberately more specific than the README.
 
 ## Crates
 
-Nine crates are materialized now; the rest arrive with the phase that needs them.
+Ten crates are materialized now; the rest arrive with the phase that needs them.
 
 | Crate | Kind | Responsibility | Status |
 |---|---|---|---|
@@ -15,7 +15,7 @@ Nine crates are materialized now; the rest arrive with the phase that needs them
 | `auro-ui` | library | GPUI re-export, tokens, minimal primitives; **no component toolkit** ([ADR 0009](../decisions/0009-toolkits-are-app-level.md)) | Phase 0, in tree (re-exports, `Button`, tokens) |
 | `auro-ipc` | library | typed transport, command schemas, runtime bridge | Phase 1, in tree |
 | `auro-macros` | proc-macro | `#[command]`, `generate_handler!` | Phase 0, in tree |
-| `auro-perms` | library | capability manifests and runtime enforcement | planned, Phase 2 |
+| `auro-perms` | library | capability manifests and runtime enforcement (spec 0016) | Phase 2, in tree |
 | `auro-plugins` | library | plugin manifest and host (in-process and out-of-process) | planned, Phase 3 |
 | `auro-bundle` | library | platform packaging via `tauri-bundler` (spec 0010) | Phase 2, in tree |
 | `auro-sign` | library | Ed25519 keys, signatures, SHA-256 (spec 0011) | Phase 2, in tree |

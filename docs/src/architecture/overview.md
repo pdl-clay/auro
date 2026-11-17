@@ -9,7 +9,7 @@ follows from that split.
 +-----------------------------------------------------------+
 | auro-core                                                 |
 |   App . WindowManager . Config . Lifecycle .              |
-|   Command registry . State store . Event bus              |
+|   Command registry . State store . Event bus . Instance    |
 +--------------+-------------------+------------------------+
 | auro-ui      | auro-ipc          | auro-perms             |
 | GPUI + kit   | typed bus         | capabilities           |

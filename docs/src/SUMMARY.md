@@ -46,6 +46,7 @@
 - [0013 - Updater runtime](specs/0013-updater-runtime.md)
 - [0014 - AppImage apply](specs/0014-appimage-apply.md)
 - [0015 - Single instance](specs/0015-single-instance.md)
+- [0016 - Capabilities](specs/0016-capabilities.md)
 
 # Reference
 

@@ -268,7 +268,7 @@ toolkit the app chooses.
 - `auro-update`: signed manifests, deltas, staged rollout, rollback.
 - Platform services: fs, dialogs, clipboard, notifications, keychain, tray, global shortcuts,
   deep links, single-instance, autostart.
-- `auro-perms`: manifest plus runtime enforcement.
+- `auro-perms`: manifest plus runtime enforcement (spec 0016; the plugin host wiring is Phase 3).
 - Accessibility (AccessKit), IME and keyboard navigation pass.
 
 **Progress (2026-11-17):** `auro-bundle` maps `[bundle]` onto `tauri-bundler 2.10.5` and
@@ -295,6 +295,8 @@ advisory file lock after config load and refuse a secondary process before GPUI 
 (`AuroError::Instance`, exit code 2). Argument/deep-link forwarding and primary-window activation
 are not implemented. GPUI supplies clipboard, file dialogs and open/reveal path/URL primitives;
 notifications, keychain, tray, global shortcuts, deep links and autostart remain.
+`auro-perms` implements the capability `Policy` with deny-by-default grants and compiled glob
+scopes; the plugin host that consumes it is Phase 3.
 
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.

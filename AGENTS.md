@@ -2,7 +2,7 @@
 
 Instructions for AI coding assistants and contributors working in this repository.
 
-**Read this first: the workspace exists; the framework is pre-alpha.** Nine crates under `crates/`
+**Read this first: the workspace exists; the framework is pre-alpha.** Ten crates under `crates/`
 compile and their tests pass, `auro new` produces a project that builds against this checkout, and
 the UI layer is one primitive. Nothing is published. Anything described below as *planned* is a
 target recorded in the roadmap or a spec, not code you can find with a symbol search. Never present
@@ -50,7 +50,7 @@ Authoritative documents: `README.md` (pitch), `ROADMAP.md` (phases and targets),
 
 ## Architecture & Data Flow
 
-Workspace of eleven crates total (nine materialized now, two planned), layered top-down:
+Workspace of eleven crates total (ten materialized now, one planned), layered top-down:
 
 ```
 auro-cli        new . dev . build . bundle . add . doctor
@@ -102,7 +102,7 @@ state-preserving process restart is the documented fallback and is never present
 
 | Path | Purpose |
 |---|---|
-| `crates/` | the workspace: `auro` (facade + builder), `auro-bundle` (packaging via `tauri-bundler`), `auro-sign` (Ed25519 keys/signatures), `auro-update` (signed manifests, staging and Linux AppImage apply), `auro-core` (config, state, lifecycle, single-instance guard), `auro-ipc` (commands, runtime bridge), `auro-macros` (`#[command]`, `generate_handler!`), `auro-ui` (the only GPUI crate), `auro-cli` |
+| `crates/` | the workspace: `auro` (facade + builder), `auro-bundle` (packaging via `tauri-bundler`), `auro-sign` (Ed25519 keys/signatures), `auro-update` (signed manifests, staging and Linux AppImage apply), `auro-core` (config, state, lifecycle, single-instance guard), `auro-ipc` (commands, runtime bridge), `auro-perms` (capability manifest and enforcement), `auro-macros` (`#[command]`, `generate_handler!`), `auro-ui` (the only GPUI crate), `auro-cli` |
 | `vendor/xattr` | vendored `xattr 0.2.3` with the Linux `ENOATTR` fix; see `[patch.crates-io]` in `Cargo.toml` |
 | `docs/` | mdBook source for the published documentation book |
 | `docs/book.toml` | book config: `src = "src"`, `build-dir = "book"`, `create-missing = false` |

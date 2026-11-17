@@ -27,6 +27,9 @@ installable `auro-cli` yet.
   and retains a hard-link (or copy) backup. `InstallReceipt` can roll the previous file back or
   discard the backup after the new version is accepted. Other platforms/packages, restart
   orchestration, deltas and staged rollout are not implemented (spec 0014, ADR 0013).
+- `auro-perms`: deny-by-default capability `Policy` with `fs`/`net`/`shell`/`clipboard`/
+  `notification`/`keychain` grants, compiled glob scopes for the scoped capabilities, typed
+  `Denied` errors, and `auro::perms` re-exports (spec 0016).
 - `auro-core`: `AppInstance` and `App::single_instance()` use a per-user advisory file lock to
   refuse a secondary process before GPUI starts. The secondary gets `AuroError::Instance`
   (`run` exits 2); argument forwarding and primary-window activation are not implemented

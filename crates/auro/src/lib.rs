@@ -13,6 +13,10 @@ pub use auro_core::{Autosave, ReloadSnapshot, ResetReason, Restored, Snapshot};
 pub use auro_macros::{command, generate_handler};
 pub use auro_ui::gpui;
 
+pub mod perms {
+    pub use auro_perms::{Capability, Denied, Grant, Policy, PolicyError, UnknownCapability};
+}
+
 mod app;
 pub mod windows;
 
