@@ -65,8 +65,19 @@ Events flow **main-ward**: a background task finishes and updates the entity tha
 than broadcasting an untyped payload that every view filters. This avoids the usual event-bus
 failure mode where a renamed event silently stops working.
 
-Where a broadcast is genuinely needed (app-wide notifications, menu commands), the event type is
-an enum in `auro-core` and subscribers get a typed receiver.
+Local parent/child wiring can use GPUI entity events. For app-wide notifications Auro provides one
+typed path ([spec 0007](../specs/0007-events.md)):
+
+- `EventSender` is cloneable and `Send + Sync`; commands receive it as `State<EventSender>` (or an
+  app captures `App::event_sender()`), and `emit` queues the event.
+- A foreground pump drains the queue on the main thread and calls `App::on_event::<E>` handlers
+  with `&E` and `&mut App`.
+- On the main thread, `emit(event, cx)` dispatches synchronously.
+- Lifecycle events (`Ready`, `WindowOpened`, `WindowClosed`, `Exiting`) are a separate closed enum;
+  they are not mixed into the user event queue.
+
+There are no string topics and no untyped broadcast payloads. Events with no subscriber are
+dropped; backpressure is not implemented yet.
 
 ## Error handling
 

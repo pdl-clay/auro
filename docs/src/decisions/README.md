@@ -51,3 +51,4 @@ ADR keeps the conclusion.
 | [0007](0007-no-styling-language.md) | No styling language in 1.0 | Accepted |
 | [0008](0008-hot-reload-mechanism-revision.md) | Hot reload mechanism revised after feasibility spike | Accepted |
 | [0009](0009-toolkits-are-app-level.md) | Toolkits are the application's choice | Accepted |
+| [0010](0010-typed-events-main-thread.md) | Typed events, delivered on the main thread | Accepted |

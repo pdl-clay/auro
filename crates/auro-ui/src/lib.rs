@@ -4,7 +4,7 @@
 
 pub use gpui;
 pub use gpui::{
-    AnyWindowHandle, App, AppContext, Application, Bounds, Context, Entity, IntoElement,
+    AnyWindowHandle, App, AppContext, Application, Bounds, Context, Entity, Global, IntoElement,
     ParentElement, Pixels, Render, SharedString, Size, Styled, TitlebarOptions, Window,
     WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowOptions, div, px, rgb, size,
 };

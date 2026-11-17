@@ -7,7 +7,7 @@
 
 extern crate self as auro;
 
-pub use auro_core::{AuroError, Config, LifecycleEvent, State, StateStore, Theme};
+pub use auro_core::{AuroError, Config, EventSender, LifecycleEvent, State, StateStore, Theme};
 pub use auro_core::{Autosave, ReloadSnapshot, ResetReason, Restored, Snapshot};
 pub use auro_macros::{command, generate_handler};
 pub use auro_ui::gpui;
@@ -17,7 +17,7 @@ mod app;
 #[cfg(feature = "hot-reload")]
 pub mod hot;
 
-pub use app::App;
+pub use app::{App, emit};
 
 /// The implementation surface the macros expand against. Not a user-facing module.
 #[doc(hidden)]
@@ -31,10 +31,10 @@ pub mod ipc {
 }
 
 pub mod prelude {
-    pub use auro_core::{AuroError, Config, LifecycleEvent, State, Theme};
+    pub use auro_core::{AuroError, Config, EventSender, LifecycleEvent, State, Theme};
     pub use auro_macros::{command, generate_handler};
     pub use auro_ui::prelude::*;
 
-    pub use crate::App;
+    pub use crate::{App, emit};
     pub use crate::{Autosave, ReloadSnapshot, ResetReason, Restored, Snapshot};
 }

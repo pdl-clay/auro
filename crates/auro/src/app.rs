@@ -1,19 +1,24 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::any::{Any, TypeId};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use auro_core::{AuroError, Config, LifecycleEvent, StateStore, WindowConfig};
+use auro_core::events::{QueuedEvent, channel};
+use auro_core::{AuroError, Config, EventSender, LifecycleEvent, State, StateStore, WindowConfig};
 use auro_ui::{
-    AnyWindowHandle, App as GpuiApp, AppContext, Application, Bounds, Entity, Pixels, Render, Size,
-    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowDecorations,
-    WindowOptions, px, size,
+    AnyWindowHandle, App as GpuiApp, AppContext, Application, Bounds, Entity, Global, Pixels,
+    Render, Size, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
+    WindowDecorations, WindowOptions, px, size,
 };
+use tokio::sync::mpsc::UnboundedReceiver;
 
 type Setup = Box<dyn Fn(&mut GpuiApp, &Config)>;
 type OpenWindow = Box<dyn Fn(&mut GpuiApp, &Config, &WindowConfig) -> Option<AnyWindowHandle>>;
 type LifecycleHandler = Rc<dyn Fn(&LifecycleEvent, &mut GpuiApp)>;
+type EventHandler = Rc<dyn Fn(&mut GpuiApp, &dyn Any)>;
 
 /// Main-thread lifecycle subscribers, in registration order.
 #[derive(Default)]
@@ -36,6 +41,43 @@ impl Lifecycle {
     }
 }
 
+/// Main-thread subscribers for typed events.
+#[derive(Clone, Default)]
+struct EventBus {
+    handlers: Rc<RefCell<HashMap<TypeId, Vec<EventHandler>>>>,
+}
+
+impl EventBus {
+    fn on<E: Send + 'static>(&self, handler: impl Fn(&E, &mut GpuiApp) + 'static) {
+        let handler = Rc::new(move |cx: &mut GpuiApp, payload: &dyn Any| {
+            if let Some(event) = payload.downcast_ref::<E>() {
+                handler(event, cx);
+            }
+        });
+        self.handlers
+            .borrow_mut()
+            .entry(TypeId::of::<E>())
+            .or_default()
+            .push(handler);
+    }
+
+    fn handlers_for(&self, type_id: TypeId) -> Vec<EventHandler> {
+        self.handlers
+            .borrow()
+            .get(&type_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn dispatch(&self, type_id: TypeId, payload: &dyn Any, cx: &mut GpuiApp) {
+        for handler in self.handlers_for(type_id) {
+            handler(cx, payload);
+        }
+    }
+}
+
+impl Global for EventBus {}
+
 /// Set by `auro dev`; the app then reports when each window's first repaint is requested.
 const TRACE_ENV: &str = "AURO_DEV_TRACE";
 
@@ -49,16 +91,41 @@ pub struct App {
     roots: Vec<(&'static str, OpenWindow)>,
     setups: Vec<Setup>,
     lifecycle: Rc<Lifecycle>,
+    events: EventBus,
+    event_rx: Option<UnboundedReceiver<QueuedEvent>>,
+    sender: EventSender,
 }
 
 impl App {
     pub fn new() -> Self {
+        let (sender, receiver) = channel();
+        let states = StateStore::new();
+        states.insert(sender.clone());
         App {
-            states: Arc::new(StateStore::new()),
+            states: Arc::new(states),
             roots: Vec::new(),
             setups: Vec::new(),
             lifecycle: Rc::new(Lifecycle::default()),
+            events: EventBus::default(),
+            event_rx: Some(receiver),
+            sender: sender.clone(),
         }
+    }
+
+    /// A cloneable sender for background producers.
+    ///
+    /// The same handle is managed as `State<EventSender>`; use this when building a view or a
+    /// setup closure that needs to emit without going through the state store.
+    pub fn event_sender(&self) -> EventSender {
+        self.sender.clone()
+    }
+
+    /// Resolves managed state before the app runs.
+    ///
+    /// Useful for capturing `State<T>` in a view builder or a toolkit setup closure. The same
+    /// store is resolved by commands that declare `State<T>`.
+    pub fn state<T: Send + Sync + 'static>(&self) -> Option<State<T>> {
+        self.states.state::<T>()
     }
 
     /// Stores application state reachable from commands as `State<T>`.
@@ -85,6 +152,17 @@ impl App {
     /// block. A panic propagates through the app. Exit cannot be cancelled in Phase 1.
     pub fn on_lifecycle(self, handler: impl Fn(&LifecycleEvent, &mut GpuiApp) + 'static) -> Self {
         self.lifecycle.on(handler);
+        self
+    }
+
+    /// Registers a typed application event handler on the main thread.
+    ///
+    /// Handlers run in registration order when the event is delivered. A background producer holds
+    /// an [`EventSender`] (also reachable as managed state) and calls `emit`; the facade pumps the
+    /// queue on the main thread. `emit(event, cx)` on the main thread dispatches immediately.
+    /// Events with no subscriber are dropped.
+    pub fn on_event<E: Send + 'static>(self, handler: impl Fn(&E, &mut GpuiApp) + 'static) -> Self {
+        self.events.on(handler);
         self
     }
 
@@ -134,11 +212,26 @@ impl App {
             roots,
             setups,
             lifecycle,
+            events,
+            event_rx,
+            ..
         } = self;
 
         Application::new().run(move |cx| {
             // Held for the process lifetime: commands resolve state through this store.
             let _states = states;
+
+            let mut event_rx = event_rx.expect("event receiver is created once");
+            cx.set_global(events.clone());
+            let pump_events = events.clone();
+            cx.spawn(async move |cx| {
+                while let Some(queued) = event_rx.recv().await {
+                    let (type_id, payload) = queued.into_parts();
+                    let _ = cx.update(|cx| pump_events.dispatch(type_id, payload.as_ref(), cx));
+                }
+            })
+            .detach();
+
             let open_windows = Rc::new(RefCell::new(Vec::<(AnyWindowHandle, String)>::new()));
 
             // Register before setups/Ready so a handler that closes a window still gets the close
@@ -187,6 +280,17 @@ impl App {
 impl Default for App {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Emits a typed event to the main-thread subscribers.
+///
+/// Call this from a view or lifecycle handler. Background code uses [`EventSender`] instead, which
+/// queues the event for the pump. Events with no subscriber are dropped.
+pub fn emit<E: Send + 'static>(event: E, cx: &mut GpuiApp) {
+    let handlers = cx.global::<EventBus>().handlers_for(TypeId::of::<E>());
+    for handler in handlers {
+        handler(cx, &event as &dyn Any);
     }
 }
 
@@ -461,6 +565,7 @@ mod tests {
             roots,
             setups,
             lifecycle,
+            ..
         } = app;
         let open_windows = RefCell::new(Vec::new());
         let cx = TestAppContext::single();
@@ -520,6 +625,86 @@ mod tests {
                 },
                 LifecycleEvent::Exiting
             ]
+        );
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Ping(u32);
+
+    #[derive(Debug, PartialEq)]
+    struct Pong(u32);
+
+    #[test]
+    fn delivers_typed_events_and_keeps_types_isolated() {
+        use std::sync::{Arc, Mutex};
+
+        let pings = Arc::new(Mutex::new(Vec::new()));
+        let pongs = Arc::new(Mutex::new(Vec::new()));
+        let ping_log = Arc::clone(&pings);
+        let pong_log = Arc::clone(&pongs);
+
+        let app = App::new()
+            .on_event(move |event: &Ping, _cx| {
+                ping_log.lock().expect("pings").push(event.0);
+            })
+            .on_event(move |event: &Pong, _cx| {
+                pong_log.lock().expect("pongs").push(event.0);
+            });
+
+        let App { events, .. } = app;
+        let cx = TestAppContext::single();
+        cx.update(|cx| cx.set_global(events.clone()));
+        cx.update(|cx| emit(Ping(1), cx));
+        cx.update(|cx| emit(Pong(2), cx));
+
+        assert_eq!(*pings.lock().expect("pings"), [1]);
+        assert_eq!(*pongs.lock().expect("pongs"), [2]);
+    }
+
+    #[test]
+    fn queues_background_events_for_the_main_thread_pump() {
+        use std::sync::{Arc, Mutex};
+
+        let app = App::new();
+        let App {
+            states,
+            events,
+            event_rx,
+            ..
+        } = app;
+        let mut rx = event_rx.expect("receiver");
+
+        let sender = states.state::<EventSender>().expect("sender in state");
+        assert!(sender.emit(Ping(9)), "the queue accepts the event");
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let first = Arc::clone(&seen);
+        let second = Arc::clone(&seen);
+        events.on(move |event: &Ping, _cx| {
+            first.lock().expect("events").push(("first", event.0));
+        });
+        events.on(move |event: &Ping, _cx| {
+            second.lock().expect("events").push(("second", event.0));
+        });
+
+        let (type_id, payload) = rx.try_recv().expect("queued event").into_parts();
+        let cx = TestAppContext::single();
+        cx.update(|cx| events.dispatch(type_id, payload.as_ref(), cx));
+
+        assert_eq!(
+            seen.lock().expect("events").as_slice(),
+            [("first", 9), ("second", 9)],
+            "handlers run in registration order"
+        );
+    }
+
+    #[test]
+    fn exposes_managed_state_and_the_event_sender_before_run() {
+        let app = App::new();
+        assert!(app.state::<EventSender>().is_some());
+        assert!(
+            app.event_sender().emit(Ping(1)),
+            "the receiver is still alive before run"
         );
     }
 

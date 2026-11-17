@@ -20,6 +20,7 @@ auro-macros.workspace = true
 auro-ui.workspace = true
 dioxus-devtools = { workspace = true, optional = true }
 subsecond = { workspace = true, optional = true }
+tokio.workspace = true
 tracing.workspace = true
 
 [[test]]

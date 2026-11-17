@@ -13,6 +13,12 @@ installable `auro-cli` yet.
 
 ### Added
 
+- Typed application events: `EventSender` (cloneable, `Send + Sync`, auto-managed as
+  `State<EventSender>`), `App::on_event::<E>`, and a main-thread `emit(event, cx)`. Background
+  producers queue events; a GPUI foreground pump dispatches them in order. No strings, no
+  worker-thread UI mutation (ADR 0010, spec 0007).
+- `App::state::<T>()` and `App::event_sender()` expose managed state and the sender before the app
+  runs, for views, setup closures and first-party command calls.
 - `LifecycleEvent` and `App::on_lifecycle`: main-thread handlers for `Ready`, `WindowOpened`,
   `WindowClosed` and `Exiting`, in registration order. Auro tracks the window handles it opened so
   a close is attributed to the configured label; the last close emits `Exiting` before quitting

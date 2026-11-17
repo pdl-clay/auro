@@ -23,6 +23,7 @@
 - [0007 - No styling language in 1.0](decisions/0007-no-styling-language.md)
 - [0008 - Hot reload mechanism revised after feasibility spike](decisions/0008-hot-reload-mechanism-revision.md)
 - [0009 - Toolkits are the application's choice](decisions/0009-toolkits-are-app-level.md)
+- [0010 - Typed events, delivered on the main thread](decisions/0010-typed-events-main-thread.md)
 
 # Specifications
 
@@ -33,6 +34,8 @@
 - [0004 - Hot reload](specs/0004-hot-reload.md)
 - [0005 - Toolkit seam](specs/0005-toolkit-seam.md)
 - [0006 - Lifecycle events](specs/0006-lifecycle-events.md)
+- [0007 - Typed application events](specs/0007-events.md)
+- [0008 - Command schema registry](specs/0008-command-schema.md)
 
 # Reference
 
