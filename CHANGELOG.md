@@ -27,6 +27,10 @@ installable `auro-cli` yet.
   and retains a hard-link (or copy) backup. `InstallReceipt` can roll the previous file back or
   discard the backup after the new version is accepted. Other platforms/packages, restart
   orchestration, deltas and staged rollout are not implemented (spec 0014, ADR 0013).
+- `auro-core`: `AppInstance` and `App::single_instance()` use a per-user advisory file lock to
+  refuse a secondary process before GPUI starts. The secondary gets `AuroError::Instance`
+  (`run` exits 2); argument forwarding and primary-window activation are not implemented
+  (spec 0015).
 - `[bundle.macos]` and `[bundle.windows]` signing inputs (identity, entitlements, hardened runtime,
   certificate thumbprint, timestamping, custom sign command/args); Windows keeps WebView2 skipped.
 - `auro generate-key --out <path>` and `auro manifest --artifact ... --key ... --out ...`.

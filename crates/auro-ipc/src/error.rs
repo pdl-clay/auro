@@ -24,6 +24,9 @@ pub enum AuroError {
     #[error("window `{label}`: {message}")]
     Window { label: String, message: String },
 
+    #[error("instance `{name}`: {message}")]
+    Instance { name: String, message: String },
+
     #[error("bundling failed: {message}")]
     Bundle { message: String },
 
@@ -52,6 +55,7 @@ impl AuroError {
             AuroError::Command { .. } => "command",
             AuroError::UnknownCommand(_) => "unknown-command",
             AuroError::Window { .. } => "window",
+            AuroError::Instance { .. } => "instance",
             AuroError::Bundle { .. } => "bundle",
             AuroError::Io(_) => "io",
             AuroError::Json(_) => "json",
@@ -70,6 +74,13 @@ impl AuroError {
     pub fn window(label: impl Into<String>, message: impl Into<String>) -> Self {
         AuroError::Window {
             label: label.into(),
+            message: message.into(),
+        }
+    }
+
+    pub fn instance(name: impl Into<String>, message: impl Into<String>) -> Self {
+        AuroError::Instance {
+            name: name.into(),
             message: message.into(),
         }
     }
@@ -103,5 +114,13 @@ mod tests {
 
         let error = parse().expect_err("invalid JSON");
         assert_eq!(error.kind(), "json");
+    }
+
+    #[test]
+    fn instance_errors_have_context_and_kind() {
+        let error = AuroError::instance("com.example.app", "another instance is running");
+        assert_eq!(error.kind(), "instance");
+        assert!(error.to_string().contains("com.example.app"));
+        assert!(error.to_string().contains("another instance"));
     }
 }

@@ -45,6 +45,7 @@
 - [0012 - Update manifests](specs/0012-update-manifests.md)
 - [0013 - Updater runtime](specs/0013-updater-runtime.md)
 - [0014 - AppImage apply](specs/0014-appimage-apply.md)
+- [0015 - Single instance](specs/0015-single-instance.md)
 
 # Reference
 

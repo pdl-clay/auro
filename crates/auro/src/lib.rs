@@ -7,6 +7,7 @@
 
 extern crate self as auro;
 
+pub use auro_core::AppInstance;
 pub use auro_core::{AuroError, Config, EventSender, LifecycleEvent, State, StateStore, Theme};
 pub use auro_core::{Autosave, ReloadSnapshot, ResetReason, Restored, Snapshot};
 pub use auro_macros::{command, generate_handler};

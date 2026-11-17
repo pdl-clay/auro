@@ -7,7 +7,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use auro_core::events::{QueuedEvent, channel};
-use auro_core::{AuroError, Config, EventSender, LifecycleEvent, State, StateStore, WindowConfig};
+use auro_core::{
+    AppInstance, AuroError, Config, EventSender, LifecycleEvent, State, StateStore, WindowConfig,
+};
 use auro_ui::{
     AnyWindowHandle, App as GpuiApp, AppContext, Application, Bounds, Entity, Global, Pixels,
     Render, Size, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
@@ -95,6 +97,7 @@ pub struct App {
     events: EventBus,
     event_rx: Option<UnboundedReceiver<QueuedEvent>>,
     sender: EventSender,
+    single_instance: bool,
 }
 
 impl App {
@@ -110,6 +113,7 @@ impl App {
             events: EventBus::default(),
             event_rx: Some(receiver),
             sender: sender.clone(),
+            single_instance: false,
         }
     }
 
@@ -132,6 +136,16 @@ impl App {
     /// Stores application state reachable from commands as `State<T>`.
     pub fn manage<T: Send + Sync + 'static>(self, value: T) -> Self {
         self.states.insert(value);
+        self
+    }
+
+    /// Refuses to start when another process holds the app identifier's instance lock.
+    ///
+    /// A secondary process gets [`AuroError::Instance`] before GPUI starts; [`Self::run`] prints
+    /// it and exits with code 2. This slice prevents duplicate windows but does not forward
+    /// arguments or activate the primary instance.
+    pub fn single_instance(mut self) -> Self {
+        self.single_instance = true;
         self
     }
 
@@ -202,12 +216,25 @@ impl App {
         self
     }
 
-    /// Runs the app, returning before the event loop starts if configuration is invalid.
+    /// Runs the app, returning before the event loop starts if configuration is invalid or another
+    /// instance holds the single-instance lock.
     pub fn try_run(self) -> Result<(), AuroError> {
         #[cfg(feature = "hot-reload")]
         crate::hot::install();
 
         let config = Config::load(&std::env::current_dir()?)?;
+        let instance_guard = if self.single_instance {
+            let instance = AppInstance::acquire(&config.app.identifier)?;
+            if !instance.is_primary() {
+                return Err(AuroError::instance(
+                    &config.app.identifier,
+                    "another instance is already running",
+                ));
+            }
+            Some(instance)
+        } else {
+            None
+        };
         let App {
             states,
             roots,
@@ -242,10 +269,11 @@ impl App {
             cx.activate(true);
         });
 
+        drop(instance_guard);
         Ok(())
     }
 
-    /// Runs the app and exits with code 2 on a configuration error.
+    /// Runs the app and exits with code 2 on a configuration or single-instance error.
     pub fn run(self) {
         if let Err(error) = self.try_run() {
             eprintln!("auro: {error}");
@@ -448,6 +476,14 @@ mod tests {
 
     #[derive(Default)]
     struct Blank;
+
+    #[test]
+    fn single_instance_is_opt_in() {
+        let app = App::new();
+        assert!(!app.single_instance);
+        let app = app.single_instance();
+        assert!(app.single_instance);
+    }
 
     impl Render for Blank {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {

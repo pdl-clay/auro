@@ -51,3 +51,4 @@ Every spec carries:
 | [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (download/stage in 0013; AppImage apply in 0014) |
 | [0013](0013-updater-runtime.md) | Updater runtime: check, download, verify and stage | 2 | Implemented (AppImage apply in 0014; other installers pending) |
 | [0014](0014-appimage-apply.md) | AppImage apply: atomic replacement and rollback receipt | 2 | Implemented (Linux only) |
+| [0015](0015-single-instance.md) | Single instance: advisory lock before startup | 2 | Implemented (forwarding/activation pending) |

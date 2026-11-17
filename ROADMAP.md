@@ -53,7 +53,7 @@ Positioning, not limitation:
 +-----------------------------------------------------------+
 | auro-core                                                 |
 |   App . WindowManager . Config . Lifecycle .              |
-|   Command registry . State store . Event bus              |
+|   Command registry . State store . Event bus . Instance   |
 +--------------+-------------------+------------------------+
 | auro-ui      | auro-ipc          | auro-perms             |
 | GPUI + kit   | typed bus         | capabilities           |
@@ -278,8 +278,8 @@ cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.
 the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
-notarization, updater installers beyond AppImage, deltas/rollout, platform services and the
-accessibility pass remain.
+notarization, updater installers beyond AppImage, deltas/rollout, the remaining platform services
+and the accessibility pass remain.
 
 **Signing/update foundations (2026-11-17):** `auro-sign` provides Ed25519 keys/signatures and
 SHA-256 hashes; `[bundle.macos]`/`[bundle.windows]` map signing inputs to the bundler; `auro-update`
@@ -289,6 +289,12 @@ content-addressed artifact atomically. On Linux, `AppImageInstaller` replaces an
 mode-0755 atomic rename, retains a hard-link/copy backup, and returns a receipt that can roll back
 or discard it. Platform signing still needs certificates/credentials; Windows/macOS/package
 installers, restart orchestration, deltas and staged rollout are not implemented.
+
+**Platform services (2026-11-17):** `AppInstance` and `App::single_instance()` acquire a per-user
+advisory file lock after config load and refuse a secondary process before GPUI starts
+(`AuroError::Instance`, exit code 2). Argument/deep-link forwarding and primary-window activation
+are not implemented. GPUI supplies clipboard, file dialogs and open/reveal path/URL primitives;
+notifications, keychain, tray, global shortcuts, deep links and autostart remain.
 
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.

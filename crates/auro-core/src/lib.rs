@@ -7,6 +7,7 @@
 pub mod autosave;
 pub mod config;
 pub mod events;
+pub mod instance;
 pub mod lifecycle;
 pub mod snapshot;
 
@@ -19,5 +20,6 @@ pub use config::{
     WindowConfig, WindowsBundleConfig,
 };
 pub use events::EventSender;
+pub use instance::AppInstance;
 pub use lifecycle::LifecycleEvent;
 pub use snapshot::{FORMAT_VERSION, ReloadSnapshot, ResetReason, Restored, Snapshot};
