@@ -128,7 +128,9 @@ target\release\bundle\nsis\Bundle Demo_0.1.0_x64-setup.exe         (0.17 MB)
 ```
 
 The MSI installed silently, ran `bundle-demo.exe` (`bundle demo on windows`), and uninstalled
-cleanly; the NSIS setup installed per-user, ran the same binary, and uninstalled with exit 0.
+cleanly; the NSIS setup installed per-user, ran the same binary, and uninstalled. The NSIS
+uninstaller finishes asynchronously, so the install directory disappears a few seconds after the
+uninstaller returns.
 Windows installers set `webview_install_mode = Skip` because Auro's app layer has no webview;
 otherwise the Tauri template tries to download/install WebView2. Two Windows-only path issues were
 fixed in the same change: the bundler call now runs with the app directory as cwd (icons/resources

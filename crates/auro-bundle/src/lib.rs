@@ -245,6 +245,11 @@ resources = ["assets/**"]
         assert!(settings.icons().unwrap()[0].ends_with("icons/icon.png"));
         assert_eq!(settings.binaries()[0].name(), "bundle-demo");
         assert!(!settings.package_types().expect("types").is_empty());
+        assert_eq!(
+            settings.windows().webview_install_mode,
+            WebviewInstallMode::Skip,
+            "Auro has no webview to install"
+        );
     }
 
     #[test]
@@ -275,12 +280,6 @@ resources = ["assets/**"]
     }
 
     #[test]
-        if !cfg!(target_os = "linux") {
-            return;
-        }
-        if !cfg!(target_os = "linux") {
-            return;
-        }
     fn rejects_an_unknown_category() {
         let (_temp, mut config) = config("");
         config.bundle.category = "not a real category".to_owned();
