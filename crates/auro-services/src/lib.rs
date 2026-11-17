@@ -10,6 +10,15 @@ use std::path::Path;
 
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 
+pub mod keychain;
+pub mod notifications;
+pub mod shortcuts;
+pub mod tray;
+pub use keychain::{CredentialStore, Keychain, KeychainError};
+pub use notifications::{Notifications, NotificationsBackend, NotificationsError};
+pub use shortcuts::{ShortcutBackend, Shortcuts, ShortcutsError};
+pub use tray::{Tray, TrayBackend, TrayError};
+
 /// Why an autostart operation failed.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]

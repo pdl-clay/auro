@@ -37,6 +37,14 @@ installable `auro-cli` yet.
 - `auro-services`: `Autostart` and `Autostart::for_current_app` use `auto-launch` to enable,
   disable and query login-item autostart on Linux/macOS/Windows. Windows always uses the
   per-user registry mode; macOS uses a Launch Agent (spec 0017).
+- `auro-services`: `Notifications` shows desktop notifications through `notify-rust`, with a
+  pluggable backend trait for tests (spec 0018).
+- `auro-services`: `Keychain` stores, reads and deletes one secret through `keyring`, with a
+  pluggable store trait for tests (spec 0019).
+- `auro-services`: `Shortcuts` registers and unregisters global hotkeys through `global-hotkey`,
+  with a pluggable backend trait for tests (spec 0020).
+- `auro-services`: `Tray` shows and hides a tray icon and sets its tooltip through `tray-icon`,
+  with a pluggable backend trait for tests (spec 0021).
 - `[bundle.macos]` and `[bundle.windows]` signing inputs (identity, entitlements, hardened runtime,
   certificate thumbprint, timestamping, custom sign command/args); Windows keeps WebView2 skipped.
 - `auro generate-key --out <path>` and `auro manifest --artifact ... --key ... --out ...`.

@@ -266,8 +266,9 @@ toolkit the app chooses.
 - `auro-bundle`: `.app`/`.dmg` with codesign and notarization; MSI/NSIS with signtool;
   AppImage/deb/rpm.
 - `auro-update`: signed manifests, deltas, staged rollout, rollback.
-- Platform services: fs, dialogs, clipboard, notifications, keychain, tray, global shortcuts,
-  deep links, single-instance, autostart (spec 0017).
+- Platform services: fs, dialogs, clipboard, notifications (spec 0018), keychain (spec 0019),
+  tray (spec 0021), global shortcuts (spec 0020), deep links, single-instance, autostart
+  (spec 0017).
 - `auro-perms`: manifest plus runtime enforcement (spec 0016; the plugin host wiring is Phase 3).
 - Accessibility (AccessKit), IME and keyboard navigation pass.
 
@@ -294,8 +295,9 @@ installers, restart orchestration, deltas and staged rollout are not implemented
 advisory file lock after config load and refuse a secondary process before GPUI starts
 (`AuroError::Instance`, exit code 2). Argument/deep-link forwarding and primary-window activation
 are not implemented. GPUI supplies clipboard, file dialogs and open/reveal path/URL primitives;
-notifications, keychain, tray, global shortcuts and deep links remain. Autostart is implemented
-with `auro-services::Autostart` (spec 0017).
+notifications, keychain, global shortcuts, tray and deep links remain. Autostart, notifications,
+keychain, global shortcuts and tray are implemented with `auro-services::Autostart`,
+`Notifications`, `Keychain`, `Shortcuts` and `Tray` (specs 0017-0021).
 `auro-perms` implements the capability `Policy` with deny-by-default grants and compiled glob
 scopes; the plugin host that consumes it is Phase 3.
 

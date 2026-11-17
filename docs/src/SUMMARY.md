@@ -48,6 +48,10 @@
 - [0015 - Single instance](specs/0015-single-instance.md)
 - [0016 - Capabilities](specs/0016-capabilities.md)
 - [0017 - Autostart](specs/0017-autostart.md)
+- [0018 - Notifications](specs/0018-notifications.md)
+- [0019 - Keychain](specs/0019-keychain.md)
+- [0020 - Global shortcuts](specs/0020-shortcuts.md)
+- [0021 - Tray](specs/0021-tray.md)
 
 # Reference
 

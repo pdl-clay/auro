@@ -54,3 +54,7 @@ Every spec carries:
 | [0015](0015-single-instance.md) | Single instance: advisory lock before startup | 2 | Implemented (forwarding/activation pending) |
 | [0016](0016-capabilities.md) | Capability manifests and enforcement | 2 | Implemented (host wiring pending) |
 | [0017](0017-autostart.md) | Autostart service | 2 | Implemented |
+| [0018](0018-notifications.md) | Notifications service | 2 | Implemented |
+| [0019](0019-keychain.md) | Keychain service | 2 | Implemented |
+| [0020](0020-shortcuts.md) | Global shortcuts service | 2 | Implemented (events/callbacks pending) |
+| [0021](0021-tray.md) | Tray service | 2 | Implemented (menus/click handlers pending) |
