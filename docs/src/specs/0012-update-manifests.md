@@ -2,7 +2,8 @@
 
 **Status:** Implemented (manifest format, signing, verification and CLI; runtime download/staging is
 [spec 0013](0013-updater-runtime.md); Linux AppImage apply/rollback is
-[spec 0014](0014-appimage-apply.md); other installers, deltas and rollout are not implemented)
+[spec 0014](0014-appimage-apply.md); Windows/macOS apply is
+[spec 0025](0025-platform-apply.md); package installers, deltas and rollout are not implemented)
 
 Phase 2 needs a signed description of a release artifact. This spec fixes the manifest format and
 its verification; the runtime is specified separately ([0013](0013-updater-runtime.md) covers
@@ -81,8 +82,9 @@ manifest path.
 
 The signature and hash prevent a tampered manifest/artifact from being accepted. [Spec
 0013](0013-updater-runtime.md) downloads and stages a verified artifact; [spec
-0014](0014-appimage-apply.md) replaces a Linux AppImage and can roll it back. Other apply paths
-remain separate, and nothing restarts or replaces a running app automatically.
+0014](0014-appimage-apply.md) replaces a Linux AppImage and [spec 0025](0025-platform-apply.md)
+runs Windows installers or replaces a macOS `.app`. Package-manager apply remains separate, and
+nothing restarts or replaces a running app automatically.
 
 ## Interfaces
 
@@ -128,7 +130,7 @@ impl Manifest {
 
 | Question | Where it settles |
 |---|---|
-| Download/apply/staging/restart and rollback | [Updater runtime](0013-updater-runtime.md) / apply spec |
+| Download/apply/staging/restart and rollback | [Updater runtime](0013-updater-runtime.md) / [AppImage](0014-appimage-apply.md) / [Windows and macOS](0025-platform-apply.md) / restart spec |
 | Deltas/patches and staged rollout percentages | Updater rollout spec |
 | Key pinning and rotation inside the app | Trust/update client spec |
 | Update channels and UI | Platform/update UX follow-up |

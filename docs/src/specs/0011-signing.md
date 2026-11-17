@@ -21,7 +21,8 @@ and the manifest signature; it delegates OS code signing to the platform toolcha
 - A signing service or HSM.
 - Notarization credentials in the repository; they remain environment variables.
 - Runtime updater download/apply (the runtime is [spec 0013](0013-updater-runtime.md) and
-  [spec 0014](0014-appimage-apply.md); other installers remain separate).
+  [spec 0014](0014-appimage-apply.md) and [0025](0025-platform-apply.md); package-manager apply
+  remains separate).
 
 ## Decisions
 

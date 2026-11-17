@@ -48,8 +48,8 @@ Every spec carries:
 | [0009](0009-window-manager.md) | Window manager: open/close/focus by configured label | 1 | Implemented |
 | [0010](0010-bundling.md) | Bundling: map `[bundle]` to `tauri-bundler`, host formats, `auro bundle` | 2 | Implemented (Linux, Windows and macOS verified) |
 | [0011](0011-signing.md) | Signing keys, artifact hashes, platform signing config | 2 | Implemented |
-| [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (download/stage in 0013; AppImage apply in 0014) |
-| [0013](0013-updater-runtime.md) | Updater runtime: check, download, verify and stage | 2 | Implemented (AppImage apply in 0014; other installers pending) |
+| [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (download/stage 0013; AppImage 0014; Windows/macOS 0025) |
+| [0013](0013-updater-runtime.md) | Updater runtime: check, download, verify and stage | 2 | Implemented (AppImage in 0014; Windows/macOS in 0025; package/deltas pending) |
 | [0014](0014-appimage-apply.md) | AppImage apply: atomic replacement and rollback receipt | 2 | Implemented (Linux only) |
 | [0015](0015-single-instance.md) | Single instance: advisory lock, argument forwarding | 2 | Implemented (automatic activation pending) |
 | [0016](0016-capabilities.md) | Capability manifests and enforcement | 2 | Implemented (host wiring pending) |
@@ -61,3 +61,4 @@ Every spec carries:
 | [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (forwarded-argument wiring pending) |
 | [0023](0023-keyboard-activation.md) | Keyboard activation for Button | 2 | Implemented (AccessKit/IME pending) |
 | [0024](0024-alpha-release.md) | Alpha release: version, publish order, facade features, scaffold | 2 | Draft (alpha candidate; publication pending) |
+| [0025](0025-platform-apply.md) | Windows installer execution and macOS `.app` replacement | 2 | Implemented (.dmg, elevation and restart pending) |

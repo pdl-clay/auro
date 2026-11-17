@@ -55,3 +55,4 @@ ADR keeps the conclusion.
 | [0011](0011-bundling-delegates.md) | Bundling delegates to `tauri-bundler` | Accepted |
 | [0012](0012-release-trust.md) | Release trust: Ed25519 manifests, delegated platform signing | Accepted |
 | [0013](0013-appimage-updates.md) | AppImage updates: in-place replacement with a backup receipt | Accepted |
+| [0014](0014-platform-update-apply.md) | Platform updates use the native installer or bundle swap | Accepted |

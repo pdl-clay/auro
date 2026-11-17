@@ -27,6 +27,7 @@
 - [0011 - Bundling delegates to tauri-bundler](decisions/0011-bundling-delegates.md)
 - [0012 - Release trust](decisions/0012-release-trust.md)
 - [0013 - AppImage updates](decisions/0013-appimage-updates.md)
+- [0014 - Platform update apply](decisions/0014-platform-update-apply.md)
 
 # Specifications
 
@@ -55,6 +56,7 @@
 - [0022 - Deep links](specs/0022-deep-links.md)
 - [0023 - Keyboard activation](specs/0023-keyboard-activation.md)
 - [0024 - Alpha release](specs/0024-alpha-release.md)
+- [0025 - Windows and macOS apply](specs/0025-platform-apply.md)
 
 # Reference
 

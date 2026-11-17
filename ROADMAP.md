@@ -279,8 +279,8 @@ cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.
 the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
-notarization, updater installers beyond AppImage, deltas/rollout, single-instance activation,
-AccessKit/IME, and the product exit remain.
+notarization, `.dmg`/`.pkg` and package-manager updater apply, deltas/rollout, single-instance
+activation, AccessKit/IME, and the product exit remain.
 
 **Signing/update foundations (2026-11-17):** `auro-sign` provides Ed25519 keys/signatures and
 SHA-256 hashes; `[bundle.macos]`/`[bundle.windows]` map signing inputs to the bundler; `auro-update`
@@ -288,8 +288,11 @@ defines signed manifest format v1; `auro generate-key` and `auro manifest` are u
 `Updater` now verifies offers, downloads within the manifest size, verifies SHA-256 and stages a
 content-addressed artifact atomically. On Linux, `AppImageInstaller` replaces an AppImage with a
 mode-0755 atomic rename, retains a hard-link/copy backup, and returns a receipt that can roll back
-or discard it. Platform signing still needs certificates/credentials; Windows/macOS/package
-installers, restart orchestration, deltas and staged rollout are not implemented.
+or discard it. On Windows, `WindowsInstaller` runs staged MSI/NSIS installers silently and maps
+`3010` to a restart request; on macOS, `MacAppInstaller` swaps a `.app` from a staged `.app.zip`
+and returns a rollback receipt. Platform signing still needs certificates/credentials; `.dmg`,
+`.pkg`, package-manager apply, elevation, restart orchestration, deltas and staged rollout are not
+implemented.
 
 **Platform services (2026-11-17):** `AppInstance` and `App::single_instance()` acquire a per-user
 advisory file lock after config load and refuse a secondary process before GPUI starts
@@ -309,9 +312,9 @@ accessibility pass remains blocked upstream.
 **Phase 2 technical status (2026-11-17):** bundling; signed manifests, staging and Linux AppImage
 apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
 `auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
-Windows/macOS/package updater apply, deltas/staged rollout, single-instance activation, and
-AccessKit/IME. The exit criterion also needs three real apps and published benchmarks; it is not
-met by the workspace alone.
+package-manager updater apply, macOS `.dmg`/`.pkg`, elevation/restart orchestration,
+deltas/staged rollout, single-instance activation, and AccessKit/IME. The exit criterion also needs
+three real apps and published benchmarks; it is not met by the workspace alone.
 
 **Alpha candidate (2026-11-17):** the workspace and internal requirements are
 `0.1.0-alpha.1`; every crate has a README, homepage and discovery metadata; the facade's services

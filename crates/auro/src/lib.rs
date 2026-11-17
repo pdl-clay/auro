@@ -41,12 +41,18 @@ pub mod windows;
 /// Enable the `updater` feature to use this module.
 pub mod update {
     pub use auro_update::{
-        FORMAT_VERSION, Manifest, PublicKey, StagedUpdate, UpdateDecision, UpdateError, Updater,
-        current_platform,
+        FORMAT_VERSION, InstallerRunner, Manifest, PublicKey, StagedUpdate, SystemInstallerRunner,
+        UpdateDecision, UpdateError, Updater, current_platform,
     };
 
     #[cfg(target_os = "linux")]
     pub use auro_update::{AppImageInstaller, InstallReceipt};
+
+    #[cfg(target_os = "windows")]
+    pub use auro_update::{WindowsInstallOutcome, WindowsInstaller, WindowsInstallerKind};
+
+    #[cfg(target_os = "macos")]
+    pub use auro_update::{MacAppInstaller, MacAppReceipt};
 }
 
 #[cfg(feature = "hot-reload")]

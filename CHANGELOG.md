@@ -20,13 +20,19 @@ installable `auro-cli` yet.
 - `auro-update`: runtime `Updater` checks signature/platform/semantic version, downloads with
   connect/per-call/per-read timeouts and an exact manifest-size bound, verifies SHA-256, and stages
   content-addressed artifacts atomically; `stage_from_path` uses the same path for local artifacts.
-  Staged files that still verify are reused. Install/apply, rollback, deltas and staged rollout are
-  not implemented (spec 0013). The facade exposes this as `auro::update` behind the opt-in
-  `updater` feature; `PublicKey` is re-exported for key loading.
+  Staged files that still verify are reused. Apply paths live in specs 0014/0025; deltas and staged
+  rollout are not implemented (spec 0013). The facade exposes this as `auro::update` behind the
+  opt-in `updater` feature; `PublicKey` is re-exported for key loading.
+- `auro-update`: Windows `WindowsInstaller` runs staged MSI (`msiexec /i ... /qn /norestart`) or
+  NSIS (`/S`) installers through an injectable, shell-free command runner and maps code `3010` to
+  `restart_required`. macOS `MacAppInstaller` extracts a staged `.app.zip`, swaps exactly one
+  top-level `.app` into place, and returns a receipt with rollback/discard. The facade re-exports
+  each installer on its host OS (spec 0025).
 - `auro-update`: Linux `AppImageInstaller` replaces a staged AppImage atomically, sets mode `0755`,
   and retains a hard-link (or copy) backup. `InstallReceipt` can roll the previous file back or
-  discard the backup after the new version is accepted. Other platforms/packages, restart
-  orchestration, deltas and staged rollout are not implemented (spec 0014, ADR 0013).
+  discard the backup after the new version is accepted. Windows/macOS apply is in spec 0025;
+  package-manager apply, restart orchestration, deltas and staged rollout are not implemented
+  (spec 0014, ADR 0013).
 - `auro-perms`: deny-by-default capability `Policy` with `fs`/`net`/`shell`/`clipboard`/
   `notification`/`keychain` grants, compiled glob scopes for the scoped capabilities, typed
   `Denied` errors, and `auro::perms` re-exports (spec 0016).
