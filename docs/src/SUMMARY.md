@@ -26,6 +26,7 @@
 - [0010 - Typed events, delivered on the main thread](decisions/0010-typed-events-main-thread.md)
 - [0011 - Bundling delegates to tauri-bundler](decisions/0011-bundling-delegates.md)
 - [0012 - Release trust](decisions/0012-release-trust.md)
+- [0013 - AppImage updates](decisions/0013-appimage-updates.md)
 
 # Specifications
 
@@ -43,6 +44,7 @@
 - [0011 - Signing](specs/0011-signing.md)
 - [0012 - Update manifests](specs/0012-update-manifests.md)
 - [0013 - Updater runtime](specs/0013-updater-runtime.md)
+- [0014 - AppImage apply](specs/0014-appimage-apply.md)
 
 # Reference
 

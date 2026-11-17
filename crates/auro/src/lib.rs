@@ -24,6 +24,9 @@ pub mod update {
         FORMAT_VERSION, Manifest, PublicKey, StagedUpdate, UpdateDecision, UpdateError, Updater,
         current_platform,
     };
+
+    #[cfg(target_os = "linux")]
+    pub use auro_update::{AppImageInstaller, InstallReceipt};
 }
 
 #[cfg(feature = "hot-reload")]

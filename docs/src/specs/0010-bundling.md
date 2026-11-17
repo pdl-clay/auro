@@ -154,7 +154,7 @@ is configured, so the artifacts are unsigned; signing/notarization belong to the
 | Question | Where it settles |
 |---|---|
 | Codesign/notarization and Windows signing | Signing spec |
-| Updater install/apply, deltas, staged rollout, rollback | Updater apply/rollout spec |
+| Windows/macOS/package apply, deltas, staged rollout, rollback | Updater apply/rollout specs |
 | Icon placeholders in the scaffold | Bundling follow-up; apps may supply icons today |
 | Cross-compilation | Not planned for 1.0; revisit if demand appears |
 | AppImage tool downloads and offline builds | Document the bundler's cache/tooling behavior |

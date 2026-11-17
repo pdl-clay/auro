@@ -19,7 +19,7 @@ Nine crates are materialized now; the rest arrive with the phase that needs them
 | `auro-plugins` | library | plugin manifest and host (in-process and out-of-process) | planned, Phase 3 |
 | `auro-bundle` | library | platform packaging via `tauri-bundler` (spec 0010) | Phase 2, in tree |
 | `auro-sign` | library | Ed25519 keys, signatures, SHA-256 (spec 0011) | Phase 2, in tree |
-| `auro-update` | library | signed update manifests and the check/download/stage runtime (specs 0012, 0013) | Phase 2, in tree |
+| `auro-update` | library | signed manifests, check/download/stage runtime, Linux AppImage apply (specs 0012-0014) | Phase 2, in tree |
 
 ## Dependency rules
 

@@ -23,6 +23,10 @@ installable `auro-cli` yet.
   Staged files that still verify are reused. Install/apply, rollback, deltas and staged rollout are
   not implemented (spec 0013). The facade exposes this as `auro::update` behind the opt-in
   `updater` feature; `PublicKey` is re-exported for key loading.
+- `auro-update`: Linux `AppImageInstaller` replaces a staged AppImage atomically, sets mode `0755`,
+  and retains a hard-link (or copy) backup. `InstallReceipt` can roll the previous file back or
+  discard the backup after the new version is accepted. Other platforms/packages, restart
+  orchestration, deltas and staged rollout are not implemented (spec 0014, ADR 0013).
 - `[bundle.macos]` and `[bundle.windows]` signing inputs (identity, entitlements, hardened runtime,
   certificate thumbprint, timestamping, custom sign command/args); Windows keeps WebView2 skipped.
 - `auro generate-key --out <path>` and `auro manifest --artifact ... --key ... --out ...`.

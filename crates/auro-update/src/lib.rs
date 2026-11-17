@@ -9,7 +9,7 @@
 //! are separate concerns.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub use auro_sign::PublicKey;
 use auro_sign::{SignError, SigningKey};
@@ -63,11 +63,29 @@ pub enum UpdateError {
 
     #[error("download failed: {0}")]
     Http(#[from] ureq::Error),
+
+    #[error("AppImage target `{}` does not exist", .path.display())]
+    InstallTargetMissing { path: PathBuf },
+
+    #[error("AppImage target `{}` is not a regular file", .path.display())]
+    InstallTargetNotFile { path: PathBuf },
+
+    #[error("staged artifact `{}` is missing", .path.display())]
+    StagedArtifactMissing { path: PathBuf },
+
+    #[error("rollback backup `{}` is missing", .path.display())]
+    RollbackBackupMissing { path: PathBuf },
 }
 
 mod runtime;
 
 pub use runtime::{StagedUpdate, UpdateDecision, Updater};
+
+#[cfg(target_os = "linux")]
+mod appimage;
+
+#[cfg(target_os = "linux")]
+pub use appimage::{AppImageInstaller, InstallReceipt};
 
 /// A signed release manifest.
 ///

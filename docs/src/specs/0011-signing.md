@@ -20,8 +20,8 @@ and the manifest signature; it delegates OS code signing to the platform toolcha
 - Storing keys in a platform keychain; the initial contract is a 0600 key file.
 - A signing service or HSM.
 - Notarization credentials in the repository; they remain environment variables.
-- Runtime updater download/apply (download and staging are [spec 0013](0013-updater-runtime.md);
-  install/apply remains separate).
+- Runtime updater download/apply (the runtime is [spec 0013](0013-updater-runtime.md) and
+  [spec 0014](0014-appimage-apply.md); other installers remain separate).
 
 ## Decisions
 
