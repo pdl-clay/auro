@@ -1,0 +1,17 @@
+[package]
+name = "auro-services"
+description = "Platform services for Auro: autostart, notifications, keychain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+auto-launch = "0.6"
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

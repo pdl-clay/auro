@@ -34,6 +34,9 @@ installable `auro-cli` yet.
   refuse a secondary process before GPUI starts. The secondary gets `AuroError::Instance`
   (`run` exits 2); argument forwarding and primary-window activation are not implemented
   (spec 0015).
+- `auro-services`: `Autostart` and `Autostart::for_current_app` use `auto-launch` to enable,
+  disable and query login-item autostart on Linux/macOS/Windows. Windows always uses the
+  per-user registry mode; macOS uses a Launch Agent (spec 0017).
 - `[bundle.macos]` and `[bundle.windows]` signing inputs (identity, entitlements, hardened runtime,
   certificate thumbprint, timestamping, custom sign command/args); Windows keeps WebView2 skipped.
 - `auro generate-key --out <path>` and `auro manifest --artifact ... --key ... --out ...`.

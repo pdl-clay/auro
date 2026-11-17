@@ -267,7 +267,7 @@ toolkit the app chooses.
   AppImage/deb/rpm.
 - `auro-update`: signed manifests, deltas, staged rollout, rollback.
 - Platform services: fs, dialogs, clipboard, notifications, keychain, tray, global shortcuts,
-  deep links, single-instance, autostart.
+  deep links, single-instance, autostart (spec 0017).
 - `auro-perms`: manifest plus runtime enforcement (spec 0016; the plugin host wiring is Phase 3).
 - Accessibility (AccessKit), IME and keyboard navigation pass.
 
@@ -294,7 +294,8 @@ installers, restart orchestration, deltas and staged rollout are not implemented
 advisory file lock after config load and refuse a secondary process before GPUI starts
 (`AuroError::Instance`, exit code 2). Argument/deep-link forwarding and primary-window activation
 are not implemented. GPUI supplies clipboard, file dialogs and open/reveal path/URL primitives;
-notifications, keychain, tray, global shortcuts, deep links and autostart remain.
+notifications, keychain, tray, global shortcuts and deep links remain. Autostart is implemented
+with `auro-services::Autostart` (spec 0017).
 `auro-perms` implements the capability `Policy` with deny-by-default grants and compiled glob
 scopes; the plugin host that consumes it is Phase 3.
 

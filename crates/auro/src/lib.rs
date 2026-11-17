@@ -17,6 +17,10 @@ pub mod perms {
     pub use auro_perms::{Capability, Denied, Grant, Policy, PolicyError, UnknownCapability};
 }
 
+pub mod services {
+    pub use auro_services::{AppPath, Autostart, AutostartError};
+}
+
 mod app;
 pub mod windows;
 

@@ -53,3 +53,4 @@ Every spec carries:
 | [0014](0014-appimage-apply.md) | AppImage apply: atomic replacement and rollback receipt | 2 | Implemented (Linux only) |
 | [0015](0015-single-instance.md) | Single instance: advisory lock before startup | 2 | Implemented (forwarding/activation pending) |
 | [0016](0016-capabilities.md) | Capability manifests and enforcement | 2 | Implemented (host wiring pending) |
+| [0017](0017-autostart.md) | Autostart service | 2 | Implemented |

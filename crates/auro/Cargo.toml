@@ -20,6 +20,7 @@ auro-core.workspace = true
 auro-ipc.workspace = true
 auro-macros.workspace = true
 auro-perms.workspace = true
+auro-services.workspace = true
 auro-ui.workspace = true
 auro-update = { workspace = true, optional = true }
 dioxus-devtools = { workspace = true, optional = true }
