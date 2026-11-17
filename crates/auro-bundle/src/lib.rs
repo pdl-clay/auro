@@ -10,8 +10,8 @@ use std::str::FromStr;
 
 use auro_core::{AuroError, BundleTargets, Config};
 use tauri_bundler::bundle::{
-    AppCategory, BundleBinary, BundleSettings, PackageSettings, PackageType, Settings,
-    SettingsBuilder, WindowsSettings,
+    AppCategory, BundleBinary, BundleSettings, CustomSignCommandSettings, Entitlements,
+    MacOsSettings, PackageSettings, PackageType, Settings, SettingsBuilder, WindowsSettings,
 };
 use tauri_utils::config::WebviewInstallMode;
 
@@ -149,7 +149,30 @@ fn settings(dir: &Path, config: &Config, binary: &str) -> Result<Settings, AuroE
             .then(|| config.bundle.short_description.clone()),
         long_description: (!config.bundle.long_description.is_empty())
             .then(|| config.bundle.long_description.clone()),
+        macos: MacOsSettings {
+            signing_identity: config.bundle.macos.signing_identity.clone(),
+            entitlements: config
+                .bundle
+                .macos
+                .entitlements
+                .as_ref()
+                .map(|path| Entitlements::Path(dir.join(path))),
+            hardened_runtime: config.bundle.macos.hardened_runtime,
+            skip_stapling: config.bundle.macos.skip_stapling,
+            ..MacOsSettings::default()
+        },
         windows: WindowsSettings {
+            certificate_thumbprint: config.bundle.windows.certificate_thumbprint.clone(),
+            digest_algorithm: config.bundle.windows.digest_algorithm.clone(),
+            timestamp_url: config.bundle.windows.timestamp_url.clone(),
+            tsp: config.bundle.windows.tsp,
+            sign_command: config.bundle.windows.sign_command.as_ref().map(|command| {
+                CustomSignCommandSettings {
+                    cmd: command.clone(),
+                    args: config.bundle.windows.sign_args.clone(),
+                }
+            }),
+            allow_downgrades: config.bundle.windows.allow_downgrades,
             // Auro has no webview in its app layer; do not download or install WebView2.
             webview_install_mode: WebviewInstallMode::Skip,
             ..WindowsSettings::default()
@@ -277,6 +300,55 @@ resources = ["assets/**"]
         ];
         fs::write(icon, png).expect("icon");
         assert!(preflight(temp.path(), &config).is_ok());
+    }
+
+    #[test]
+    fn maps_signing_settings() {
+        let (temp, config) = config(
+            r#"
+[bundle.macos]
+signing-identity = "Developer ID Application: Auro"
+entitlements = "entitlements.plist"
+hardened-runtime = false
+skip-stapling = true
+
+[bundle.windows]
+certificate-thumbprint = "ABC123"
+digest-algorithm = "sha256"
+timestamp-url = "https://timestamp.example.test"
+tsp = true
+sign-command = "signtool"
+sign-args = ["sign", "%1"]
+allow-downgrades = false
+"#,
+        );
+        let settings = settings(temp.path(), &config, "bundle-demo").expect("settings");
+
+        let macos = settings.macos();
+        assert_eq!(
+            macos.signing_identity.as_deref(),
+            Some("Developer ID Application: Auro")
+        );
+        assert!(!macos.hardened_runtime);
+        assert!(macos.skip_stapling);
+        assert!(matches!(
+            macos.entitlements,
+            Some(Entitlements::Path(ref path)) if path.ends_with("entitlements.plist")
+        ));
+
+        let windows = settings.windows();
+        assert_eq!(windows.certificate_thumbprint.as_deref(), Some("ABC123"));
+        assert_eq!(windows.digest_algorithm.as_deref(), Some("sha256"));
+        assert_eq!(
+            windows.timestamp_url.as_deref(),
+            Some("https://timestamp.example.test")
+        );
+        assert!(windows.tsp);
+        let sign = windows.sign_command.as_ref().expect("sign command");
+        assert_eq!(sign.cmd, "signtool");
+        assert_eq!(sign.args, ["sign", "%1"]);
+        assert!(!windows.allow_downgrades);
+        assert_eq!(windows.webview_install_mode, WebviewInstallMode::Skip);
     }
 
     #[test]

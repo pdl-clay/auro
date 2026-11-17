@@ -5,12 +5,12 @@ what comes next; it is deliberately more specific than the README.
 
 ## Crates
 
-Seven crates are materialized now; the rest arrive with the phase that needs them.
+Nine crates are materialized now; the rest arrive with the phase that needs them.
 
 | Crate | Kind | Responsibility | Status |
 |---|---|---|---|
 | `auro` | library | facade re-exporting the supported API surface (`auro::prelude`) | Phase 0, in tree |
-| `auro-cli` | binary | `new`, `dev`, `build`, `bundle`, `add`, `doctor` | Phase 0, in tree (`new`, `dev`, `build`, `bundle`, `doctor`) |
+| `auro-cli` | binary | `new`, `dev`, `build`, `bundle`, `generate-key`, `manifest`, `doctor` | Phase 0-2, in tree |
 | `auro-core` | library | config schema, state store, lifecycle events; window manager and event delivery live in the facade | Phase 1, in tree (config, state, lifecycle) |
 | `auro-ui` | library | GPUI re-export, tokens, minimal primitives; **no component toolkit** ([ADR 0009](../decisions/0009-toolkits-are-app-level.md)) | Phase 0, in tree (re-exports, `Button`, tokens) |
 | `auro-ipc` | library | typed transport, command schemas, runtime bridge | Phase 1, in tree |
@@ -18,8 +18,8 @@ Seven crates are materialized now; the rest arrive with the phase that needs the
 | `auro-perms` | library | capability manifests and runtime enforcement | planned, Phase 2 |
 | `auro-plugins` | library | plugin manifest and host (in-process and out-of-process) | planned, Phase 3 |
 | `auro-bundle` | library | platform packaging via `tauri-bundler` (spec 0010) | Phase 2, in tree |
-| `auro-update` | library | signed manifests, deltas, rollout, rollback | planned, Phase 2 |
-| `auro-sign` | library | signing and key handling shared by bundle and update | planned, Phase 2 |
+| `auro-sign` | library | Ed25519 keys, signatures, SHA-256 (spec 0011) | Phase 2, in tree |
+| `auro-update` | library | signed update manifests (spec 0012) | Phase 2, in tree |
 
 ## Dependency rules
 

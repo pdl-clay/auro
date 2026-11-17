@@ -53,3 +53,4 @@ ADR keeps the conclusion.
 | [0009](0009-toolkits-are-app-level.md) | Toolkits are the application's choice | Accepted |
 | [0010](0010-typed-events-main-thread.md) | Typed events, delivered on the main thread | Accepted |
 | [0011](0011-bundling-delegates.md) | Bundling delegates to `tauri-bundler` | Accepted |
+| [0012](0012-release-trust.md) | Release trust: Ed25519 manifests, delegated platform signing | Accepted |

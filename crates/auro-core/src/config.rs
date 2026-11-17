@@ -144,6 +144,80 @@ pub struct BundleConfig {
     pub copyright: String,
     #[serde(default)]
     pub license_file: String,
+    #[serde(default)]
+    pub macos: MacOsBundleConfig,
+    #[serde(default)]
+    pub windows: WindowsBundleConfig,
+}
+
+/// macOS signing and notarization inputs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct MacOsBundleConfig {
+    /// Code-signing identity passed to `codesign`.
+    #[serde(default)]
+    pub signing_identity: Option<String>,
+    /// Path to the entitlements plist, relative to the app directory.
+    #[serde(default)]
+    pub entitlements: Option<String>,
+    /// Enable the hardened runtime; default true for distribution.
+    #[serde(default = "default_true")]
+    pub hardened_runtime: bool,
+    /// Do not wait for/stapling the notarization ticket.
+    #[serde(default)]
+    pub skip_stapling: bool,
+}
+
+impl Default for MacOsBundleConfig {
+    fn default() -> Self {
+        MacOsBundleConfig {
+            signing_identity: None,
+            entitlements: None,
+            hardened_runtime: true,
+            skip_stapling: false,
+        }
+    }
+}
+
+/// Windows Authenticode signing inputs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct WindowsBundleConfig {
+    /// SHA-1 hash of the signing certificate.
+    #[serde(default)]
+    pub certificate_thumbprint: Option<String>,
+    /// File digest algorithm, e.g. `sha256`.
+    #[serde(default)]
+    pub digest_algorithm: Option<String>,
+    /// Timestamp server URL.
+    #[serde(default)]
+    pub timestamp_url: Option<String>,
+    /// Use RFC 3161 timestamping.
+    #[serde(default)]
+    pub tsp: bool,
+    /// Custom sign command; `%1` in the arguments is replaced with the binary path.
+    #[serde(default)]
+    pub sign_command: Option<String>,
+    /// Arguments for `sign-command`.
+    #[serde(default)]
+    pub sign_args: Vec<String>,
+    /// Allow an older version to replace a newer one.
+    #[serde(default = "default_true")]
+    pub allow_downgrades: bool,
+}
+
+impl Default for WindowsBundleConfig {
+    fn default() -> Self {
+        WindowsBundleConfig {
+            certificate_thumbprint: None,
+            digest_algorithm: None,
+            timestamp_url: None,
+            tsp: false,
+            sign_command: None,
+            sign_args: Vec::new(),
+            allow_downgrades: true,
+        }
+    }
 }
 
 impl Default for BundleConfig {
@@ -158,6 +232,8 @@ impl Default for BundleConfig {
             long_description: String::new(),
             copyright: String::new(),
             license_file: String::new(),
+            macos: MacOsBundleConfig::default(),
+            windows: WindowsBundleConfig::default(),
         }
     }
 }
@@ -317,6 +393,9 @@ impl Config {
         }
         for resource in &self.bundle.resources {
             ensure_relative(path, "bundle.resources", resource)?;
+        }
+        if let Some(entitlements) = &self.bundle.macos.entitlements {
+            ensure_relative(path, "bundle.macos.entitlements", entitlements)?;
         }
 
         if let BundleTargets::Keyword(word) = &self.bundle.targets
@@ -719,6 +798,21 @@ short-description = "short"
 long-description = "long"
 copyright = "2026 The Auro Authors"
 license-file = "LICENSE"
+
+[bundle.macos]
+signing-identity = "Developer ID Application: Auro"
+entitlements = "entitlements.plist"
+hardened-runtime = false
+skip-stapling = true
+
+[bundle.windows]
+certificate-thumbprint = "ABC123"
+digest-algorithm = "sha256"
+timestamp-url = "https://timestamp.example.test"
+tsp = true
+sign-command = "signtool"
+sign-args = ["sign", "%1"]
+allow-downgrades = false
 "#
         );
 

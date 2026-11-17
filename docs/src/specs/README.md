@@ -47,3 +47,5 @@ Every spec carries:
 | [0008](0008-command-schema.md) | Command schemas: input/output metadata on the handler | 1 | Implemented |
 | [0009](0009-window-manager.md) | Window manager: open/close/focus by configured label | 1 | Implemented |
 | [0010](0010-bundling.md) | Bundling: map `[bundle]` to `tauri-bundler`, host formats, `auro bundle` | 2 | Implemented (Linux, Windows and macOS verified) |
+| [0011](0011-signing.md) | Signing keys, artifact hashes, platform signing config | 2 | Implemented |
+| [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (runtime apply pending) |

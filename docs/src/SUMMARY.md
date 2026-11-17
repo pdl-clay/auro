@@ -25,6 +25,7 @@
 - [0009 - Toolkits are the application's choice](decisions/0009-toolkits-are-app-level.md)
 - [0010 - Typed events, delivered on the main thread](decisions/0010-typed-events-main-thread.md)
 - [0011 - Bundling delegates to tauri-bundler](decisions/0011-bundling-delegates.md)
+- [0012 - Release trust](decisions/0012-release-trust.md)
 
 # Specifications
 
@@ -39,6 +40,8 @@
 - [0008 - Command schema registry](specs/0008-command-schema.md)
 - [0009 - Window manager](specs/0009-window-manager.md)
 - [0010 - Bundling](specs/0010-bundling.md)
+- [0011 - Signing](specs/0011-signing.md)
+- [0012 - Update manifests](specs/0012-update-manifests.md)
 
 # Reference
 

@@ -13,6 +13,13 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `auro-sign`: Ed25519 signing keys, detached signatures and SHA-256 file hashes; key files are
+  0600 on Unix and debug output hides the seed.
+- `auro-update`: signed update manifest format v1 with canonical JSON payloads, artifact
+  size/SHA-256 verification, and `auro manifest`.
+- `[bundle.macos]` and `[bundle.windows]` signing inputs (identity, entitlements, hardened runtime,
+  certificate thumbprint, timestamping, custom sign command/args); Windows keeps WebView2 skipped.
+- `auro generate-key --out <path>` and `auro manifest --artifact ... --key ... --out ...`.
 - `auro-bundle` and `auro bundle`: map `[bundle]` onto `tauri-bundler 2.10.5`, build the release
   binary, and emit host artifacts. Linux `.deb`, `.rpm` and `.AppImage` and Windows MSI/NSIS were
   produced for fixture apps; the Windows installers installed, ran the app and uninstalled

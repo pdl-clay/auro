@@ -16,6 +16,8 @@ path = "src/main.rs"
 [dependencies]
 auro-bundle.workspace = true
 auro-core.workspace = true
+auro-sign.workspace = true
+auro-update.workspace = true
 clap.workspace = true
 ctrlc = "3"
 notify.workspace = true

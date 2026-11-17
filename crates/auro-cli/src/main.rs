@@ -3,6 +3,7 @@
 mod dev;
 mod doctor;
 mod project;
+mod release;
 
 use std::path::PathBuf;
 
@@ -47,6 +48,39 @@ enum Command {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+    /// Generate an Ed25519 release signing key
+    GenerateKey {
+        /// Key file to create
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Create a signed update manifest for an artifact
+    Manifest {
+        /// Artifact to describe
+        #[arg(long)]
+        artifact: PathBuf,
+        /// Release version
+        #[arg(long)]
+        version: String,
+        /// URL where the artifact will be served
+        #[arg(long)]
+        url: String,
+        /// Signing key file
+        #[arg(long)]
+        key: PathBuf,
+        /// Manifest file to write
+        #[arg(long)]
+        out: PathBuf,
+        /// Release notes
+        #[arg(long, default_value = "")]
+        notes: String,
+        /// Platform key (defaults to the current host)
+        #[arg(long)]
+        platform: Option<String>,
+        /// Publication timestamp (RFC 3339 or any stable text)
+        #[arg(long)]
+        published_at: String,
+    },
     /// Report toolchain, config and platform status
     Doctor {
         /// App directory (defaults to the current one)
@@ -64,6 +98,26 @@ fn main() {
         Command::Dev { dir, overrides } => dev::run(dir.unwrap_or_else(current), &overrides),
         Command::Build { dir } => project::build(&dir.unwrap_or_else(current)),
         Command::Bundle { dir } => project::bundle(&dir.unwrap_or_else(current)),
+        Command::GenerateKey { out } => release::generate_key(&out),
+        Command::Manifest {
+            artifact,
+            version,
+            url,
+            key,
+            out,
+            notes,
+            platform,
+            published_at,
+        } => release::manifest(
+            &artifact,
+            &version,
+            &url,
+            &key,
+            &out,
+            &notes,
+            platform.as_deref(),
+            &published_at,
+        ),
         Command::Doctor { dir } => doctor::run(&dir.unwrap_or_else(current)),
     };
 

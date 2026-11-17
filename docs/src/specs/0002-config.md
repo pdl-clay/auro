@@ -1,6 +1,6 @@
 # 0002 - Configuration
 
-**Status:** Implemented (Phase 0 closed 2026-11-17)
+**Status:** Implemented (Phase 0 closed 2026-11-17; Phase 2 signing keys added in spec 0011)
 
 `Auro.toml` is the only file an app author edits to describe their app. This spec fixes its
 location, format, every Phase 0 key, the merge rules, and what makes it invalid.
@@ -92,7 +92,7 @@ It is never read at runtime and never affects behaviour.
 
 ### `[bundle]`
 
-Validated in Phase 0, consumed from Phase 2. Nothing here changes `auro build` yet.
+Validated in Phase 0 and consumed by `auro bundle` (spec 0010) in Phase 2. Nothing here changes `auro build`.
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
@@ -106,6 +106,34 @@ Validated in Phase 0, consumed from Phase 2. Nothing here changes `auro build` y
 | `copyright` | string | `""` | |
 | `license-file` | string | `""` | shipped in the bundle when set |
 
+### `[bundle.macos]`
+
+Code signing and notarization inputs. Notarization credentials come from the environment
+(`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`); they are never config keys.
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `signing-identity` | string | none | passed to `codesign` |
+| `entitlements` | string | none | plist path relative to the app dir |
+| `hardened-runtime` | bool | `true` | distribution default |
+| `skip-stapling` | bool | `false` | do not wait for/stapling the notarization ticket |
+
+### `[bundle.windows]`
+
+Authenticode signing inputs.
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `certificate-thumbprint` | string | none | SHA-1 of the signing certificate |
+| `digest-algorithm` | string | none | e.g. `sha256` |
+| `timestamp-url` | string | none | timestamp server |
+| `tsp` | bool | `false` | RFC 3161 timestamping |
+| `sign-command` | string | none | custom signer; `%1` in `sign-args` is the binary |
+| `sign-args` | array of string | `[]` | arguments for `sign-command` |
+| `allow-downgrades` | bool | `true` | allow an older version to replace a newer one |
+
+`webview-install-mode` is not configurable: Auro has no webview and always skips WebView2.
+
 ## Validation
 
 Failures are `AuroError::Config { path, key, message }` and abort before a window opens. Rules:
@@ -118,7 +146,7 @@ Failures are `AuroError::Config { path, key, message }` and abort before a windo
 5. `bundle.targets` naming a package format the host cannot produce: error listing the valid set
    for that host. The known formats are `app`, `dmg`, `msi`, `nsis`, `appimage`, `deb` and `rpm`;
    the host sets are macOS `app`/`dmg`, Windows `msi`/`nsis`, and Linux `appimage`/`deb`/`rpm`.
-6. Relative `watch` or `resources` paths escaping the app directory: error.
+6. Relative `watch`, `resources` or `bundle.macos.entitlements` paths escaping the app directory: error.
 
 ## Interfaces
 

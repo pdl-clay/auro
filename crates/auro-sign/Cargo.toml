@@ -1,0 +1,20 @@
+[package]
+name = "auro-sign"
+description = "Signing keys and artifact signatures for Auro"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+rand_core.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
