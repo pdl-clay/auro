@@ -52,6 +52,7 @@
 - [0019 - Keychain](specs/0019-keychain.md)
 - [0020 - Global shortcuts](specs/0020-shortcuts.md)
 - [0021 - Tray](specs/0021-tray.md)
+- [0022 - Deep links](specs/0022-deep-links.md)
 
 # Reference
 

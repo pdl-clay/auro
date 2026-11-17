@@ -17,7 +17,7 @@ Eleven crates are materialized now; the rest arrive with the phase that needs th
 | `auro-macros` | proc-macro | `#[command]`, `generate_handler!` | Phase 0, in tree |
 | `auro-perms` | library | capability manifests and runtime enforcement (spec 0016) | Phase 2, in tree |
 | `auro-plugins` | library | plugin manifest and host (in-process and out-of-process) | planned, Phase 3 |
-| `auro-services` | library | platform services: autostart, notifications, keychain, global shortcuts, tray (specs 0017-0021) | Phase 2, in tree |
+| `auro-services` | library | platform services: autostart, notifications, keychain, global shortcuts, tray, deep links (specs 0017-0022) | Phase 2, in tree |
 | `auro-bundle` | library | platform packaging via `tauri-bundler` (spec 0010) | Phase 2, in tree |
 | `auro-sign` | library | Ed25519 keys, signatures, SHA-256 (spec 0011) | Phase 2, in tree |
 | `auro-update` | library | signed manifests, check/download/stage runtime, Linux AppImage apply (specs 0012-0014) | Phase 2, in tree |

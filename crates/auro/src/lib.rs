@@ -19,9 +19,9 @@ pub mod perms {
 
 pub mod services {
     pub use auro_services::{
-        AppPath, Autostart, AutostartError, CredentialStore, Keychain, KeychainError,
-        Notifications, NotificationsBackend, NotificationsError, ShortcutBackend, Shortcuts,
-        ShortcutsError, Tray, TrayBackend, TrayError,
+        AppLinks, AppPath, Autostart, AutostartError, CredentialStore, DeepLink, DeepLinkError,
+        Keychain, KeychainError, Notifications, NotificationsBackend, NotificationsError,
+        ShortcutBackend, Shortcuts, ShortcutsError, Tray, TrayBackend, TrayError,
     };
 }
 

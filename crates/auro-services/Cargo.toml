@@ -1,6 +1,6 @@
 [package]
 name = "auro-services"
-description = "Platform services for Auro: autostart, notifications, keychain"
+description = "Platform services for Auro: autostart, notifications, keychain, shortcuts, tray and deep links"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

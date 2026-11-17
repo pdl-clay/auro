@@ -45,6 +45,9 @@ installable `auro-cli` yet.
   with a pluggable backend trait for tests (spec 0020).
 - `auro-services`: `Tray` shows and hides a tray icon and sets its tooltip through `tray-icon`,
   with a pluggable backend trait for tests (spec 0021).
+- `auro-services`: `AppLinks` parses, filters and queues URL-scheme deep links;
+  `register_scheme` writes per-user Windows/Linux registrations (macOS stays packager-owned)
+  (spec 0022).
 - `[bundle.macos]` and `[bundle.windows]` signing inputs (identity, entitlements, hardened runtime,
   certificate thumbprint, timestamping, custom sign command/args); Windows keeps WebView2 skipped.
 - `auro generate-key --out <path>` and `auro manifest --artifact ... --key ... --out ...`.
