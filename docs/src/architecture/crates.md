@@ -12,7 +12,7 @@ Eleven crates are materialized now; the rest arrive with the phase that needs th
 | `auro` | library | facade re-exporting the supported API surface (`auro::prelude`) | Phase 0, in tree |
 | `auro-cli` | binary | `new`, `dev`, `build`, `bundle`, `generate-key`, `manifest`, `doctor` | Phase 0-2, in tree |
 | `auro-core` | library | config schema, state store, lifecycle events, single-instance guard; window manager and event delivery live in the facade | Phase 1, in tree (config, state, lifecycle, instance) |
-| `auro-ui` | library | GPUI re-export, tokens, minimal primitives; **no component toolkit** ([ADR 0009](../decisions/0009-toolkits-are-app-level.md)) | Phase 0, in tree (re-exports, `Button`, tokens) |
+| `auro-ui` | library | GPUI re-export, tokens, minimal primitives (`Button` with keyboard activation); **no component toolkit** ([ADR 0009](../decisions/0009-toolkits-are-app-level.md)) | Phase 0-2, in tree (re-exports, `Button`, tokens) |
 | `auro-ipc` | library | typed transport, command schemas, runtime bridge | Phase 1, in tree |
 | `auro-macros` | proc-macro | `#[command]`, `generate_handler!` | Phase 0, in tree |
 | `auro-perms` | library | capability manifests and runtime enforcement (spec 0016) | Phase 2, in tree |

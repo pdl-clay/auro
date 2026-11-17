@@ -59,3 +59,4 @@ Every spec carries:
 | [0020](0020-shortcuts.md) | Global shortcuts service | 2 | Implemented (events/callbacks pending) |
 | [0021](0021-tray.md) | Tray service | 2 | Implemented (menus/click handlers pending) |
 | [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (forwarding pending) |
+| [0023](0023-keyboard-activation.md) | Keyboard activation for Button | 2 | Implemented (AccessKit/IME pending) |

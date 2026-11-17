@@ -301,6 +301,10 @@ deep-link parsing/queue (`Autostart`, `Notifications`, `Keychain`, `Shortcuts`, 
 `auro-perms` implements the capability `Policy` with deny-by-default grants and compiled glob
 scopes; the plugin host that consumes it is Phase 3.
 
+**Keyboard (2026-11-17):** `Button` is focusable, a tab stop, and activates on unmodified Enter or
+Space (spec 0023). AccessKit is absent from GPUI 0.2.2, so the screen-reader/IME portion of the
+accessibility pass remains blocked upstream.
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 

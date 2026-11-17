@@ -57,6 +57,9 @@ impl IntoElement for Button {
     fn into_element(self) -> Self::Element {
         let mut element = div()
             .id(self.id)
+            .focusable()
+            .tab_stop(true)
+            .tab_index(0)
             .px(super::tokens::space_4())
             .py(super::tokens::space_2())
             .rounded_md()
@@ -68,7 +71,18 @@ impl IntoElement for Button {
         }
 
         if let Some(handler) = self.on_click {
-            element = element.on_click(move |event, window, cx| handler(event, window, cx));
+            let click_handler = handler.clone();
+            element = element.on_click(move |event, window, cx| click_handler(event, window, cx));
+            element = element.on_key_down(move |event, window, cx| {
+                if event.is_held {
+                    return;
+                }
+                if event.keystroke.modifiers == gpui::Modifiers::none()
+                    && matches!(event.keystroke.key.as_str(), "enter" | "space")
+                {
+                    handler(&ClickEvent::default(), window, cx);
+                }
+            });
         }
 
         element.into_any_element()
