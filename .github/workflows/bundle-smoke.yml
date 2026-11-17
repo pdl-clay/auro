@@ -1,0 +1,121 @@
+name: Bundle smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "crates/auro-bundle/**"
+      - "crates/auro-cli/**"
+      - "crates/auro-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/bundle-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bundle-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    name: macOS app and dmg
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+
+      - name: Build the CLI
+        run: cargo build -p auro-cli --locked
+
+      - name: Create a fixture app
+        shell: bash
+        run: |
+          fixture="$RUNNER_TEMP/bundle-fixture"
+          mkdir -p "$fixture/src" "$fixture/icons"
+          cat > "$fixture/Cargo.toml" <<'EOF'
+          [package]
+          name = "bundle-smoke"
+          version = "0.1.0"
+          edition = "2024"
+
+          [workspace]
+
+          [[bin]]
+          name = "bundle-smoke"
+          path = "src/main.rs"
+          EOF
+          cat > "$fixture/src/main.rs" <<'EOF'
+          fn main() {
+              println!("bundle smoke on macOS");
+          }
+          EOF
+          cat > "$fixture/Auro.toml" <<'EOF'
+          [app]
+          identifier = "com.example.bundlesmoke"
+          product-name = "Bundle Smoke"
+          version = "0.1.0"
+          description = "A tiny app used to exercise auro bundle on macOS"
+          authors = ["The Auro Authors"]
+          license = "MIT OR Apache-2.0"
+
+          [[app.windows]]
+          label = "main"
+
+          [bundle]
+          targets = ["app", "dmg"]
+          icon = ["icons/icon.png"]
+          category = "DeveloperTool"
+          short-description = "bundle smoke"
+          long-description = "A tiny app used to exercise auro bundle on macOS"
+          copyright = "2026 The Auro Authors"
+          EOF
+          python3 - "$fixture/icons/icon.png" <<'PY'
+          import struct
+          import sys
+          import zlib
+
+          width = height = 512
+          raw = b"".join(b"\x00" + b"\x25\x63\xeb" * width for _ in range(height))
+
+          def chunk(kind, data):
+              return (
+                  struct.pack(">I", len(data))
+                  + kind
+                  + data
+                  + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+              )
+
+          png = (
+              b"\x89PNG\r\n\x1a\n"
+              + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+              + chunk(b"IDAT", zlib.compress(raw))
+              + chunk(b"IEND", b"")
+          )
+          open(sys.argv[1], "wb").write(png)
+          PY
+
+      - name: Bundle
+        shell: bash
+        run: ./target/debug/auro bundle --dir "$RUNNER_TEMP/bundle-fixture"
+
+      - name: Verify artifacts
+        shell: bash
+        run: |
+          root="$RUNNER_TEMP/bundle-fixture/target/release/bundle"
+          find "$root" -maxdepth 3 -print
+          app="$(find "$root" -maxdepth 3 -name '*.app' -type d | head -n 1)"
+          dmg="$(find "$root" -maxdepth 3 -name '*.dmg' -type f | head -n 1)"
+          test -n "$app" || { echo "missing .app"; exit 1; }
+          test -n "$dmg" || { echo "missing .dmg"; exit 1; }
+          test -x "$app/Contents/MacOS/bundle-smoke" || { echo "missing app binary"; exit 1; }
+          "$app/Contents/MacOS/bundle-smoke"
+          hdiutil imageinfo "$dmg" >/dev/null
+          echo "macOS bundle smoke passed"
