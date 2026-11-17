@@ -32,8 +32,8 @@ slice real, and nothing beyond it.
 ### D1 - Six crates now, eleven in the full graph
 
 Phase 0 materialises `auro` (facade), `auro-core`, `auro-ui`, `auro-ipc`, `auro-macros`,
-`auro-cli`. `auro-perms`, `auro-plugins`, `auro-bundle`, `auro-update`, `auro-sign` arrive with the
-phase that needs them.
+`auro-cli`. `auro-bundle` joins in Phase 2 (spec 0010); `auro-perms`, `auro-plugins`,
+`auro-update`, `auro-sign` arrive with the phase that needs them.
 
 *Rejected:* creating all nine empty crates now. Empty crates invite speculative APIs and make the
 workspace look finished when it is not. *Rejected:* folding IPC into `auro-core`. The command

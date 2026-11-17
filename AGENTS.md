@@ -55,7 +55,7 @@ Workspace of eleven crates total (seven materialized now, four planned), layered
 ```
 auro-cli        new . dev . build . bundle . add . doctor
 auro-core       App . WindowManager . Config . Lifecycle . Command registry . State store . Event bus
-auro-ui         GPUI re-export + component kit        |  auro-ipc  typed bus  |  auro-perms capabilities
+auro-ui         GPUI re-export + tokens           |  auro-ipc  typed bus  |  auro-perms capabilities
 auro-plugins    in-process (cdylib)  |  out-of-process RPC
 auro-bundle . auro-update . auro-sign
 ```

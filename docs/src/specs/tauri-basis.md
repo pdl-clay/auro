@@ -63,7 +63,8 @@ Studied `gpui 0.2.2` (crates.io, 2026-10-30), edition 2024, license Apache-2.0, 
 - **`ViewContext` no longer exists** (`0` occurrences in the crate). The sample in our README and
   roadmap was written against a pre-0.2 GPUI and does not compile; it is corrected with this spec.
 - `gpui-component` 0.9.1 (repo `longbridge/gpui-kit`) ships 75+ components, AccessKit roles, and
-  headless UI integration testing. Phase 1's "~20 components" is a decision, not a given.
+  headless UI integration testing. The Phase 1 "~20 components" plan was revisited in ADR 0009:
+  the toolkit is the application's choice, not a framework dependency.
 
 ## Dev loop and build-time shape
 
