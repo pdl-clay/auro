@@ -37,6 +37,7 @@ On 2026-11-17 (niri/Wayland, Linux x86_64):
 
 - both windows opened with the expected titles and app id;
 - the main window rendered live log lines with levels and the counter, and the settings window
-  rendered its switches and close button;
-- closing the settings window and reopening it (`windows::open`) kept the main window alive;
-- closing both windows exited the app.
+  rendered its switches and close button (screenshots from the identical build);
+- closing both windows exited the app;
+- the window manager's close/reopen-by-label path is covered by headless tests and by a separate
+  niri two-window probe, not by the example's own Settings button.
