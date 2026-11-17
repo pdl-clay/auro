@@ -1,6 +1,6 @@
 # 0010 - Bundling
 
-**Status:** Implemented (Linux verified 2026-11-17; macOS/Windows pending CI)
+**Status:** Implemented (Linux and Windows verified 2026-11-17; macOS pending CI)
 
 Phase 2 needs installable artifacts. Auro does not write a bundler: `auro-bundle` maps the
 `[bundle]` section of `Auro.toml` onto `tauri-bundler` 2.10 and delegates the platform formats to it
@@ -115,9 +115,25 @@ target/release/bundle/appimage/Bundle Demo_0.1.0_amd64.AppImage
 ```
 
 `auro bundle` printed each path. A missing/non-square AppImage icon is rejected before the bundler
-runs, because `tauri-bundler` panics in that case. macOS `.app`/`.dmg` and Windows MSI/NSIS are
-wired through the same mapping but have not been produced on those hosts in this environment; the
-three-OS CI is the place to verify them.
+runs, because `tauri-bundler` panics in that case. macOS `.app`/`.dmg` are wired through the same
+mapping but have not been produced on that host in this environment; the three-OS CI is the place
+to verify them.
+
+Windows 11 x86_64 (WinBoat guest, rustc/cargo 1.99.0 MSVC, `tauri-bundler 2.10.5`) verified the
+same mapping with `targets = ["msi", "nsis"]` and a 256x256 `.ico`:
+
+```
+target\release\bundle\msi\Bundle Demo_0.1.0_x64_en-US.msi          (0.61 MB)
+target\release\bundle\nsis\Bundle Demo_0.1.0_x64-setup.exe         (0.17 MB)
+```
+
+The MSI installed silently, ran `bundle-demo.exe` (`bundle demo on windows`), and uninstalled
+cleanly; the NSIS setup installed per-user, ran the same binary, and uninstalled with exit 0.
+Windows installers set `webview_install_mode = Skip` because Auro's app layer has no webview;
+otherwise the Tauri template tries to download/install WebView2. Two Windows-only path issues were
+fixed in the same change: the bundler call now runs with the app directory as cwd (icons/resources
+resolve relative to it) and `canonicalize`'s `\\?\` verbatim prefix is stripped before WiX/NSIS
+tools see it.
 
 ## Open questions
 

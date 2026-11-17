@@ -564,6 +564,7 @@ version = "0.0.0"
 dependencies = [
  "auro-core",
  "tauri-bundler",
+ "tauri-utils",
  "tempfile",
 ]
 

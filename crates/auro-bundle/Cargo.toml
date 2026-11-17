@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 auro-core.workspace = true
 tauri-bundler = "=2.10.5"
+tauri-utils = "=2.10.3"
 
 [dev-dependencies]
 tempfile.workspace = true

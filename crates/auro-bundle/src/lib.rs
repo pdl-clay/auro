@@ -11,8 +11,9 @@ use std::str::FromStr;
 use auro_core::{AuroError, BundleTargets, Config};
 use tauri_bundler::bundle::{
     AppCategory, BundleBinary, BundleSettings, PackageSettings, PackageType, Settings,
-    SettingsBuilder,
+    SettingsBuilder, WindowsSettings,
 };
+use tauri_utils::config::WebviewInstallMode;
 
 /// The formats this host can produce. Mirrors spec 0002 validation.
 pub fn host_targets() -> &'static [&'static str] {
@@ -53,8 +54,17 @@ pub fn package_types(config: &Config) -> Result<Vec<PackageType>, AuroError> {
 pub fn bundle(dir: &Path, config: &Config, binary: &str) -> Result<Vec<PathBuf>, AuroError> {
     preflight(dir, config)?;
     let settings = settings(dir, config, binary)?;
-    let bundles = tauri_bundler::bundle_project(&settings)
-        .map_err(|error| AuroError::bundle(error.to_string()))?;
+
+    // tauri-bundler resolves icons/resources and runs its tools relative to the project cwd.
+    // `auro bundle` may be invoked from anywhere, so make the app directory the cwd for the
+    // bundler call and restore it afterwards.
+    let previous = std::env::current_dir()?;
+    std::env::set_current_dir(dir)?;
+    let result = tauri_bundler::bundle_project(&settings)
+        .map_err(|error| AuroError::bundle(error.to_string()));
+    std::env::set_current_dir(previous)?;
+
+    let bundles = result?;
     Ok(bundles
         .into_iter()
         .flat_map(|bundle| bundle.bundle_paths)
@@ -139,6 +149,11 @@ fn settings(dir: &Path, config: &Config, binary: &str) -> Result<Settings, AuroE
             .then(|| config.bundle.short_description.clone()),
         long_description: (!config.bundle.long_description.is_empty())
             .then(|| config.bundle.long_description.clone()),
+        windows: WindowsSettings {
+            // Auro has no webview in its app layer; do not download or install WebView2.
+            webview_install_mode: WebviewInstallMode::Skip,
+            ..WindowsSettings::default()
+        },
         ..BundleSettings::default()
     };
 

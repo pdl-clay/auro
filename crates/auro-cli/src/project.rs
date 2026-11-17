@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use auro_core::{AuroError, Config};
@@ -66,7 +66,7 @@ pub fn build(dir: &Path) -> Result<(), AuroError> {
 
 /// Builds the release binary and hands it to `auro-bundle`.
 pub fn bundle(dir: &Path) -> Result<(), AuroError> {
-    let dir = dir.canonicalize()?;
+    let dir = plain_path(dir.canonicalize()?);
     let config = load_checked(&dir)?;
     build_release(&dir, &config)?;
 
@@ -90,6 +90,21 @@ fn build_release(dir: &Path, _config: &Config) -> Result<(), AuroError> {
         return Err(AuroError::Message("cargo build failed".to_owned()));
     }
     Ok(())
+}
+
+/// Windows `canonicalize` returns a `\\?\` verbatim path; WiX/NSIS tools reject it.
+fn plain_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path
 }
 
 /// The executable cargo places in `target/release`: `default-run`, or the package name.
@@ -344,6 +359,15 @@ version = "{manifest_version}"
     fn accepts_matching_versions() {
         let temp = app_with_versions("0.1.0", "0.1.0");
         load_checked(temp.path()).expect("matching versions");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn strips_the_windows_verbatim_prefix() {
+        assert_eq!(
+            plain_path(PathBuf::from(r"\\?\C:\foo")),
+            PathBuf::from(r"C:\foo")
+        );
     }
 
     #[test]
