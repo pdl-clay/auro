@@ -16,7 +16,8 @@ installable `auro-cli` yet.
 - `auro-bundle` and `auro bundle`: map `[bundle]` onto `tauri-bundler 2.10.5`, build the release
   binary, and emit host artifacts. Linux `.deb`, `.rpm` and `.AppImage` and Windows MSI/NSIS were
   produced for fixture apps; the Windows installers installed, ran the app and uninstalled
-  cleanly. AppImage preflight rejects a missing square PNG with a typed error instead of letting
+  cleanly, and a macOS `macos-latest` runner produced an unsigned `.app` and `.dmg` through the
+  `bundle-smoke` workflow. AppImage preflight rejects a missing square PNG with a typed error instead of letting
   the bundler panic. Windows installers skip WebView2 (Auro has no webview), run the bundler from
   the app directory for icon/resource resolution, and strip `canonicalize`'s `\\?\` prefix before
   invoking WiX/NSIS. Spec 0010 and ADR 0011 record the delegation and its limits.

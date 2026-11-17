@@ -274,10 +274,11 @@ toolkit the app chooses.
 **Progress (2026-11-17):** `auro-bundle` maps `[bundle]` onto `tauri-bundler 2.10.5` and
 `auro bundle` builds the release binary first. Linux produced `.deb`, `.rpm` and `.AppImage` for a
 fixture app; Windows 11 produced MSI and NSIS installers that installed, ran the app and uninstalled
-cleanly. AppImage preflight rejects a missing square PNG with `AuroError::Bundle` instead of letting
-the bundler panic; Windows installers skip WebView2, run the bundler from the app directory and
-strip the `\\?\` verbatim prefix for WiX/NSIS. macOS formats are wired but pending a host/CI run;
-signing/notarization, the updater, platform services and the accessibility pass remain.
+cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.dmg` (verified with
+the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
+`AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
+bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
+notarization, the updater, platform services and the accessibility pass remain.
 
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.

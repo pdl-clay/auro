@@ -190,6 +190,7 @@ CI runs those gates on Linux, macOS and Windows plus an `ubuntu-22.04` floor job
 | `CHANGELOG.md` | Keep a Changelog, SemVer from 1.0 |
 | `LICENSE-MIT`, `LICENSE-APACHE` | dual licence, user's choice |
 | `.github/workflows/ci.yml` | format/clippy/test/docs gates and the Linux floor job |
+| `.github/workflows/bundle-smoke.yml` | macOS `.app`/`.dmg` packaging smoke on a GitHub runner |
 | `.github/workflows/docs.yml` | builds the book and deploys it to GitHub Pages |
 | `rust-toolchain.toml`, `.gitattributes`, `.editorconfig` | toolchain pin; LF endings and indentation so the Windows leg is stable |
 

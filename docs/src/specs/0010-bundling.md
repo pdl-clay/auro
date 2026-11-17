@@ -1,6 +1,6 @@
 # 0010 - Bundling
 
-**Status:** Implemented (Linux and Windows verified 2026-11-17; macOS packaging pending a macOS runner)
+**Status:** Implemented (Linux, Windows and macOS verified 2026-11-17)
 
 Phase 2 needs installable artifacts. Auro does not write a bundler: `auro-bundle` maps the
 `[bundle]` section of `Auro.toml` onto `tauri-bundler` 2.10 and delegates the platform formats to it
@@ -136,6 +136,18 @@ otherwise the Tauri template tries to download/install WebView2. Two Windows-onl
 fixed in the same change: the bundler call now runs with the app directory as cwd (icons/resources
 resolve relative to it) and `canonicalize`'s `\\?\` verbatim prefix is stripped before WiX/NSIS
 tools see it.
+
+macOS verification (unsigned, no local Mac): the [`bundle-smoke`](https://github.com/pdl-clay/auro/blob/main/.github/workflows/bundle-smoke.yml)
+workflow ran on a GitHub `macos-latest` arm64 runner. A fixture app with `targets = ["app", "dmg"]`
+and a 512x512 PNG icon produced:
+
+```
+target/release/bundle/macos/Bundle Smoke.app
+target/release/bundle/dmg/Bundle Smoke_0.1.0_aarch64.dmg
+```
+
+The workflow ran the app binary and accepted the DMG with `hdiutil imageinfo`. No signing identity
+is configured, so the artifacts are unsigned; signing/notarization belong to the signing spec.
 
 ## Open questions
 
