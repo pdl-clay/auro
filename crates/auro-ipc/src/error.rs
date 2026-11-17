@@ -21,6 +21,9 @@ pub enum AuroError {
     #[error("unknown command `{0}`")]
     UnknownCommand(String),
 
+    #[error("window `{label}`: {message}")]
+    Window { label: String, message: String },
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
@@ -45,6 +48,7 @@ impl AuroError {
             AuroError::Config { .. } => "config",
             AuroError::Command { .. } => "command",
             AuroError::UnknownCommand(_) => "unknown-command",
+            AuroError::Window { .. } => "window",
             AuroError::Io(_) => "io",
             AuroError::Json(_) => "json",
             AuroError::Message(_) => "message",
@@ -55,6 +59,13 @@ impl AuroError {
         AuroError::Config {
             path: path.into(),
             key: key.map(str::to_owned),
+            message: message.into(),
+        }
+    }
+
+    pub fn window(label: impl Into<String>, message: impl Into<String>) -> Self {
+        AuroError::Window {
+            label: label.into(),
             message: message.into(),
         }
     }

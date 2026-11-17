@@ -13,6 +13,7 @@ pub use auro_macros::{command, generate_handler};
 pub use auro_ui::gpui;
 
 mod app;
+pub mod windows;
 
 #[cfg(feature = "hot-reload")]
 pub mod hot;
@@ -37,6 +38,7 @@ pub mod prelude {
     pub use auro_macros::{command, generate_handler};
     pub use auro_ui::prelude::*;
 
+    pub use crate::windows;
     pub use crate::{App, emit};
     pub use crate::{Autosave, ReloadSnapshot, ResetReason, Restored, Snapshot};
 }

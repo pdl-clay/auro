@@ -1,6 +1,6 @@
 # 0009 - Window manager
 
-**Status:** Approved - implementation in progress
+**Status:** Implemented (2026-11-17)
 
 The lifecycle slice tracks the windows Auro opens and reports their close. Phase 1 also needs the
 app to act on a window by its configured label: open a settings window from a menu, focus it, close

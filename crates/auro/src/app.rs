@@ -16,22 +16,23 @@ use auro_ui::{
 use tokio::sync::mpsc::UnboundedReceiver;
 
 type Setup = Box<dyn Fn(&mut GpuiApp, &Config)>;
-type OpenWindow = Box<dyn Fn(&mut GpuiApp, &Config, &WindowConfig) -> Option<AnyWindowHandle>>;
+pub(crate) type OpenWindow =
+    Rc<dyn Fn(&mut GpuiApp, &Config, &WindowConfig) -> Option<AnyWindowHandle>>;
 type LifecycleHandler = Rc<dyn Fn(&LifecycleEvent, &mut GpuiApp)>;
 type EventHandler = Rc<dyn Fn(&mut GpuiApp, &dyn Any)>;
 
 /// Main-thread lifecycle subscribers, in registration order.
 #[derive(Default)]
-struct Lifecycle {
+pub(crate) struct Lifecycle {
     handlers: RefCell<Vec<LifecycleHandler>>,
 }
 
 impl Lifecycle {
-    fn on(&self, handler: impl Fn(&LifecycleEvent, &mut GpuiApp) + 'static) {
+    pub(crate) fn on(&self, handler: impl Fn(&LifecycleEvent, &mut GpuiApp) + 'static) {
         self.handlers.borrow_mut().push(Rc::new(handler));
     }
 
-    fn emit(&self, event: &LifecycleEvent, cx: &mut GpuiApp) {
+    pub(crate) fn emit(&self, event: &LifecycleEvent, cx: &mut GpuiApp) {
         // Clone the handles so a handler that closes a window can re-enter `emit` without
         // tripping the `RefCell` borrow.
         let handlers: Vec<_> = self.handlers.borrow().iter().cloned().collect();
@@ -170,7 +171,7 @@ impl App {
     pub fn root<V: Render + Default + 'static>(mut self, label: &'static str) -> Self {
         self.roots.push((
             label,
-            Box::new(|cx, config, window| open_window::<V>(cx, config, window)),
+            Rc::new(|cx, config, window| open_window::<V>(cx, config, window)),
         ));
         self
     }
@@ -196,7 +197,7 @@ impl App {
     ) -> Self {
         self.roots.push((
             label,
-            Box::new(move |cx, config, window| open_window_with(cx, config, window, &build)),
+            Rc::new(move |cx, config, window| open_window_with(cx, config, window, &build)),
         ));
         self
     }
@@ -236,32 +237,8 @@ impl App {
 
             // Register before setups/Ready so a handler that closes a window still gets the close
             // path; the registry fills in as windows open.
-            let closed_lifecycle = Rc::clone(&lifecycle);
-            let closed_windows = Rc::clone(&open_windows);
-            cx.on_window_closed(move |cx| {
-                let open = cx.windows();
-                let mut closed = Vec::new();
-                closed_windows.borrow_mut().retain(|(handle, label)| {
-                    if open.contains(handle) {
-                        true
-                    } else {
-                        closed.push(label.clone());
-                        false
-                    }
-                });
-
-                for label in closed {
-                    closed_lifecycle.emit(&LifecycleEvent::WindowClosed { label }, cx);
-                }
-
-                if cx.windows().is_empty() {
-                    closed_lifecycle.emit(&LifecycleEvent::Exiting, cx);
-                    cx.quit();
-                }
-            })
-            .detach();
-
-            open_all(cx, &config, setups, &roots, &lifecycle, &open_windows);
+            observe_closes(cx, Rc::clone(&lifecycle), Rc::clone(&open_windows));
+            open_all(cx, &config, setups, roots, lifecycle, open_windows);
             cx.activate(true);
         });
 
@@ -294,41 +271,67 @@ pub fn emit<E: Send + 'static>(event: E, cx: &mut GpuiApp) {
     }
 }
 
+/// Attributes a closed GPUI window to the label Auro opened it with.
+fn observe_closes(
+    cx: &mut GpuiApp,
+    lifecycle: Rc<Lifecycle>,
+    open_windows: Rc<RefCell<Vec<(AnyWindowHandle, String)>>>,
+) {
+    cx.on_window_closed(move |cx| {
+        let open = cx.windows();
+        let mut closed = Vec::new();
+        open_windows.borrow_mut().retain(|(handle, label)| {
+            if open.contains(handle) {
+                true
+            } else {
+                closed.push(label.clone());
+                false
+            }
+        });
+
+        for label in closed {
+            lifecycle.emit(&LifecycleEvent::WindowClosed { label }, cx);
+        }
+
+        if cx.windows().is_empty() {
+            lifecycle.emit(&LifecycleEvent::Exiting, cx);
+            cx.quit();
+        }
+    })
+    .detach();
+}
+
 /// Runs the app's setups and opens every configured window that has a root.
 fn open_all(
     cx: &mut GpuiApp,
     config: &Config,
     setups: Vec<Setup>,
-    roots: &[(&'static str, OpenWindow)],
-    lifecycle: &Lifecycle,
-    open_windows: &RefCell<Vec<(AnyWindowHandle, String)>>,
+    roots: Vec<(&'static str, OpenWindow)>,
+    lifecycle: Rc<Lifecycle>,
+    open_windows: Rc<RefCell<Vec<(AnyWindowHandle, String)>>>,
 ) {
+    let manager = crate::windows::WindowManager::new(
+        config.clone(),
+        roots,
+        Rc::clone(&lifecycle),
+        Rc::clone(&open_windows),
+    );
+    cx.set_global(manager);
+
     for setup in setups {
         setup(cx, config);
     }
 
     for window in &config.app.windows {
-        match roots.iter().find(|(label, _)| *label == window.label) {
-            Some((_, open)) => {
-                if let Some(handle) = open(cx, config, window) {
-                    lifecycle.emit(
-                        &LifecycleEvent::WindowOpened {
-                            label: window.label.clone(),
-                        },
-                        cx,
-                    );
-                    open_windows
-                        .borrow_mut()
-                        .push((handle, window.label.clone()));
-                    if std::env::var_os(TRACE_ENV).is_some() {
-                        eprintln!("auro:trace window_requested {}", window.label);
-                    }
+        match crate::windows::open(&window.label, cx) {
+            Ok(_) => {
+                if std::env::var_os(TRACE_ENV).is_some() {
+                    eprintln!("auro:trace window_requested {}", window.label);
                 }
             }
-            None => tracing::error!(
-                window = window.label,
-                "no root view attached to this window"
-            ),
+            Err(error) => {
+                tracing::error!(window = window.label, %error, "failed to open window");
+            }
         }
     }
 
@@ -567,9 +570,10 @@ mod tests {
             lifecycle,
             ..
         } = app;
-        let open_windows = RefCell::new(Vec::new());
+        let open_windows = Rc::new(RefCell::new(Vec::new()));
+        let observed_windows = Rc::clone(&open_windows);
         let cx = TestAppContext::single();
-        cx.update(|cx| open_all(cx, &config, setups, &roots, &lifecycle, &open_windows));
+        cx.update(|cx| open_all(cx, &config, setups, roots, lifecycle, open_windows));
 
         assert_eq!(
             order.lock().expect("order").as_slice(),
@@ -592,7 +596,7 @@ mod tests {
             "lifecycle handlers run in registration order for each event"
         );
         assert_eq!(cx.windows().len(), 1, "the declared window must open");
-        assert_eq!(open_windows.borrow().len(), 1, "the handle is tracked");
+        assert_eq!(observed_windows.borrow().len(), 1, "the handle is tracked");
     }
 
     #[test]
@@ -624,6 +628,115 @@ mod tests {
                     label: "main".to_owned()
                 },
                 LifecycleEvent::Exiting
+            ]
+        );
+    }
+
+    fn two_window_config() -> Config {
+        let mut config = config(Some("Main"));
+        let mut secondary = config.app.windows[0].clone();
+        secondary.label = "secondary".to_owned();
+        secondary.title = Some("Secondary".to_owned());
+        let mut unrooted = secondary.clone();
+        unrooted.label = "unrooted".to_owned();
+        unrooted.title = Some("Unrooted".to_owned());
+        config.app.windows.push(secondary);
+        config.app.windows.push(unrooted);
+        config
+    }
+
+    #[test]
+    fn window_manager_opens_focuses_closes_and_reopens() {
+        use std::sync::{Arc, Mutex};
+
+        let events = Arc::new(Mutex::new(Vec::<LifecycleEvent>::new()));
+        let recorded = Arc::clone(&events);
+        let config = two_window_config();
+
+        let app = App::new()
+            .root::<Blank>("main")
+            .root::<Blank>("secondary")
+            .on_lifecycle(move |event, _cx| {
+                recorded.lock().expect("events").push(event.clone());
+            });
+
+        let App {
+            states: _,
+            roots,
+            setups,
+            lifecycle,
+            ..
+        } = app;
+        let open_windows = Rc::new(RefCell::new(Vec::new()));
+        let cx = TestAppContext::single();
+
+        cx.update(|cx| {
+            observe_closes(cx, Rc::clone(&lifecycle), Rc::clone(&open_windows));
+            open_all(
+                cx,
+                &config,
+                setups,
+                roots,
+                Rc::clone(&lifecycle),
+                open_windows,
+            );
+            assert_eq!(cx.windows().len(), 2);
+
+            let main = crate::windows::handle("main", cx).expect("main open");
+            assert!(crate::windows::is_open("main", cx));
+            assert!(crate::windows::is_open("secondary", cx));
+            assert!(crate::windows::focus("main", cx));
+            assert!(
+                matches!(crate::windows::open("main", cx), Ok(handle) if handle == main),
+                "opening an open window is idempotent"
+            );
+
+            assert!(crate::windows::close("main", cx));
+            assert!(!crate::windows::is_open("main", cx));
+            assert!(crate::windows::is_open("secondary", cx));
+
+            let error = crate::windows::open("nope", cx)
+                .err()
+                .expect("unknown label");
+            assert_eq!(error.kind(), "window");
+            let error = crate::windows::open("unrooted", cx)
+                .err()
+                .expect("declared without a root");
+            assert_eq!(error.kind(), "window");
+            assert!(!crate::windows::close("nope", cx));
+            assert!(!crate::windows::focus("nope", cx));
+
+            assert!(crate::windows::open("main", cx).is_ok());
+            assert!(crate::windows::is_open("main", cx));
+            assert!(crate::windows::close("secondary", cx));
+            assert!(crate::windows::is_open("main", cx));
+            assert!(crate::windows::close("main", cx));
+            assert!(cx.windows().is_empty());
+        });
+
+        assert_eq!(
+            events.lock().expect("events").as_slice(),
+            [
+                LifecycleEvent::WindowOpened {
+                    label: "main".to_owned()
+                },
+                LifecycleEvent::WindowOpened {
+                    label: "secondary".to_owned()
+                },
+                LifecycleEvent::Ready,
+                LifecycleEvent::WindowClosed {
+                    label: "main".to_owned()
+                },
+                LifecycleEvent::WindowOpened {
+                    label: "main".to_owned()
+                },
+                LifecycleEvent::WindowClosed {
+                    label: "secondary".to_owned()
+                },
+                LifecycleEvent::WindowClosed {
+                    label: "main".to_owned()
+                },
+                LifecycleEvent::Exiting,
             ]
         );
     }

@@ -13,6 +13,10 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `windows` manager: `open`, `close`, `focus`, `is_open` and `handle` by the labels declared in
+  `Auro.toml`. Startup uses the same path; open is idempotent, close is attributed by the existing
+  lifecycle observer, and an undeclared label or missing root returns `AuroError::Window`
+  (spec 0009).
 - Command schemas: `#[auro::command]` now derives an input object schema (non-state arguments,
   `rename_all` keys, required list, hoisted `$defs`) and an output schema from
   `Result<T, AuroError>`; `CommandHandler` exposes `schemas()` and `schema(name)`. `schemars` is
