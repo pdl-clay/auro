@@ -33,6 +33,11 @@ async fn original(value: u64) -> Result<u64, AuroError> {
     Ok(value)
 }
 
+#[auro::command]
+async fn noop() -> Result<(), AuroError> {
+    Ok(())
+}
+
 fn handler() -> CommandHandler {
     auro::generate_handler![increment, double, read_counter, greet, original]
 }
@@ -125,4 +130,56 @@ fn lists_registered_commands() {
         names,
         ["increment", "double", "read_counter", "greet", "renamed"]
     );
+}
+
+#[test]
+fn describes_inputs_and_outputs() {
+    let (_, handler) = setup();
+    let schema = handler.schema("increment").expect("increment schema");
+
+    assert_eq!(schema.input["type"], "object");
+    assert_eq!(schema.input["properties"]["current"]["type"], "integer");
+    assert_eq!(schema.input["required"], serde_json::json!(["current"]));
+    assert_eq!(schema.output["type"], "integer");
+    assert!(schema.output.get("$ref").is_none());
+}
+
+#[test]
+fn state_arguments_are_not_in_the_schema() {
+    let (_, handler) = setup();
+    let schema = handler.schema("read_counter").expect("schema");
+
+    assert_eq!(schema.input["properties"], serde_json::json!({}));
+    assert!(schema.input.get("required").is_none());
+}
+
+#[test]
+fn schema_property_names_follow_rename_all() {
+    let (_, handler) = setup();
+    let schema = handler.schema("greet").expect("schema");
+
+    assert!(
+        schema.input["properties"].get("firstName").is_some(),
+        "{}",
+        schema.input
+    );
+    assert!(schema.input["properties"].get("first_name").is_none());
+}
+
+#[test]
+fn describes_a_unit_output_as_null() {
+    let handler = auro::generate_handler![noop];
+    let schema = handler.schema("noop").expect("schema");
+    assert_eq!(schema.output["type"], "null");
+}
+
+#[test]
+fn manual_commands_have_no_schema_entry() {
+    let handler = auro::ipc::CommandHandler::new().command("manual", |_| {
+        Box::pin(async { auro::ipc::Response::ok(()) })
+    });
+
+    assert!(handler.contains("manual"));
+    assert!(handler.schema("manual").is_none());
+    assert_eq!(handler.schemas().count(), 0);
 }

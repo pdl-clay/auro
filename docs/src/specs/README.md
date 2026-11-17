@@ -44,4 +44,5 @@ Every spec carries:
 | [0005](0005-toolkit-seam.md) | Toolkit seam: setup hook, app-owned root, no framework toolkit | 1 | Implemented |
 | [0006](0006-lifecycle-events.md) | Lifecycle events: ready, window open/close, exiting | 1 | Implemented |
 | [0007](0007-events.md) | Typed application events: sender, main-thread pump, handlers | 1 | Implemented |
-| [0008](0008-command-schema.md) | Command schemas: input/output metadata on the handler | 1 | Approved |
+| [0008](0008-command-schema.md) | Command schemas: input/output metadata on the handler | 1 | Implemented |
+| [0009](0009-window-manager.md) | Window manager: open/close/focus by configured label | 1 | Approved |

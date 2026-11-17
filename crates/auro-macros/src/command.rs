@@ -2,7 +2,7 @@
 
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{Block, FnArg, ItemFn, LitStr, Pat, Type};
+use syn::{Block, FnArg, GenericArgument, ItemFn, LitStr, Pat, PathArguments, ReturnType, Type};
 
 pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
     let mut name = None;
@@ -28,6 +28,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
     let ident = item.sig.ident.clone();
     let command_name = name.unwrap_or_else(|| ident.to_string());
     let is_async = item.sig.asyncness.is_some();
+    let output_ty = result_ok_type(&item.sig.output)?;
 
     // Move the body onto the Auro runtime, whatever executes the function.
     let body: Block = (*item.block).clone();
@@ -45,6 +46,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
 
     let mut extracts = Vec::new();
     let mut call_args = Vec::new();
+    let mut schema_args = Vec::new();
 
     for input in &item.sig.inputs {
         let FnArg::Typed(pat_type) = input else {
@@ -73,6 +75,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             });
         } else {
             let key = rename_all.apply(&arg.to_string());
+            schema_args.push((key.clone(), ty.clone()));
             extracts.push(quote! {
                 let #arg: #ty = match invoke.arg::<#ty>(#key) {
                     Ok(value) => value,
@@ -84,6 +87,15 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
 
     let wrapper = format_ident!("__cmd_{}", ident);
     let name_const = format_ident!("__AURO_CMD_NAME_{}", ident);
+    let schema_fn = format_ident!("__schema_{}", ident);
+    let schema_pairs = schema_args.iter().map(|(key, ty)| {
+        quote! {
+            (
+                #key,
+                ::auro::ipc::schemars::schema_for!(#ty).as_value().clone(),
+            )
+        }
+    });
 
     Ok(quote! {
         #item
@@ -102,7 +114,58 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
                 }
             })
         }
+
+        #[doc(hidden)]
+        pub fn #schema_fn() -> (
+            ::auro::ipc::serde_json::Value,
+            ::auro::ipc::serde_json::Value,
+        ) {
+            let args: Vec<(&'static str, ::auro::ipc::serde_json::Value)> = vec![#(#schema_pairs),*];
+            let input = ::auro::ipc::input_schema(args);
+            let output = ::auro::ipc::schemars::schema_for!(#output_ty)
+                .as_value()
+                .clone();
+            (input, output)
+        }
     })
+}
+
+/// Extracts `T` from the command's `Result<T, AuroError>` return type.
+fn result_ok_type(output: &ReturnType) -> syn::Result<Type> {
+    let ReturnType::Type(_, ty) = output else {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "an Auro command must return Result<T, AuroError>",
+        ));
+    };
+    let Type::Path(path) = &**ty else {
+        return Err(syn::Error::new_spanned(
+            ty,
+            "an Auro command must return Result<T, AuroError>",
+        ));
+    };
+    let segment = path
+        .path
+        .segments
+        .last()
+        .ok_or_else(|| syn::Error::new_spanned(ty, "expected Result<T, AuroError>"))?;
+    if segment.ident != "Result" {
+        return Err(syn::Error::new_spanned(
+            ty,
+            "an Auro command must return Result<T, AuroError>",
+        ));
+    }
+    let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return Err(syn::Error::new_spanned(ty, "expected Result<T, AuroError>"));
+    };
+    arguments
+        .args
+        .iter()
+        .find_map(|argument| match argument {
+            GenericArgument::Type(inner) => Some(inner.clone()),
+            _ => None,
+        })
+        .ok_or_else(|| syn::Error::new_spanned(ty, "expected Result<T, AuroError>"))
 }
 
 /// `State<T>` in an argument position is resolved from the app, not from the payload.

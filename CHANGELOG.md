@@ -13,6 +13,10 @@ installable `auro-cli` yet.
 
 ### Added
 
+- Command schemas: `#[auro::command]` now derives an input object schema (non-state arguments,
+  `rename_all` keys, required list, hoisted `$defs`) and an output schema from
+  `Result<T, AuroError>`; `CommandHandler` exposes `schemas()` and `schema(name)`. `schemars` is
+  re-exported through `auro::ipc` (spec 0008).
 - Typed application events: `EventSender` (cloneable, `Send + Sync`, auto-managed as
   `State<EventSender>`), `App::on_event::<E>`, and a main-thread `emit(event, cx)`. Background
   producers queue events; a GPUI foreground pump dispatches them in order. No strings, no

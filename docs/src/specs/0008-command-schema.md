@@ -1,6 +1,6 @@
 # 0008 - Command schema registry
 
-**Status:** Approved - implementation in progress
+**Status:** Implemented (2026-11-17)
 
 Phase 0 made commands typed Rust functions and built a `CommandHandler` that dispatches by name.
 Phase 1 adds the metadata that makes the handler useful outside first-party Rust: a JSON Schema for

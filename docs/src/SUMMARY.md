@@ -36,6 +36,7 @@
 - [0006 - Lifecycle events](specs/0006-lifecycle-events.md)
 - [0007 - Typed application events](specs/0007-events.md)
 - [0008 - Command schema registry](specs/0008-command-schema.md)
+- [0009 - Window manager](specs/0009-window-manager.md)
 
 # Reference
 

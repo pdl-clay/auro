@@ -20,6 +20,7 @@ pub fn expand(input: TokenStream) -> syn::Result<TokenStream> {
 
     for path in paths {
         let mut wrapper = path.clone();
+        let mut schema_path = path.clone();
         let mut name_path = path;
 
         let ident = {
@@ -38,8 +39,22 @@ pub fn expand(input: TokenStream) -> syn::Result<TokenStream> {
             .expect("a parsed path has at least one segment")
             .ident = format_ident!("__AURO_CMD_NAME_{}", ident);
 
+        schema_path
+            .segments
+            .last_mut()
+            .expect("a parsed path has at least one segment")
+            .ident = format_ident!("__schema_{}", ident);
+
         entries.push(quote! {
-            __handler = __handler.command(#name_path, #wrapper);
+            {
+                let (__input, __output) = #schema_path();
+                __handler = __handler.command_with_schema(
+                    #name_path,
+                    #wrapper,
+                    __input,
+                    __output,
+                );
+            }
         });
     }
 

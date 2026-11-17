@@ -27,7 +27,9 @@ pub mod ipc {
     pub use auro_ipc::invoke::{Invoke, InvokeMessage};
     pub use auro_ipc::response::{Response, ResponseFuture};
     pub use auro_ipc::runtime;
+    pub use auro_ipc::schema::{CommandSchema, input_schema};
     pub use auro_ipc::state::{State, StateStore};
+    pub use auro_ipc::{schemars, serde_json};
 }
 
 pub mod prelude {
