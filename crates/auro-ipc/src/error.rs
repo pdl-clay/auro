@@ -59,3 +59,28 @@ impl AuroError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converts_an_io_error_with_the_question_mark() {
+        fn read() -> Result<String, AuroError> {
+            Ok(std::fs::read_to_string("/nonexistent/auro-audit")?)
+        }
+
+        let error = read().expect_err("the path does not exist");
+        assert_eq!(error.kind(), "io");
+    }
+
+    #[test]
+    fn converts_a_json_error_with_the_question_mark() {
+        fn parse() -> Result<serde_json::Value, AuroError> {
+            Ok(serde_json::from_str("{")?)
+        }
+
+        let error = parse().expect_err("invalid JSON");
+        assert_eq!(error.kind(), "json");
+    }
+}

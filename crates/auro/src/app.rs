@@ -5,7 +5,7 @@ use std::sync::Arc;
 use auro_core::{AuroError, Config, StateStore, WindowConfig};
 use auro_ui::{
     App as GpuiApp, AppContext, Application, Bounds, Pixels, Render, Size, TitlebarOptions,
-    WindowBounds, WindowOptions, px, size,
+    WindowBackgroundAppearance, WindowBounds, WindowDecorations, WindowOptions, px, size,
 };
 
 type OpenWindow = Box<dyn Fn(&mut GpuiApp, &Config, &WindowConfig)>;
@@ -133,18 +133,26 @@ fn window_options(
     title: &str,
     cx: &mut GpuiApp,
 ) -> WindowOptions {
-    let bounds = Bounds::centered(
-        None,
-        size(px(window.width as f32), px(window.height as f32)),
-        cx,
-    );
+    let window_size = size(px(window.width as f32), px(window.height as f32));
+    let window_bounds = if window.fullscreen {
+        Some(WindowBounds::Fullscreen(Bounds::centered(
+            None,
+            window_size,
+            cx,
+        )))
+    } else if window.center {
+        Some(WindowBounds::Windowed(Bounds::centered(
+            None,
+            window_size,
+            cx,
+        )))
+    } else {
+        // No position in the schema: let the platform place the window instead of centering it.
+        None
+    };
 
     WindowOptions {
-        window_bounds: Some(if window.fullscreen {
-            WindowBounds::Fullscreen(bounds)
-        } else {
-            WindowBounds::Windowed(bounds)
-        }),
+        window_bounds,
         titlebar: Some(TitlebarOptions {
             title: Some(title.to_owned().into()),
             ..Default::default()
@@ -153,14 +161,30 @@ fn window_options(
         is_resizable: window.resizable,
         show: window.visible,
         window_min_size: min_size(window),
+        window_background: if window.transparent {
+            WindowBackgroundAppearance::Transparent
+        } else {
+            WindowBackgroundAppearance::Opaque
+        },
+        // GPUI has no "no decorations" mode; client-side decorations are the closest, and GPUI
+        // draws none, so the window appears undecorated where the platform honors it (Wayland).
+        window_decorations: Some(if window.decorations {
+            WindowDecorations::Server
+        } else {
+            WindowDecorations::Client
+        }),
         ..Default::default()
     }
 }
 
 fn min_size(window: &WindowConfig) -> Option<Size<Pixels>> {
     match (window.min_width, window.min_height) {
-        (Some(width), Some(height)) => Some(size(px(width as f32), px(height as f32))),
-        _ => None,
+        (None, None) => None,
+        // GPUI takes one size for both axes; 0 means no constraint on the axis that was not set.
+        (width, height) => Some(size(
+            px(width.unwrap_or(0) as f32),
+            px(height.unwrap_or(0) as f32),
+        )),
     }
 }
 
@@ -234,5 +258,51 @@ mod tests {
     fn window_title_falls_back_to_the_product_name() {
         let config = config(None);
         assert_eq!(window_title(&config, &config.app.windows[0]), "Product");
+    }
+
+    #[test]
+    fn honors_a_single_minimum_dimension() {
+        let mut window = config(None).app.windows[0].clone();
+        window.min_width = Some(320);
+
+        let minimum = min_size(&window).expect("one dimension is enough");
+        assert_eq!(minimum.width, px(320.0));
+        assert_eq!(minimum.height, px(0.0));
+    }
+
+    #[test]
+    fn maps_transparency_decorations_and_centering() {
+        let cx = TestAppContext::single();
+        let config = config(Some("Custom title"));
+        let mut window = config.app.windows[0].clone();
+        window.transparent = true;
+        window.decorations = false;
+        window.center = false;
+
+        let options = cx.update(|cx| window_options(&config, &window, "Custom title", cx));
+        assert_eq!(
+            options.window_background,
+            WindowBackgroundAppearance::Transparent
+        );
+        assert_eq!(options.window_decorations, Some(WindowDecorations::Client));
+        assert!(
+            options.window_bounds.is_none(),
+            "center = false leaves placement to the platform"
+        );
+    }
+
+    #[test]
+    fn defaults_to_opaque_decorated_and_centered() {
+        let cx = TestAppContext::single();
+        let config = config(Some("Custom title"));
+
+        let options =
+            cx.update(|cx| window_options(&config, &config.app.windows[0], "Custom title", cx));
+        assert_eq!(
+            options.window_background,
+            WindowBackgroundAppearance::Opaque
+        );
+        assert_eq!(options.window_decorations, Some(WindowDecorations::Server));
+        assert!(options.window_bounds.is_some());
     }
 }

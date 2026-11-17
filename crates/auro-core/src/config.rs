@@ -5,7 +5,7 @@
 //! See `docs/src/specs/0002-config.md` for the contract.
 
 use std::collections::BTreeSet;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
 use serde::{Deserialize, Serialize};
 use toml::Value;
@@ -209,12 +209,18 @@ fn default_category() -> String {
 impl Config {
     /// Loads the config for an app directory: `AURO_CONFIG` or `Auro.toml`, then the platform
     /// file, then `AURO_CONFIG_OVERRIDES`.
+    ///
+    /// Without `AURO_CONFIG`, the app directory is tried first and the running executable's
+    /// directory second (spec 0002, D2).
     pub fn load(dir: &Path) -> Result<Config, AuroError> {
-        let path = match std::env::var_os(CONFIG_ENV) {
-            Some(path) => PathBuf::from(path),
-            None => dir.join(CONFIG_FILE),
-        };
-        Config::load_from(&path)
+        if let Some(path) = std::env::var_os(CONFIG_ENV) {
+            return Config::load_from(Path::new(&path));
+        }
+
+        let beside_executable = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(|dir| dir.join(CONFIG_FILE)));
+        load_from_candidates(dir, beside_executable.as_deref())
     }
 
     /// Loads an explicit path, merging the sibling platform file and the override patch.
@@ -323,18 +329,74 @@ impl Config {
             ));
         }
 
+        if let BundleTargets::List(targets) = &self.bundle.targets {
+            let host = host_bundle_targets();
+            for target in targets {
+                if !BUNDLE_TARGETS.contains(&target.as_str()) {
+                    return Err(AuroError::config(
+                        path,
+                        Some("bundle.targets"),
+                        format!(
+                            "`{target}` is not a package format; use one of {}",
+                            BUNDLE_TARGETS.join(", ")
+                        ),
+                    ));
+                }
+                if !host.contains(&target.as_str()) {
+                    return Err(AuroError::config(
+                        path,
+                        Some("bundle.targets"),
+                        format!(
+                            "`{target}` cannot be produced on {}; this host supports {}",
+                            std::env::consts::OS,
+                            host.join(", ")
+                        ),
+                    ));
+                }
+            }
+        }
+
         Ok(())
     }
 }
 
+/// Tries the app directory first, then the executable's directory (spec 0002, D2).
+fn load_from_candidates(dir: &Path, beside_executable: Option<&Path>) -> Result<Config, AuroError> {
+    let local = dir.join(CONFIG_FILE);
+    if local.exists() {
+        return Config::load_from(&local);
+    }
+    if let Some(path) = beside_executable
+        && path.exists()
+    {
+        return Config::load_from(path);
+    }
+
+    let message = match beside_executable {
+        Some(path) => format!("file not found; also looked in {}", path.display()),
+        None => "file not found".to_owned(),
+    };
+    Err(AuroError::config(&local, None, message))
+}
+
+/// Every package format the bundler knows (spec 0002, `[bundle]`).
+const BUNDLE_TARGETS: [&str; 7] = ["app", "dmg", "msi", "nsis", "appimage", "deb", "rpm"];
+
+/// The formats this host can actually produce; anything else is an error, not a skip.
+fn host_bundle_targets() -> &'static [&'static str] {
+    #[cfg(target_os = "macos")]
+    return &["app", "dmg"];
+    #[cfg(target_os = "windows")]
+    return &["msi", "nsis"];
+    #[cfg(target_os = "linux")]
+    return &["appimage", "deb", "rpm"];
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    return &[];
+}
+
 fn read_toml(path: &Path) -> Result<Value, AuroError> {
-    let text = std::fs::read_to_string(path).map_err(|error| {
-        AuroError::config(
-            path,
-            None,
-            format!("cannot read {}: {error}", path.display()),
-        )
-    })?;
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| AuroError::config(path, None, format!("cannot read the file: {error}")))?;
     toml::from_str::<Value>(&text).map_err(|error: toml::de::Error| {
         AuroError::config(path, None, format!("invalid TOML: {error}"))
     })
@@ -513,5 +575,159 @@ label = "main"
         let text = format!("{MINIMAL}\n[dev]\nwatch = [\"../secrets\"]\n");
         let error = parse(&text).expect_err("escape");
         assert!(error.to_string().contains("relative"), "{error}");
+    }
+
+    #[test]
+    fn missing_config_names_both_places_searched() {
+        let app = tempfile::tempdir().expect("tempdir");
+        let exe = tempfile::tempdir().expect("tempdir");
+        let beside_binary = exe.path().join(CONFIG_FILE);
+
+        let error =
+            load_from_candidates(app.path(), Some(&beside_binary)).expect_err("missing config");
+        let message = error.to_string();
+
+        let local = app.path().join(CONFIG_FILE);
+        assert!(message.contains(&local.display().to_string()), "{message}");
+        assert!(
+            message.contains(&beside_binary.display().to_string()),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_executable_directory() {
+        let app = tempfile::tempdir().expect("tempdir");
+        let exe = tempfile::tempdir().expect("tempdir");
+        std::fs::write(exe.path().join(CONFIG_FILE), MINIMAL).expect("config");
+
+        let config = load_from_candidates(app.path(), Some(&exe.path().join(CONFIG_FILE)))
+            .expect("the executable's config is used");
+        assert_eq!(config.app.product_name, "Demo");
+    }
+
+    #[test]
+    fn prefers_the_app_directory_over_the_executable_directory() {
+        let app = tempfile::tempdir().expect("tempdir");
+        let exe = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            app.path().join(CONFIG_FILE),
+            MINIMAL.replace("Demo", "Local"),
+        )
+        .expect("config");
+        std::fs::write(
+            exe.path().join(CONFIG_FILE),
+            MINIMAL.replace("Demo", "Beside binary"),
+        )
+        .expect("config");
+
+        let config = load_from_candidates(app.path(), Some(&exe.path().join(CONFIG_FILE)))
+            .expect("the app directory wins");
+        assert_eq!(config.app.product_name, "Local");
+    }
+
+    #[test]
+    fn rejects_an_unknown_bundle_target() {
+        let text = format!("{MINIMAL}\n[bundle]\ntargets = [\"exe\"]\n");
+        let error = parse(&text).expect_err("unknown target");
+        assert!(
+            error.to_string().contains("is not a package format"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_a_bundle_target_this_host_cannot_produce() {
+        let host = host_bundle_targets();
+        let foreign = BUNDLE_TARGETS
+            .iter()
+            .find(|target| !host.contains(target))
+            .expect("every supported host has a foreign package format");
+        let text = format!("{MINIMAL}\n[bundle]\ntargets = [\"{foreign}\"]\n");
+        let error = parse(&text).expect_err("foreign target");
+        assert!(error.to_string().contains("cannot be produced"), "{error}");
+    }
+
+    #[test]
+    fn every_documented_key_survives_a_round_trip() {
+        let host = host_bundle_targets()
+            .first()
+            .expect("supported hosts have at least one bundle target");
+        let text = format!(
+            r#"
+"$schema" = "https://example.test/auro.schema.json"
+
+[app]
+identifier = "com.example.roundtrip"
+product-name = "Roundtrip"
+version = "1.2.3"
+description = "round-trip fixture"
+authors = ["Ana <ana@example.test>"]
+homepage = "https://example.test"
+license = "MIT OR Apache-2.0"
+default-window = "secondary"
+
+[[app.windows]]
+label = "main"
+title = "Main"
+width = 800
+height = 600
+min-width = 320
+min-height = 240
+max-width = 1600
+max-height = 1200
+resizable = false
+decorations = false
+transparent = true
+always-on-top = true
+visible = false
+center = false
+fullscreen = true
+theme = "dark"
+
+[[app.windows]]
+label = "secondary"
+title = "Second"
+width = 400
+height = 300
+min-width = 200
+min-height = 150
+max-width = 800
+max-height = 600
+resizable = true
+decorations = true
+transparent = false
+always-on-top = false
+visible = true
+center = true
+fullscreen = false
+theme = "light"
+
+[dev]
+watch = ["src", "views", "Auro.toml"]
+run-args = ["--verbose"]
+build-args = ["--features", "dev"]
+hot = true
+
+[bundle]
+active = false
+targets = ["{host}"]
+icon = ["icons/icon.png"]
+resources = ["assets/**"]
+category = "Utility"
+short-description = "short"
+long-description = "long"
+copyright = "2026 The Auro Authors"
+license-file = "LICENSE"
+"#
+        );
+
+        let base: Value = toml::from_str(&text).expect("valid TOML");
+        let config: Config = base.clone().try_into().expect("valid config");
+        config.validate(Path::new("Auro.toml")).expect("valid");
+
+        let serialized = toml::to_string(&config).expect("serializes");
+        let round: Value = toml::from_str(&serialized).expect("round-trip TOML");
+        assert_eq!(round, base);
     }
 }

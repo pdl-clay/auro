@@ -1,6 +1,6 @@
 [package]
 name = "auro-core"
-description = "Application model for Auro: config, state, lifecycle"
+description = "Application model for Auro: config, state and the runtime bridge"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -13,6 +13,7 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `auro doctor` reports the `gpui` version the app resolves, read from its `Cargo.lock` (spec 0001).
 - `[dev] hot = true` runs the hot-patch devserver (`dx serve --hot-patch`) instead of rebuilding and
   relaunching: the loop forwards devserver output, timestamps saves and prints
   `auro: hot patch applied (<took> ms, <elapsed> ms after the save)`. Requires dioxus-cli 0.7.10
@@ -154,6 +155,26 @@ installable `auro-cli` yet.
 
 ### Fixed
 
+- `[dev] run-args` is passed to the spawned app (it was parsed and ignored), and hot mode says so
+  when it cannot forward the args because `dx` owns the process.
+- `[app.windows]` options `transparent` and `center` are now applied instead of parsed and
+  ignored: transparency reaches the window background, and `center = false` leaves placement to
+  the platform. `decorations = false` now requests client-side decorations, which is how GPUI 0.2
+  expresses an undecorated window (honored on Wayland; `auro doctor` still names platforms that
+  ignore it). A single `min-width` or `min-height` is now honored instead of being dropped.
+- `auro build` failed on every app: `Cargo.toml` was parsed as a bare TOML value instead of a
+  document, so the version check always reported `invalid Cargo.toml`. It now parses the manifest
+  and proceeds to `cargo build --release`.
+- `auro dev` now runs the `Auro.toml` ↔ `Cargo.toml` version check (spec 0002); only `auro build`
+  performed it before, so a mismatch went unnoticed in the dev loop.
+- App configuration falls back to the running executable's directory when the current directory has
+  no `Auro.toml`, as specs 0001/0002 require, and the missing-file error names both places searched.
+- `[bundle] targets` lists are validated against the known package formats and the host's
+  producible set (`app`/`dmg` on macOS, `msi`/`nsis` on Windows, `appimage`/`deb`/`rpm` on Linux);
+  an unsupported format is an error, not a silent skip (spec 0002, validation rule 5).
+- An `Auro.toml` read failure no longer repeats the path
+  (`configuration error in <path>: cannot read the file: ...`).
+
 - A window's configured title now reaches the compositor on Wayland. GPUI 0.2.2 applies
   `WindowOptions::titlebar.title` on X11, Windows and macOS but not on Wayland, so `App` sets the
   title on the window it opens; niri now reports `auro-demo` instead of `(unset)`. Covered by a
@@ -187,6 +208,9 @@ installable `auro-cli` yet.
 
 ### Changed
 
+- Phase 0 is closed: specs 0001 and 0002 are `Implemented`, their acceptance items are recorded as
+  met, and `README.md`, `README.pt-BR.md` and the book status say so. App-wide events and lifecycle
+  moved to Phase 1; scaffold icons move to Phase 2 with the bundler.
 - `AGENTS.md`, the specs and this changelog describe the workspace instead of a documentation-only
   repository.
 - `CONTRIBUTING.md` gains the development setup, the gates, the commit and sign-off rules, and the

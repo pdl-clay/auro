@@ -5,8 +5,8 @@
 pub use gpui;
 pub use gpui::{
     App, AppContext, Application, Bounds, Context, Entity, IntoElement, ParentElement, Pixels,
-    Render, SharedString, Size, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions, div,
-    px, rgb, size,
+    Render, SharedString, Size, Styled, TitlebarOptions, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowDecorations, WindowOptions, div, px, rgb, size,
 };
 
 mod button;

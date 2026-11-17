@@ -60,8 +60,7 @@ pub fn new(path: &Path) -> Result<(), AuroError> {
 /// `cargo build --release`, after checking the config's version against the manifest.
 pub fn build(dir: &Path) -> Result<(), AuroError> {
     let dir = dir.canonicalize()?;
-    let config = Config::load_from(&dir.join(auro_core::config::CONFIG_FILE))?;
-    check_version(&dir, &config)?;
+    load_checked(&dir)?;
 
     let status = Command::new("cargo")
         .arg("build")
@@ -76,11 +75,20 @@ pub fn build(dir: &Path) -> Result<(), AuroError> {
     Ok(())
 }
 
+/// Loads `Auro.toml` and rejects a version that disagrees with the manifest (spec 0002).
+///
+/// Both `auro build` and `auro dev` go through here: the running app cannot see its manifest.
+pub fn load_checked(dir: &Path) -> Result<Config, AuroError> {
+    let config = Config::load_from(&dir.join(auro_core::config::CONFIG_FILE))?;
+    check_version(dir, &config)?;
+    Ok(config)
+}
+
 /// The app cannot see its manifest at runtime, so the version check belongs to the CLI.
 pub fn check_version(dir: &Path, config: &Config) -> Result<(), AuroError> {
     let manifest = dir.join("Cargo.toml");
     let text = fs::read_to_string(&manifest)?;
-    let value: toml::Value = text.parse().map_err(|error: toml::de::Error| {
+    let value: toml::Value = toml::from_str(&text).map_err(|error: toml::de::Error| {
         AuroError::config(&manifest, None, format!("invalid Cargo.toml: {error}"))
     })?;
     let declared = value
@@ -255,5 +263,51 @@ mod tests {
     fn normalises_names() {
         assert_eq!(package_name(Path::new("/tmp/My App!")), "my-app");
         assert_eq!(package_name(Path::new("/tmp/2cool")), "app-2cool");
+    }
+
+    fn app_with_versions(config_version: &str, manifest_version: &str) -> tempfile::TempDir {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Auro.toml"),
+            format!(
+                r#"
+[app]
+identifier = "com.example.versioned"
+product-name = "Versioned"
+version = "{config_version}"
+
+[[app.windows]]
+label = "main"
+"#
+            ),
+        )
+        .expect("config");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            format!(
+                r#"
+[package]
+name = "versioned"
+version = "{manifest_version}"
+"#
+            ),
+        )
+        .expect("manifest");
+        temp
+    }
+
+    #[test]
+    fn refuses_a_config_version_that_disagrees_with_the_manifest() {
+        let temp = app_with_versions("9.9.9", "0.1.0");
+        let error = load_checked(temp.path()).expect_err("version mismatch");
+        let message = error.to_string();
+        assert!(message.contains("9.9.9"), "{message}");
+        assert!(message.contains("0.1.0"), "{message}");
+    }
+
+    #[test]
+    fn accepts_matching_versions() {
+        let temp = app_with_versions("0.1.0", "0.1.0");
+        load_checked(temp.path()).expect("matching versions");
     }
 }

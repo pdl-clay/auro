@@ -187,18 +187,23 @@ must be **published and honest from day one**. This is the biggest schedule risk
 auro dev` opens a window in under two minutes with a warm cargo cache. Publishing to crates.io is
 not part of the phase.
 
-**Progress (2026-11-15, updated 2026-11-16):** workspace, specs, CLI, typed command/state/config
+**Progress (2026-11-15, updated 2026-11-17):** workspace, specs, CLI, typed command/state/config
 plumbing, scaffold, relaunch-based `auro dev`, CI on macOS/Windows/Linux, and headless GPUI tests
 (render and button click dispatching an async command with view update) are in place and green in
 CI/local gates. The app quits when the last window closes (verified locally on niri/Wayland: demo
-exits 0) and `auro dev` now detects child exit. Spec 0001 acceptance is mostly met; automated/
-in-`auro dev` window-close coverage remains open. The < 500 ms save-to-visible target remains unmet
+exits 0) and `auro dev` now detects child exit. The < 500 ms save-to-visible target remains unmet
 in product (`auro dev` relaunch ~60 s measured), but Option 1 consolidation (2026-11-16) recorded
 prototype evidence for a viable same-process candidate (`subsecond`/`dx` tip-crate `HotFn`
 patching, Linux x86_64/GPUI 0.2.2, minimal cases ~271-450 ms, host state preserved) with
 constraints and pending integration/representative D6 measurement (see
 [spec 0004](docs/src/specs/0004-hot-reload.md), [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
-The phase is still in progress until the exit criterion and acceptance are fully closed.
+
+**Phase 0 closed (2026-11-17):** spec 0001 acceptance 1-8 and spec 0002 acceptance are met; the
+closing audit fixed `auro build`'s manifest parse (it rejected every app), wired the version check
+into `auro dev`, added the executable-directory config fallback, validated `[bundle] targets`
+against the host, made `auro doctor` report the resolved GPUI pin, and added the config round-trip
+and error-conversion tests the specs required. App-wide events and lifecycle moved to Phase 1;
+scaffold icons moved to Phase 2 with the bundler.
 
 **Exit criterion measured (2026-11-16, niri/Wayland, warm cache):**
 `cargo install --path crates/auro-cli --locked` took 13.3 s; `auro new /home/pdl/auro-demo` then
@@ -209,15 +214,17 @@ trace per save: median **2380 ms** save→build and **2730 ms** save→repaint-r
 debug, warm cache, 50 ms resolution; spec 0004 D6). Relaunches are labelled from the app's snapshot
 report (`restarted (state restored)` / `restarted (state reset: <reason>)`), verified on Linux and on
 Windows 11, where the dev loop now runs the app from a copy under `target/auro-dev/` because Windows
-locks a running image; the Windows traces were 10.8 s and 8.2 s save→build (debug, warm cache). Remaining acceptance gaps:
-automated (process-level) window-close coverage. The `(unset)` window title was diagnosed and fixed
+locks a running image; the Windows traces were 10.8 s and 8.2 s save→build (debug, warm cache).
+Automated process-level window-close coverage remains test debt, not an acceptance gap: acceptance
+3 is a manual runnable and was verified as above. The `(unset)` window title was diagnosed and fixed
 on 2026-11-16: GPUI 0.2.2 applies `WindowOptions::titlebar.title` on X11, Windows and macOS but not
 on Wayland, so `App` now sets the title on the opened window; niri reports `auro-demo`, and a
 headless test asserts the title reaches the window.
 
 ### Phase 1 - v0.1 "Hello, native" (weeks 4-8)
 
-- `auro-core`: config schema, multi-window, lifecycle, command registry with schema, state store.
+- `auro-core`: multi-window lifecycle, app-wide events, command registry with schema, state store
+  (the config schema landed in Phase 0).
 - `auro-ui`: GPUI re-export plus ~20 components (Button, Input, List, Table, Tabs, Dialog, Toast,
   Menu, Tooltip, Sidebar, Command palette).
 - Theming: tokens, light/dark, three built-in themes.

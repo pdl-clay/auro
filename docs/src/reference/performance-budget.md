@@ -8,7 +8,7 @@ a 40 MB binary has no reason to exist.
 | Cold start | < 80 ms | Not measured - no binary |
 | Idle RAM (hello world) | < 40 MB | Not measured - no binary |
 | Hello-world binary (stripped) | < 6 MB | Not measured - no binary |
-| Edit to see | < 500 ms | Not implemented (relaunch only); a saved change to a visible relaunch measured ~60 s on the development machine (relink dominates). See [hot reload](../architecture/hot-reload.md) |
+| Edit to see | < 500 ms | Not implemented (relaunch only). The traced dev loop measured **2730 ms** save→repaint-requested (median, debug, warm cache) and an earlier relink-dominated run measured ~60 s. The target needs hot reload; see [spec 0004](../specs/0004-hot-reload.md) and [hot reload](../architecture/hot-reload.md) |
 | Frame time | 16.6 ms at 60 fps | Inherited from GPUI, unverified |
 
 ## How each metric is defined

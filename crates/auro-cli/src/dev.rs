@@ -28,8 +28,7 @@ enum ChildEvent {
 /// `target/auro-dev/` and leaves the cargo artifact free to be relinked.
 pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     let dir = dir.canonicalize()?;
-    let config_path = dir.join(auro_core::config::CONFIG_FILE);
-    let config = Config::load_from(&config_path)?;
+    let config = crate::project::load_checked(&dir)?;
     let patch = overrides_json(overrides)?;
 
     if config.dev.hot {
@@ -44,6 +43,7 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(spawn(
         &running,
         &dir,
+        &config.dev.run_args,
         patch.as_deref(),
         child_tx.clone(),
     )?)));
@@ -103,8 +103,13 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
                                     // Best effort: Windows may still hold the old image.
                                     let _ = std::fs::remove_file(previous);
                                 }
-                                let child =
-                                    spawn(&running, &dir, patch.as_deref(), child_tx.clone())?;
+                                let child = spawn(
+                                    &running,
+                                    &dir,
+                                    &config.dev.run_args,
+                                    patch.as_deref(),
+                                    child_tx.clone(),
+                                )?;
                                 println!("auro: rebuilt, running {}", running.display());
                                 *slot.lock().expect("dev slot poisoned") = Some(child);
                             }
@@ -178,6 +183,11 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
         "auro: hot-patch mode ({}); edits reload without relaunching",
         dx.display()
     );
+    if !config.dev.run_args.is_empty() {
+        eprintln!(
+            "auro: note: dev.run-args is not forwarded in hot-patch mode; dx owns the app process"
+        );
+    }
 
     let mut command = Command::new(&dx);
     command
@@ -394,18 +404,25 @@ fn deploy(binary: &Path, dir: &Path, generation: u64) -> Result<PathBuf, AuroErr
     Ok(copy)
 }
 
-fn spawn(
-    binary: &Path,
-    dir: &Path,
-    patch: Option<&str>,
-    events: mpsc::Sender<ChildEvent>,
-) -> Result<Child, AuroError> {
+/// Builds the child command so tests can inspect exactly what the app receives.
+fn app_command(binary: &Path, dir: &Path, run_args: &[String], patch: Option<&str>) -> Command {
     let mut command = Command::new(binary);
-    command.current_dir(dir);
+    command.current_dir(dir).args(run_args);
     if let Some(patch) = patch {
         command.env(auro_core::config::OVERRIDES_ENV, patch);
     }
     command.env(TRACE_ENV, "1");
+    command
+}
+
+fn spawn(
+    binary: &Path,
+    dir: &Path,
+    run_args: &[String],
+    patch: Option<&str>,
+    events: mpsc::Sender<ChildEvent>,
+) -> Result<Child, AuroError> {
+    let mut command = app_command(binary, dir, run_args, patch);
     command.stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| {
         AuroError::Message(format!("cannot start {}: {}", binary.display(), error))
@@ -535,6 +552,30 @@ fn set_path(node: &mut serde_json::Value, path: &[&str], value: serde_json::Valu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn passes_run_args_to_the_app() {
+        let command = app_command(
+            Path::new("/tmp/demo"),
+            Path::new("/tmp"),
+            &["--verbose".to_owned(), "value".to_owned()],
+            Some("{}"),
+        );
+
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, ["--verbose", "value"]);
+
+        let overrides = auro_core::config::OVERRIDES_ENV;
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key.to_string_lossy() == overrides && value.is_some()),
+            "the override patch must reach the child"
+        );
+    }
 
     #[test]
     fn builds_a_merge_patch_from_flags() {

@@ -1,6 +1,6 @@
 # 0002 - Configuration
 
-**Status:** Approved - implementation in progress
+**Status:** Implemented (Phase 0 closed 2026-11-17)
 
 `Auro.toml` is the only file an app author edits to describe their app. This spec fixes its
 location, format, every Phase 0 key, the merge rules, and what makes it invalid.
@@ -24,8 +24,9 @@ neither idiom.
 1. `AURO_CONFIG` (a path) if set, otherwise `Auro.toml` in the app directory (current directory,
    or the one `--dir` names), falling back to the executable's directory.
 2. `Auro.<platform>.toml` where platform is `macos`, `windows` or `linux`, merged key by key.
-3. `AURO_CONFIG_OVERRIDES`, a JSON Merge Patch set by `auro dev` and `auro build` from `--config
-   key=value` flags, merged last. This environment variable is the only CLI-to-app channel.
+3. `AURO_CONFIG_OVERRIDES`, a JSON Merge Patch set by `auro dev` from `--config key=value` flags,
+   merged last. This environment variable is the only CLI-to-app channel. `auro build` gains
+   overrides with embedded config in Phase 2; a Phase 0 build has no runtime to hand them to.
 
 Merge is recursive for tables and **replacing** for arrays: a platform file that declares
 `app.windows` replaces the list; it does not append to it. Merging arrays positionally is how
@@ -85,7 +86,7 @@ It is never read at runtime and never affects behaviour.
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `watch` | array of string | `["src", "Auro.toml"]` | paths relative to the app dir |
-| `run-args` | array of string | `[]` | passed to the spawned binary |
+| `run-args` | array of string | `[]` | passed to the spawned binary in relaunch mode; `dx` owns the process in hot mode and `auro dev` prints a note |
 | `build-args` | array of string | `[]` | passed to `cargo build` |
 | `hot` | bool | `false` | run `dx serve --hot-patch` instead of rebuild-and-relaunch; needs `dx` (dioxus-cli 0.7.10) on `PATH` or `AURO_DX`, plus the app's `hot-reload` feature |
 
@@ -115,7 +116,8 @@ Failures are `AuroError::Config { path, key, message }` and abort before a windo
    values. The running app cannot see the manifest, so it does not perform this check.
 4. Duplicate window labels, or `default-window` naming nothing: error.
 5. `bundle.targets` naming a package format the host cannot produce: error listing the valid set
-   for that host.
+   for that host. The known formats are `app`, `dmg`, `msi`, `nsis`, `appimage`, `deb` and `rpm`;
+   the host sets are macOS `app`/`dmg`, Windows `msi`/`nsis`, and Linux `appimage`/`deb`/`rpm`.
 6. Relative `watch` or `resources` paths escaping the app directory: error.
 
 ## Interfaces
@@ -137,8 +139,9 @@ height = 640
 ```rust,ignore
 pub struct Config { pub app: AppConfig, pub dev: DevConfig, pub bundle: BundleConfig }
 impl Config {
-    /// Reads `Auro.toml`, merges the platform file and overrides, validates, returns.
-    pub fn load(dir: &Path, overrides: &[String]) -> Result<Config, AuroError>;
+    /// Tries `AURO_CONFIG`, then `<dir>/Auro.toml`, then the executable's directory; merges the
+    /// platform file and `AURO_CONFIG_OVERRIDES`, validates, returns.
+    pub fn load(dir: &Path) -> Result<Config, AuroError>;
 }
 ```
 
@@ -153,3 +156,13 @@ impl Config {
 - A `version` mismatch against `Cargo.toml` fails `auro build` and `auro dev`.
 - Round-trip test: every documented key is set to a non-default value, serialized back, and equals
   the original.
+
+## Status (2026-11-17)
+
+Implemented and accepted with Phase 0. Coverage lives in `auro-core/src/config.rs`
+(`parses_the_minimal_file_and_applies_defaults`, `platform_file_replaces_arrays_and_merges_tables`,
+`rejects_unknown_keys`, `missing_config_names_both_places_searched`,
+`falls_back_to_the_executable_directory`, `rejects_a_bundle_target_this_host_cannot_produce`,
+`every_documented_key_survives_a_round_trip`), in `auro-cli/src/project.rs`
+(`refuses_a_config_version_that_disagrees_with_the_manifest`, `accepts_matching_versions`), and in
+`auro doctor` against a real app.

@@ -26,6 +26,8 @@ pub fn run(dir: &Path) -> Result<(), AuroError> {
         }
     }
 
+    println!("gpui: {}", gpui_pin(&dir));
+
     let config_path = dir.join(auro_core::config::CONFIG_FILE);
     let config = Config::load_from(&config_path)?;
     println!(
@@ -92,4 +94,69 @@ fn unhonored(config: &Config) -> Vec<String> {
         }
     }
     notes
+}
+
+/// The `gpui` version the app resolves, read from its lockfile.
+///
+/// The CLI cannot link GPUI (and should not); the lockfile is what cargo will actually build.
+fn gpui_pin(dir: &Path) -> String {
+    let lock = dir.join("Cargo.lock");
+    let Ok(text) = std::fs::read_to_string(&lock) else {
+        return format!(
+            "not resolved ({} missing; run `cargo build`)",
+            lock.display()
+        );
+    };
+    let Ok(lock) = toml::from_str::<toml::Value>(&text) else {
+        return format!("unknown ({} is not valid TOML)", lock.display());
+    };
+
+    let mut versions: Vec<&str> = lock
+        .get("package")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|package| package.get("name").and_then(toml::Value::as_str) == Some("gpui"))
+        .filter_map(|package| package.get("version").and_then(toml::Value::as_str))
+        .collect();
+    versions.sort_unstable();
+    versions.dedup();
+
+    match versions.as_slice() {
+        [] => "not in Cargo.lock".to_owned(),
+        [version] => (*version).to_owned(),
+        versions => versions.join(", "),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_gpui_pin_from_the_lockfile() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Cargo.lock"),
+            r#"
+version = 4
+
+[[package]]
+name = "gpui"
+version = "0.2.2"
+
+[[package]]
+name = "serde"
+version = "1.0.0"
+"#,
+        )
+        .expect("lockfile");
+        assert_eq!(gpui_pin(temp.path()), "0.2.2");
+    }
+
+    #[test]
+    fn reports_a_missing_lockfile_instead_of_guessing() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        assert!(gpui_pin(temp.path()).contains("Cargo.lock"));
+    }
 }
