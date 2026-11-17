@@ -1,6 +1,6 @@
 # 0010 - Bundling
 
-**Status:** Implemented (Linux and Windows verified 2026-11-17; macOS pending CI)
+**Status:** Implemented (Linux and Windows verified 2026-11-17; macOS packaging pending a macOS runner)
 
 Phase 2 needs installable artifacts. Auro does not write a bundler: `auro-bundle` maps the
 `[bundle]` section of `Auro.toml` onto `tauri-bundler` 2.10 and delegates the platform formats to it
