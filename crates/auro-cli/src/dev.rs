@@ -32,6 +32,10 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     let config = Config::load_from(&config_path)?;
     let patch = overrides_json(overrides)?;
 
+    if config.dev.hot {
+        return run_hot(&dir, &config, patch.as_deref());
+    }
+
     let first = build(&dir, &config)?;
     let mut generation = 1u64;
     let mut running = deploy(&first, &dir, generation)?;
@@ -164,6 +168,174 @@ fn watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Runs the hot-patch devserver. `dx` owns the app process; this loop forwards its output,
+/// timestamps saves from our own watcher, and reports how long each patch took.
+fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroError> {
+    let dx = std::env::var_os("AURO_DX")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("dx"));
+    println!(
+        "auro: hot-patch mode ({}); edits reload without relaunching",
+        dx.display()
+    );
+
+    let mut command = Command::new(&dx);
+    command
+        .current_dir(dir)
+        .arg("serve")
+        .arg("--hot-patch")
+        .arg("--interactive")
+        .arg("false")
+        .arg("--platform")
+        .arg("desktop")
+        .arg("--features")
+        .arg("hot-reload")
+        .env("AURO_HOT_RELOAD", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(patch) = patch {
+        command.env(auro_core::config::OVERRIDES_ENV, patch);
+    }
+    let mut child = command.spawn().map_err(|error| {
+        AuroError::Message(format!(
+            "cannot start {} ({error}); install dioxus-cli 0.7.10 or set AURO_DX",
+            dx.display()
+        ))
+    })?;
+
+    let (events, received) = mpsc::channel::<DxEvent>();
+    if let Some(stdout) = child.stdout.take() {
+        let events = events.clone();
+        std::thread::spawn(move || forward(stdout, events));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let events = events.clone();
+        std::thread::spawn(move || forward(stderr, events));
+    }
+
+    let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
+    install_ctrl_c(Arc::clone(&slot))?;
+    {
+        let slot = Arc::clone(&slot);
+        let events = events.clone();
+        std::thread::spawn(move || {
+            loop {
+                if let Some(status) = child_exited(&slot) {
+                    let _ = events.send(DxEvent::Exited(status));
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+    }
+
+    let (saves, saved) = mpsc::channel::<()>();
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if let Ok(event) = &event
+            && matches!(event.kind, notify::EventKind::Access(_))
+        {
+            return;
+        }
+        let _ = saves.send(());
+    })
+    .map_err(|error| AuroError::Message(format!("cannot start the file watcher: {error}")))?;
+    for path in watch_paths(dir, config) {
+        watcher
+            .watch(&path, RecursiveMode::Recursive)
+            .map_err(|error| {
+                AuroError::Message(format!("cannot watch {}: {error}", path.display()))
+            })?;
+    }
+
+    let mut saved_at: Option<Instant> = None;
+    loop {
+        if saved.try_recv().is_ok() {
+            // Coalesce a burst: the newest save is the one the patch name refers to.
+            while saved.try_recv().is_ok() {}
+            saved_at = Some(Instant::now());
+        }
+        match received.recv_timeout(Duration::from_millis(50)) {
+            Ok(DxEvent::Line(line)) => {
+                println!("{line}");
+                if let Some(took) = patch_took_ms(&line) {
+                    match saved_at.take() {
+                        Some(saved) => println!(
+                            "auro: hot patch applied ({took} ms, {} ms after the save)",
+                            saved.elapsed().as_millis()
+                        ),
+                        None => println!("auro: hot patch applied ({took} ms)"),
+                    }
+                }
+                if let Some(label) = relaunch_label(&line) {
+                    println!("auro: {label}");
+                }
+            }
+            Ok(DxEvent::Exited(status)) => {
+                stop(&slot);
+                if status.success() {
+                    println!("auro: dev server exited");
+                    return Ok(());
+                }
+                return Err(AuroError::Message(format!(
+                    "dev server exited with {status}"
+                )));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+        }
+    }
+}
+
+/// Output the devserver produced.
+enum DxEvent {
+    Line(String),
+    Exited(ExitStatus),
+}
+
+fn forward(stream: impl std::io::Read, events: mpsc::Sender<DxEvent>) {
+    use std::io::{BufRead, BufReader};
+    for line in BufReader::new(stream).lines().map_while(Result::ok) {
+        if events.send(DxEvent::Line(line)).is_err() {
+            return;
+        }
+    }
+}
+
+/// `15.2s INFO Hot-patching: src\views\mod.rs took 437ms` -> `437`.
+fn patch_took_ms(line: &str) -> Option<u128> {
+    let line = strip_ansi(line);
+    if !line.contains("Hot-patching:") {
+        return None;
+    }
+    let (_, rest) = line.rsplit_once("took ")?;
+    let digits: String = rest
+        .chars()
+        .skip_while(|character| !character.is_ascii_digit())
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().ok()
+}
+
+/// Removes ANSI control sequences so log parsing sees the text the terminal shows.
+fn strip_ansi(line: &str) -> String {
+    let mut plain = String::with_capacity(line.len());
+    let mut characters = line.chars();
+    while let Some(character) = characters.next() {
+        if character != '\u{1b}' {
+            plain.push(character);
+            continue;
+        }
+        if characters.next() == Some('[') {
+            for control in characters.by_ref() {
+                if ('@'..='~').contains(&control) {
+                    break;
+                }
+            }
+        }
+    }
+    plain
+}
+
 fn build(dir: &Path, config: &Config) -> Result<PathBuf, AuroError> {
     let mut command = Command::new("cargo");
     command
@@ -264,10 +436,11 @@ fn ready_label(line: &str) -> Option<&str> {
 
 /// Turns the app's snapshot report into the relaunch label required by spec 0004, D4.
 fn relaunch_label(line: &str) -> Option<String> {
-    if line.starts_with("auro: state restored") {
+    // The devserver prefixes the app's stderr with timestamps, so match anywhere in the line.
+    if line.contains("auro: state restored") {
         return Some("restarted (state restored)".to_owned());
     }
-    let reason = line.strip_prefix("auro: state reset: ")?;
+    let (_, reason) = line.split_once("auro: state reset: ")?;
     Some(format!("restarted (state reset: {reason})"))
 }
 
@@ -408,6 +581,39 @@ mod tests {
         );
         assert_eq!(relaunch_label("auro: rebuilt, running /tmp/app"), None);
         assert_eq!(relaunch_label(""), None);
+    }
+
+    #[test]
+    fn reads_the_devserver_patch_duration() {
+        assert_eq!(
+            patch_took_ms("15.2s INFO Hot-patching: src\\views\\mod.rs took 437ms"),
+            Some(437)
+        );
+        assert_eq!(
+            patch_took_ms("Hot-patching: src\\main.rs took 1238ms"),
+            Some(1238)
+        );
+        assert_eq!(
+            patch_took_ms("8.8s  INFO Hot-patching: src/views/mod.rs took \u{1b}[1m704ms\u{1b}[0m"),
+            Some(704)
+        );
+        assert_eq!(
+            patch_took_ms("12.0s INFO Build completed successfully"),
+            None
+        );
+        assert_eq!(patch_took_ms("Hot-patching: something else"), None);
+    }
+
+    #[test]
+    fn labels_state_reports_inside_devserver_output() {
+        assert_eq!(
+            relaunch_label("222.5s ERROR auro: state restored from /tmp/s.json").as_deref(),
+            Some("restarted (state restored)")
+        );
+        assert_eq!(
+            relaunch_label("1.0s ERROR auro: state reset: bad version").as_deref(),
+            Some("restarted (state reset: bad version)")
+        );
     }
 
     #[test]

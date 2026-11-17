@@ -239,6 +239,18 @@ unproven.
 claiming a process restart is hot reload (forbidden by ADR 0008). *Rejected:* discarding the window
 on every successful reload.
 
+**Hot mode implemented (2026-11-16, experimental, opt-in).** `[dev] hot = true` makes `auro dev` run
+`dx serve --hot-patch` instead of its relaunch loop, with `AURO_HOT_RELOAD=1` and the app's
+`hot-reload` feature; scaffolded apps emit `Dioxus.toml` and expose a data-only boundary
+(`view_data() -> ViewData` wrapped by `auro::hot::hot`). The loop forwards devserver output,
+timestamps saves from its own watcher and prints `auro: hot patch applied (<took> ms, <elapsed> ms
+after the save)`. Measured on niri/Wayland: patch 3198 ms and the patched boundary ran
+(`view data -> Clicked accent=0x1f2937` became `Clicks accent=0x7c2d12`) in the same window. On
+Windows 11 the same edit applied (`4679 ms`, handler fired, loop alive) but the patched boundary was
+never observed running, so hot reload of app code is **not demonstrated on Windows**; no crash, no
+reload. Open item: why the patched boundary is not entered on Windows in this integration (a
+hand-written prototype did reload a `ViewData` boundary there in phase 1).
+
 ### D2 - Host-stable and reloadable code have an explicit boundary
 
 Code that must survive a reload lives on the host-stable side: process bootstrap, window lifecycle,

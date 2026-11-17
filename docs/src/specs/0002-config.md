@@ -87,6 +87,7 @@ It is never read at runtime and never affects behaviour.
 | `watch` | array of string | `["src", "Auro.toml"]` | paths relative to the app dir |
 | `run-args` | array of string | `[]` | passed to the spawned binary |
 | `build-args` | array of string | `[]` | passed to `cargo build` |
+| `hot` | bool | `false` | run `dx serve --hot-patch` instead of rebuild-and-relaunch; needs `dx` (dioxus-cli 0.7.10) on `PATH` or `AURO_DX`, plus the app's `hot-reload` feature |
 
 ### `[bundle]`
 

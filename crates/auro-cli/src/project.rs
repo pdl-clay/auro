@@ -8,6 +8,7 @@ use auro_core::{AuroError, Config};
 
 const CARGO_TOML: &str = include_str!("../templates/Cargo.toml");
 const AURO_TOML: &str = include_str!("../templates/Auro.toml");
+const DIOXUS_TOML: &str = include_str!("../templates/Dioxus.toml");
 const MAIN_RS: &str = include_str!("../templates/main.rs");
 const VIEW_RS: &str = include_str!("../templates/view.rs");
 const SERVICE_RS: &str = include_str!("../templates/service.rs");
@@ -38,6 +39,10 @@ pub fn new(path: &Path) -> Result<(), AuroError> {
         &AURO_TOML
             .replace("{{name}}", &name)
             .replace("{{identifier}}", &identifier),
+    )?;
+    write(
+        &path.join("Dioxus.toml"),
+        &DIOXUS_TOML.replace("{{name}}", &name),
     )?;
     write(&path.join("src/main.rs"), MAIN_RS)?;
     write(
@@ -193,6 +198,7 @@ mod tests {
         for file in [
             "Cargo.toml",
             "Auro.toml",
+            "Dioxus.toml",
             "src/main.rs",
             "src/views/mod.rs",
             "src/services/mod.rs",
@@ -212,6 +218,11 @@ mod tests {
         assert!(
             manifest.contains("[workspace]"),
             "the app must be its own workspace: {manifest}"
+        );
+        let dioxus = std::fs::read_to_string(target.join("Dioxus.toml")).expect("Dioxus.toml");
+        assert!(
+            dioxus.contains("name = \"demo\""),
+            "dx needs the app name: {dioxus}"
         );
 
         // A leftover `{{identifier}}` would not compile in the generated app.

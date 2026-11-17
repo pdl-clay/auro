@@ -26,7 +26,7 @@ pub fn install() {
         if std::env::var(ENABLE_ENV).ok().as_deref() != Some("1") {
             return;
         }
-        subsecond::register_handler(Arc::new(|| eprintln!("auro: hot patch applied")));
+        subsecond::register_handler(Arc::new(|| eprintln!("auro: hot patch handler fired")));
         dioxus_devtools::connect_subsecond();
     });
 }

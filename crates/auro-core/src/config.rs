@@ -106,6 +106,10 @@ pub struct DevConfig {
     pub run_args: Vec<String>,
     #[serde(default)]
     pub build_args: Vec<String>,
+    /// Run the hot-patch devserver (`dx serve --hot-patch`) instead of rebuilding and relaunching.
+    /// Requires `dx` on `PATH` (or `AURO_DX`) and the app's `hot-reload` feature.
+    #[serde(default)]
+    pub hot: bool,
 }
 
 impl Default for DevConfig {
@@ -114,6 +118,7 @@ impl Default for DevConfig {
             watch: default_watch(),
             run_args: Vec::new(),
             build_args: Vec::new(),
+            hot: false,
         }
     }
 }
@@ -426,6 +431,13 @@ label = "main"
         assert!(window.center);
         assert_eq!(config.dev.watch, ["src", "Auro.toml"]);
         assert!(config.bundle.active);
+    }
+
+    #[test]
+    fn hot_dev_mode_is_opt_in() {
+        assert!(!parse(MINIMAL).expect("parses").dev.hot);
+        let text = format!("{MINIMAL}\n[dev]\nhot = true\n");
+        assert!(parse(&text).expect("parses").dev.hot);
     }
 
     #[test]

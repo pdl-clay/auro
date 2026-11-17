@@ -140,6 +140,10 @@ the web. This is *the* bet of the project.
   leaf `HotFn` patches twice without crashing, and that a `ViewData`-returning boundary hot-reloads
   UI values with state preserved (1324/1084 ms, 2/2, screenshot). So on Windows: framework-free hot
   boundaries work, element-returning view code does not. `auro dev` remains relaunch by default.
+- **Experimental hot mode (2026-11-16, opt-in):** `[dev] hot = true` drives `dx serve --hot-patch`
+  with a data-only hot boundary in the scaffold; on niri/Wayland one patch (3198 ms) reloaded the
+  boundary in the same window, while on Windows 11 the patch applied (4679 ms) but the patched
+  boundary was not observed running. `auro dev` still relaunches by default.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 

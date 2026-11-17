@@ -13,6 +13,18 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `[dev] hot = true` runs the hot-patch devserver (`dx serve --hot-patch`) instead of rebuilding and
+  relaunching: the loop forwards devserver output, timestamps saves and prints
+  `auro: hot patch applied (<took> ms, <elapsed> ms after the save)`. Requires dioxus-cli 0.7.10
+  (`dx` on `PATH` or `AURO_DX`) and the app's `hot-reload` feature; scaffolded apps now emit
+  `Dioxus.toml` and that feature.
+- Scaffolded views expose a data-only hot boundary (`ViewData` from `view_data()`, wrapped by
+  `auro::hot::hot` when the feature is on) and log `auro: view data -> …` when it changes, so a
+  reload is observable. Verified on niri/Wayland: one patch (3198 ms) changed
+  `Clicked accent=0x1f2937` to `Clicks accent=0x7c2d12` in the same window. On Windows 11 the patch
+  applies (4679 ms, handler fires, loop survives) but the patched boundary did not run — no
+  `view data -> Clicks` line — so reload is not yet demonstrated there.
+
 - `auro dev` emits one JSON trace line per save (`event`, `window`, `save_to_build_ms`,
   `build_to_window_ms`, `save_to_window_ms`); the app prints `auro:trace window_requested <label>`
   when `AURO_DEV_TRACE` is set, so save-to-visible is computed without a stopwatch (spec 0004, D6).

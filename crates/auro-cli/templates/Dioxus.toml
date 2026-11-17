@@ -1,0 +1,3 @@
+[application]
+name = "{{name}}"
+default_platform = "desktop"

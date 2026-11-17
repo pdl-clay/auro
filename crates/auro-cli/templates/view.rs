@@ -15,9 +15,36 @@ impl ReloadSnapshot for CounterState {
     const VERSION: u32 = 1;
 }
 
+/// Data the view renders. The hot boundary returns this, never GPUI types: on Windows the
+/// patched unit cannot construct elements (spec 0004).
+#[derive(Clone, Copy, PartialEq)]
+pub struct ViewData {
+    pub title: &'static str,
+    pub accent: u32,
+}
+
+/// Hot boundary: edit this function and a running `[dev] hot = true` session reloads it.
+fn view_data() -> ViewData {
+    ViewData {
+        title: "Clicked",
+        accent: 0x1f2937,
+    }
+}
+
+#[cfg(feature = "hot-reload")]
+fn current_view_data() -> ViewData {
+    auro::hot::hot(view_data)
+}
+
+#[cfg(not(feature = "hot-reload"))]
+fn current_view_data() -> ViewData {
+    view_data()
+}
+
 pub struct Counter {
     state: Arc<Mutex<CounterState>>,
     autosave: Option<Autosave>,
+    last_data: Option<ViewData>,
 }
 
 impl Default for Counter {
@@ -45,19 +72,30 @@ impl Default for Counter {
             let observed = Arc::clone(&state);
             autosave.watch(move || observed.lock().expect("state lock").clone());
         }
-        Counter { state, autosave }
+        Counter {
+            state,
+            autosave,
+            last_data: None,
+        }
     }
 }
 
 impl Render for Counter {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.state.lock().expect("state lock").count;
+        let data = current_view_data();
+        if self.last_data != Some(data) {
+            // Visible proof that the patched boundary ran (the dev loop echoes stderr).
+            eprintln!("auro: view data -> {} accent={:#x}", data.title, data.accent);
+            self.last_data = Some(data);
+        }
         div()
             .flex()
             .flex_col()
             .gap_2()
             .p_4()
-            .child(format!("Clicked {count} times"))
+            .bg(rgb(data.accent))
+            .child(format!("{} {count} times", data.title))
             .child(Button::new("increment", "Increment").on_click(cx.listener(
                 |this, _, _window, cx| {
                     let current = this.state.lock().expect("state lock").count;
