@@ -222,8 +222,13 @@ pub use linux_package::{LinuxElevation, LinuxPackageInstaller, LinuxPackageKind}
 #[cfg(any(target_os = "macos", test))]
 mod macos;
 
+#[cfg(any(target_os = "macos", test))]
+mod macos_pkg;
+
 #[cfg(target_os = "macos")]
 pub use macos::{MacAppInstaller, MacAppReceipt};
+#[cfg(target_os = "macos")]
+pub use macos_pkg::{MacPkgElevation, MacPkgInstaller};
 
 #[cfg(target_os = "linux")]
 mod appimage;

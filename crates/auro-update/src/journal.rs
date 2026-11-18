@@ -44,6 +44,8 @@ pub enum ApplyKind {
     RpmPackage,
     /// macOS `.app` bundle replacement.
     MacApp,
+    /// macOS package installation.
+    MacPkg,
 }
 
 /// The platform action and verification data for a helper-side apply.
@@ -714,6 +716,20 @@ fn apply_kind(
                 })
             }
             #[cfg(not(target_os = "linux"))]
+            {
+                Err(UpdateError::UnsupportedApply { kind })
+            }
+        }
+        ApplyKind::MacPkg => {
+            #[cfg(target_os = "macos")]
+            {
+                crate::MacPkgInstaller::new().elevated().install(staged)?;
+                Ok(ApplyOutcome {
+                    backup: None,
+                    restart_required: false,
+                })
+            }
+            #[cfg(not(target_os = "macos"))]
             {
                 Err(UpdateError::UnsupportedApply { kind })
             }

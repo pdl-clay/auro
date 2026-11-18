@@ -49,6 +49,10 @@ installable `auro-cli` yet.
 - `auro-update`: Linux package apply can run through `pkexec` in the restart helper (`LinuxElevation::Pkexec`),
   passing the opened, journal-verified package via `/proc/<pid>/fd/<fd>`; a non-zero `pkexec` result is
   `ElevationFailed`. The app never self-elevates (spec 0029, ADR 0017).
+- `auro-update`: `MacPkgInstaller` runs a staged `.pkg` through `/usr/sbin/installer`; the
+  elevated path uses a fixed AppleScript `quoted form` authorization prompt, and `ApplyKind::MacPkg`
+  dispatches through the restart helper. Command construction is unit-tested on Linux; macOS runtime
+  verification and notarization remain (spec 0031, ADR 0019).
 - `auro-update`: `LinuxPackageInstaller::rollback` installs a caller-supplied older `.deb`
   (`dpkg --force-downgrade -i`) or `.rpm` (`rpm -U --oldpackage`) through the same optional
   `pkexec` elevation and held-descriptor path; this is an explicit manual rollback policy, not

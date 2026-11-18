@@ -60,3 +60,4 @@ ADR keeps the conclusion.
 | [0016](0016-deltas-and-rollout.md) | Delta patches are base-bound; rollout is deterministic | Accepted |
 | [0017](0017-linux-package-elevation.md) | Linux package elevation is explicit pkexec, never self-root | Accepted |
 | [0018](0018-linux-package-rollback.md) | Package rollback requires an explicit older artifact | Accepted |
+| [0019](0019-macos-package-elevation.md) | macOS package elevation uses an explicit AppleScript prompt | Accepted |

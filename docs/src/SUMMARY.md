@@ -32,6 +32,7 @@
 - [0016 - Deltas and rollout](decisions/0016-deltas-and-rollout.md)
 - [0017 - Linux package elevation](decisions/0017-linux-package-elevation.md)
 - [0018 - Linux package rollback](decisions/0018-linux-package-rollback.md)
+- [0019 - macOS package elevation](decisions/0019-macos-package-elevation.md)
 
 # Specifications
 
@@ -66,6 +67,7 @@
 - [0028 - Binary deltas and staged rollout](specs/0028-deltas-rollout.md)
 - [0029 - Linux package elevation](specs/0029-linux-package-elevation.md)
 - [0030 - Linux package rollback](specs/0030-linux-package-rollback.md)
+- [0031 - macOS package apply](specs/0031-macos-package-apply.md)
 
 # Reference
 
