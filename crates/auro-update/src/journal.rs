@@ -8,7 +8,8 @@
 //! already-applied journal is relaunch-only. The journal is written atomically and remains on disk
 //! for diagnosis after the restart.
 
-use std::fs::{File, OpenOptions, TryLockError};
+use std::fs::{File, TryLockError};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -17,7 +18,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::{JOURNAL_FORMAT_VERSION, Manifest, PublicKey, StagedUpdate, UpdateError};
+use crate::{JOURNAL_FORMAT_VERSION, Manifest, PublicKey, StagedUpdate, UpdateError, trust};
 
 /// Environment variable used to enter restart-helper mode.
 pub const RESTART_HELPER_ENV: &str = "AURO_UPDATE_RESTART_HELPER";
@@ -344,13 +345,15 @@ impl ApplyJournal {
         } else {
             std::env::current_dir()?.join(path)
         };
-        let text = std::fs::read_to_string(&path).map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                UpdateError::JournalMissing { path: path.clone() }
-            } else {
-                UpdateError::Io(error)
+        let mut file = match trust::open_journal(&path) {
+            Ok(file) => file,
+            Err(UpdateError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(UpdateError::JournalMissing { path });
             }
-        })?;
+            Err(error) => return Err(error),
+        };
+        let mut text = String::new();
+        file.read_to_string(&mut text)?;
         let value: serde_json::Value = serde_json::from_str(&text)?;
         let format = value
             .get("format")
@@ -369,6 +372,7 @@ impl ApplyJournal {
                 lock: data.lock_file,
             });
         }
+        trust::validate_lock_path(&data.lock_file)?;
         Ok(ApplyJournal { path, data })
     }
 
@@ -611,13 +615,15 @@ impl ApplyJournal {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty());
         if let Some(parent) = parent {
-            std::fs::create_dir_all(parent)?;
+            create_parent(parent)?;
         }
+        trust::validate_parent(&self.path)?;
         let directory = parent.unwrap_or_else(|| Path::new("."));
         let mut temporary = NamedTempFile::new_in(directory)?;
         serde_json::to_writer_pretty(temporary.as_file_mut(), &self.data)?;
         temporary.as_file_mut().sync_all()?;
         temporary.persist(&self.path).map_err(|error| error.error)?;
+        drop(trust::open_journal(&self.path)?);
         Ok(())
     }
 }
@@ -944,19 +950,30 @@ fn detached_command(program: &Path) -> Command {
     command
 }
 
+fn create_parent(parent: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(parent)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(parent)
+    }
+}
+
 fn open_lock(path: &Path) -> Result<File, UpdateError> {
     if let Some(parent) = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
     {
-        std::fs::create_dir_all(parent)?;
+        create_parent(parent)?;
     }
-    Ok(OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)?)
+    trust::open_lock(path, true)
 }
 
 fn wait_for_lock(path: &Path) -> Result<File, UpdateError> {
@@ -1771,5 +1788,184 @@ mod tests {
                 actual: ApplyState::Prepared
             })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn accepts_a_private_journal_directory_and_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let journal = journal(&temp);
+        ApplyJournal::load(journal.path()).expect("private path accepted");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_world_writable_journal_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let journal = journal(&temp);
+        std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o777))
+            .expect("permissions");
+        let result = ApplyJournal::load(journal.path());
+        std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions");
+        assert!(matches!(result, Err(UpdateError::JournalTrust { .. })));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_world_writable_journal_file() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let journal = journal(&temp);
+        std::fs::set_permissions(journal.path(), std::fs::Permissions::from_mode(0o666))
+            .expect("permissions");
+        let result = ApplyJournal::load(journal.path());
+        std::fs::set_permissions(journal.path(), std::fs::Permissions::from_mode(0o600))
+            .expect("restore permissions");
+        assert!(matches!(result, Err(UpdateError::JournalTrust { .. })));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_journal() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let journal = journal(&temp);
+        let real = temp.path().join("real");
+        std::fs::create_dir(&real).expect("real");
+        std::fs::rename(journal.path(), real.join("apply.json")).expect("move");
+        symlink(real.join("apply.json"), journal.path()).expect("symlink");
+        assert!(matches!(
+            ApplyJournal::load(journal.path()),
+            Err(UpdateError::JournalTrust { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_shared_ancestor_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let journal = journal(&temp);
+        let shared = temp.path().join("shared");
+        std::fs::create_dir(&shared).expect("shared");
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777))
+            .expect("permissions");
+        let inner = shared.join("private");
+        std::fs::create_dir(&inner).expect("private");
+        std::fs::set_permissions(&inner, std::fs::Permissions::from_mode(0o700))
+            .expect("permissions");
+        std::fs::rename(journal.path(), inner.join("apply.json")).expect("move");
+        let result = ApplyJournal::load(inner.join("apply.json"));
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions");
+        assert!(matches!(result, Err(UpdateError::JournalTrust { .. })));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_symlinked_lock_file() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = journal(&temp);
+        journal.mark_applied().expect("applied");
+        let target = temp.path().join("lock-target");
+        std::fs::write(&target, b"").expect("target");
+        symlink(&target, journal.lock_file()).expect("symlink");
+        assert!(matches!(
+            journal.spawn_helper(),
+            Err(UpdateError::JournalTrust { .. })
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_a_junction_journal_directory() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let real = temp.path().join("real");
+        let link = temp.path().join("junction");
+        std::fs::create_dir(&real).expect("real");
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&real)
+            .status();
+        let Ok(status) = status else {
+            eprintln!("skipping junction test: cmd unavailable");
+            return;
+        };
+        if !status.success() {
+            eprintln!("skipping junction test: junction creation failed");
+            return;
+        }
+        assert!(matches!(
+            trust::validate_parent(&link.join("apply.json")),
+            Err(UpdateError::JournalTrust { .. })
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_a_permissive_journal_dacl() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let status = std::process::Command::new("icacls")
+            .arg(temp.path())
+            .args(["/grant", "*S-1-1-0:(OI)(CI)M"])
+            .status();
+        let Ok(status) = status else {
+            eprintln!("skipping DACL test: icacls unavailable");
+            return;
+        };
+        if !status.success() {
+            eprintln!("skipping DACL test: icacls failed");
+            return;
+        }
+        assert!(matches!(
+            trust::validate_parent(&temp.path().join("apply.json")),
+            Err(UpdateError::JournalTrust { .. })
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_a_symlinked_journal_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let real = temp.path().join("real.json");
+        let link = temp.path().join("apply.json");
+        std::fs::write(&real, b"{}").expect("real");
+        if std::os::windows::fs::symlink_file(&real, &link).is_err() {
+            eprintln!("skipping symlink test: symlink privilege unavailable");
+            return;
+        }
+        assert!(matches!(
+            trust::open_journal(&link),
+            Err(UpdateError::JournalTrust { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_to_create_a_journal_in_a_shared_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o777))
+            .expect("permissions");
+        let result = ApplyJournal::create(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            temp.path().join("artifact"),
+            None,
+            relaunch(),
+        );
+        std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions");
+        assert!(matches!(result, Err(UpdateError::JournalTrust { .. })));
     }
 }

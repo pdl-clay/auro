@@ -38,6 +38,7 @@
 - [0020 - macOS notarization](decisions/0020-macos-notarization.md)
 - [0021 - Opt-in rollback after a failed package apply](decisions/0021-opt-in-package-rollback.md)
 - [0022 - Hot reload boundary is a separate crate with a fixed frame](decisions/0022-hot-reload-boundary-crate.md)
+- [0023 - The update journal is a local trust boundary](decisions/0023-update-journal-trust.md)
 
 # Specifications
 
@@ -74,6 +75,7 @@
 - [0030 - Linux package rollback](specs/0030-linux-package-rollback.md)
 - [0031 - macOS package apply](specs/0031-macos-package-apply.md)
 - [0032 - macOS notarization submission](specs/0032-macos-notarization.md)
+- [0033 - Update journal trust boundary](specs/0033-update-journal-trust.md)
 
 # Reference
 

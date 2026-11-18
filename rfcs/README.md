@@ -50,4 +50,4 @@ same pull request. The roadmap is the plan; the RFC is why the plan changed.
 
 | # | Title | Status |
 |---|---|---|
-| - | No RFCs yet | - |
+| [0001](0001-update-metadata-trust.md) | Update metadata trust: freshness, rotation and revocation | Draft |

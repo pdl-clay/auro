@@ -116,11 +116,20 @@ location. A journal planted by another local user would otherwise be able to nam
 artifact and relaunch executable, and a package apply would reach the elevation prompt with that
 caller-supplied package.
 
-Auro does not yet enforce a directory ACL or file mode in `ApplyJournal::load`: Unix modes are a
-partial signal, and the correct check differs on Windows. Until that policy exists, this is an
-explicit integration requirement, not a property the library provides. The helper never
-self-elevates; the elevation prompt and the package manager remain the user's decision
-(spec 0029).
+Auro enforces the journal boundary in `ApplyJournal::load`, `save` and the helper's lock open
+([spec 0033](0033-update-journal-trust.md)). Unix opens the journal, lock and directories without
+following symlinks, requires the file and immediate directory to be owned by the effective user,
+refuses group/other write bits, and rejects an ancestor that another user can write (root-owned
+sticky ancestors such as `/tmp` are allowed only as ancestors). Windows opens reparse points
+themselves, rejects the reparse attribute, and requires the owner and every write/delete/ACL ACE to
+belong to the current user, `SYSTEM`, `Administrators` or the creator-owner SIDs. A path that
+cannot be proven private is `UpdateError::JournalTrust`; there is no public bypass.
+
+The Windows implementation is compile-checked for `x86_64-pc-windows-msvc` but has not been run on
+a Windows host, and it does not walk ancestors; a shared ancestor that can rename the private
+directory remains a gap. The staging directory and verify-then-open handoff to an external
+installer remain open (RFC 0001). The helper never self-elevates; the elevation prompt and the
+package manager remain the user's decision (spec 0029).
 
 ## Interfaces
 
