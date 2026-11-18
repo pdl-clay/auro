@@ -1397,11 +1397,16 @@ mod tests {
             ),
             Err(UpdateError::RollbackVersionNotOlder { .. })
         ));
+        let other_platform = if host == "linux-x86_64" {
+            "windows-x86_64"
+        } else {
+            "linux-x86_64"
+        };
         assert!(matches!(
             rollback_package(
                 &journal,
                 ApplyKind::DebPackage,
-                &rollback(manifest("1.1.0", "windows-x86_64")),
+                &rollback(manifest("1.1.0", other_platform)),
             ),
             Err(UpdateError::PlatformMismatch { .. })
         ));
