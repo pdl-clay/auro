@@ -18,6 +18,62 @@ pub enum TrayError {
 
     #[error("tray menu error: {0}")]
     Menu(#[from] tray_icon::menu::Error),
+
+    #[error("tray icon error: {0}")]
+    Icon(#[from] tray_icon::BadIcon),
+}
+
+/// Raw RGBA pixels for a tray icon.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrayIcon {
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+impl TrayIcon {
+    /// Creates an icon from tightly packed RGBA pixels.
+    pub fn from_rgba(rgba: Vec<u8>, width: u32, height: u32) -> Result<Self, TrayError> {
+        let width_x_height = usize::try_from(width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .unwrap_or(usize::MAX);
+        let expected = width_x_height.saturating_mul(4);
+        if rgba.len() != expected {
+            return Err(tray_icon::BadIcon::DimensionsVsPixelCount {
+                width,
+                height,
+                width_x_height,
+                pixel_count: rgba.len() / 4,
+            }
+            .into());
+        }
+        let _ = tray_icon::Icon::from_rgba(rgba.clone(), width, height)?;
+        Ok(TrayIcon {
+            rgba,
+            width,
+            height,
+        })
+    }
+
+    /// Width in pixels.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Height in pixels.
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Tightly packed RGBA pixels.
+    pub fn rgba(&self) -> &[u8] {
+        &self.rgba
+    }
 }
 
 type MenuHandler = Arc<dyn Fn(&str) + Send + Sync>;
@@ -94,6 +150,9 @@ pub trait TrayBackend {
 
     /// Installs the tray-click handler. The platform event source is process-global.
     fn set_click_event_handler(&self, handler: Arc<dyn Fn(TrayClick) + Send + Sync>);
+
+    /// Replaces or clears the tray icon.
+    fn set_icon(&self, icon: Option<TrayIcon>) -> Result<(), TrayError>;
 }
 
 struct PlatformTray {
@@ -151,6 +210,14 @@ impl TrayBackend for PlatformTray {
                 handler(event.id.as_ref());
             },
         ));
+    }
+
+    fn set_icon(&self, icon: Option<TrayIcon>) -> Result<(), TrayError> {
+        let icon = icon
+            .map(|icon| tray_icon::Icon::from_rgba(icon.rgba, icon.width, icon.height))
+            .transpose()?;
+        self.icon.set_icon(icon)?;
+        Ok(())
     }
 
     fn set_click_event_handler(&self, handler: ClickHandler) {
@@ -218,6 +285,11 @@ impl Tray {
         self.backend.set_menu(items.to_vec())
     }
 
+    /// Replaces or clears the icon. On Linux AppIndicator this is set after creation.
+    pub fn set_icon(&self, icon: Option<TrayIcon>) -> Result<(), TrayError> {
+        self.backend.set_icon(icon)
+    }
+
     /// Registers a menu callback. The id is the one from [`TrayMenuItem::new`].
     ///
     /// The callback runs on the platform event thread; use an [`EventSender`] or another channel
@@ -258,6 +330,7 @@ mod tests {
     struct RecordingState {
         visible: bool,
         tooltip: Option<String>,
+        icon: Option<TrayIcon>,
         menu: Vec<TrayMenuItem>,
         menu_handler: Option<MenuHandler>,
         click_handler: Option<ClickHandler>,
@@ -327,6 +400,11 @@ mod tests {
         fn set_click_event_handler(&self, handler: ClickHandler) {
             self.state.lock().expect("backend").click_handler = Some(handler);
         }
+
+        fn set_icon(&self, icon: Option<TrayIcon>) -> Result<(), TrayError> {
+            self.state.lock().expect("backend").icon = icon;
+            Ok(())
+        }
     }
 
     #[test]
@@ -338,6 +416,19 @@ mod tests {
         assert!(!tray.is_visible());
         tray.set_visible(true).expect("show");
         assert!(tray.is_visible());
+    }
+
+    #[test]
+    fn sets_and_clears_the_icon() {
+        let backend = RecordingBackend::new();
+        let tray = Tray::with_backend(backend.clone());
+        let icon = TrayIcon::from_rgba(vec![255, 0, 0, 255], 1, 1).expect("icon");
+
+        tray.set_icon(Some(icon.clone())).expect("set icon");
+        assert_eq!(backend.state.lock().expect("backend").icon, Some(icon));
+        tray.set_icon(None).expect("clear icon");
+        assert_eq!(backend.state.lock().expect("backend").icon, None);
+        assert!(TrayIcon::from_rgba(vec![0; 3], 1, 1).is_err());
     }
 
     #[test]
@@ -411,6 +502,10 @@ mod tests {
             fn set_menu_event_handler(&self, _handler: MenuHandler) {}
 
             fn set_click_event_handler(&self, _handler: ClickHandler) {}
+
+            fn set_icon(&self, _icon: Option<TrayIcon>) -> Result<(), TrayError> {
+                Err(tray_icon::Error::NotMainThread.into())
+            }
         }
 
         let tray = Tray::with_backend(FailingBackend);

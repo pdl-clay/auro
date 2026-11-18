@@ -302,8 +302,8 @@ a local socket; the primary receives `InstanceMessage` on its event pump. Automa
 activation remains app policy. GPUI supplies clipboard, file dialogs and open/reveal path/URL
 primitives; `auro-services` implements autostart, notifications, keychain, global shortcuts, tray
 and deep-link parsing/queue (`Autostart`, `Notifications`, `Keychain`, `Shortcuts`, `Tray`,
-`AppLinks`, specs 0017-0022). Tray menus/click handlers and shortcut callbacks are implemented;
-tray icon selection and persistence remain. `auro-perms` implements the capability `Policy` with
+`AppLinks`, specs 0017-0022). Tray menus/click handlers, icon selection and shortcut callbacks are implemented; tray
+persistence remains. `auro-perms` implements the capability `Policy` with
 deny-by-default grants and compiled glob scopes; the plugin host that consumes it is Phase 3.
 
 **Keyboard (2026-11-17):** `Button` is focusable, a tab stop, and activates on unmodified Enter or
