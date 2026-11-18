@@ -26,7 +26,8 @@ compilar e experimentar o framework a partir de um checkout (veja
 [CONTRIBUTING.md](CONTRIBUTING.md)). As fatias da fase 2 no repositório cobrem empacotamento,
 updates assinados com caminhos de aplicação por plataforma e serviços de plataforma; submissão e
 verificação local de notarização no macOS são ferramentas de release, não um fluxo de usuário
-testado.
+testado. Hot reload está medido, não GA: o scaffold opt-in de quatro crates fica abaixo da meta de
+500 ms no Linux e acima no Windows e em um runner macOS compartilhado.
 
 | Fase | Codinome | Estado |
 |---|---|---|
@@ -130,15 +131,19 @@ chamada Rust. Erro de tipo é erro de compilação.
 
 ## Performance que estamos perseguindo
 
-| Métrica | Meta no 1.0 |
-|---|---|
-| Cold start | < 80 ms |
-| RAM idle | < 40 MB |
-| Binário hello-world | < 6 MB (stripped) |
-| Editar e ver | < 500 ms |
-| Plataformas | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland e X11) |
+| Métrica | Meta no 1.0 | Medido (2026-11-18) |
+|---|---|---|
+| Cold start | < 80 ms | 154,9 ms mediana, requisição do primeiro frame (Linux) |
+| RAM idle | < 40 MB | 105,3 MB (Linux) |
+| Binário hello-world | < 6 MB (stripped) | 15,6 MB (Linux) |
+| Editar e ver | < 500 ms | 368 ms mediana, hot mode opt-in, N=12 (Linux); 813 ms (Windows); 509,5-837,0 ms (runner macOS compartilhado) |
+| Plataformas | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland e X11) | Linux verificado em runtime local; macOS e Windows compilam e testam no CI |
 
-Medido no CI. Regressão quebra o build.
+São medições alpha, não uma baseline 1.0, e o gate de regressão no CI ainda não existe: o harness
+existe e o método está no [budget de performance](docs/src/reference/performance-budget.md). O
+resultado de editar e ver é o caminho opt-in de hot reload com o scaffold de quatro crates; hot
+reload está medido, não GA. O status por plataforma está na
+[matriz de suporte](docs/src/reference/platform-support.md).
 
 ## Roadmap
 
