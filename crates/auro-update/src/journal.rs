@@ -48,6 +48,32 @@ pub enum ApplyKind {
     MacPkg,
 }
 
+/// A caller-supplied older package to reinstall if the primary package apply fails.
+///
+/// The artifact and manifest use the same contract as a normal update: the helper verifies the
+/// signature, platform, size and SHA-256 again before running an elevated downgrade. Auro never
+/// discovers or retains this package; the app or release policy supplies it.
+#[derive(Clone, Debug)]
+pub struct PackageRollback {
+    /// Already-staged `.deb` or `.rpm`.
+    pub artifact: PathBuf,
+    /// Signed manifest describing the older package.
+    pub manifest: Manifest,
+    /// Public key pinned by the app.
+    pub public_key: PublicKey,
+}
+
+impl PackageRollback {
+    /// Creates a package rollback from an already-staged artifact.
+    pub fn new(artifact: impl Into<PathBuf>, manifest: Manifest, public_key: PublicKey) -> Self {
+        PackageRollback {
+            artifact: artifact.into(),
+            manifest,
+            public_key,
+        }
+    }
+}
+
 /// The platform action and verification data for a helper-side apply.
 #[derive(Clone, Debug)]
 pub struct ApplyPlan {
@@ -61,6 +87,8 @@ pub struct ApplyPlan {
     pub manifest: Manifest,
     /// Public key pinned by the app.
     pub public_key: PublicKey,
+    /// Older package to reinstall if a `.deb`/`.rpm` apply fails.
+    pub rollback: Option<PackageRollback>,
 }
 
 impl ApplyPlan {
@@ -78,7 +106,17 @@ impl ApplyPlan {
             target,
             manifest,
             public_key,
+            rollback: None,
         }
+    }
+
+    /// Attaches an older package that the helper applies if the primary package apply fails.
+    ///
+    /// Only valid for [`ApplyKind::DebPackage`] and [`ApplyKind::RpmPackage`];
+    /// [`ApplyJournal::create_for_apply`] rejects any other kind.
+    pub fn with_package_rollback(mut self, rollback: PackageRollback) -> Self {
+        self.rollback = Some(rollback);
+        self
     }
 }
 
@@ -165,7 +203,15 @@ struct JournalSpec {
     kind: ApplyKind,
     manifest: Option<Manifest>,
     verify_key: Option<String>,
+    rollback: Option<RollbackData>,
     relaunch: Relaunch,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RollbackData {
+    artifact: PathBuf,
+    manifest: Manifest,
+    verify_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -178,6 +224,8 @@ struct JournalData {
     manifest: Option<Manifest>,
     #[serde(default)]
     verify_key: Option<String>,
+    #[serde(default)]
+    rollback: Option<RollbackData>,
     artifact: PathBuf,
     target: Option<PathBuf>,
     backup: Option<PathBuf>,
@@ -214,6 +262,7 @@ impl ApplyJournal {
                 kind: ApplyKind::None,
                 manifest: None,
                 verify_key: None,
+                rollback: None,
                 relaunch,
             },
         )
@@ -229,6 +278,16 @@ impl ApplyJournal {
         plan: ApplyPlan,
         relaunch: Relaunch,
     ) -> Result<Self, UpdateError> {
+        if plan.rollback.is_some()
+            && !matches!(plan.kind, ApplyKind::DebPackage | ApplyKind::RpmPackage)
+        {
+            return Err(UpdateError::RollbackPlanUnsupported { kind: plan.kind });
+        }
+        let rollback = plan.rollback.map(|rollback| RollbackData {
+            artifact: rollback.artifact,
+            manifest: rollback.manifest,
+            verify_key: Some(rollback.public_key.to_base64()),
+        });
         Self::create_with(
             path,
             version,
@@ -238,6 +297,7 @@ impl ApplyJournal {
                 kind: plan.kind,
                 manifest: Some(plan.manifest),
                 verify_key: Some(plan.public_key.to_base64()),
+                rollback,
                 relaunch,
             },
         )
@@ -261,6 +321,7 @@ impl ApplyJournal {
                 kind: spec.kind,
                 manifest: spec.manifest,
                 verify_key: spec.verify_key,
+                rollback: spec.rollback,
                 artifact: spec.artifact,
                 target: spec.target,
                 backup: None,
@@ -334,6 +395,14 @@ impl ApplyJournal {
     /// The pinned verification key retained for a helper-side apply.
     pub fn verify_key(&self) -> Option<&str> {
         self.data.verify_key.as_deref()
+    }
+
+    /// The older package retained for an automatic rollback, if the plan has one.
+    pub fn rollback_artifact(&self) -> Option<&Path> {
+        self.data
+            .rollback
+            .as_ref()
+            .map(|rollback| rollback.artifact.as_path())
     }
 
     /// The verified artifact that was applied.
@@ -601,7 +670,11 @@ fn run_restart_helper_inner(path: &Path) -> Result<(), UpdateError> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
-    journal.mark_restarted()?;
+    // A successful package rollback is the diagnostic the next start must see; overwriting it
+    // with `Restarted` would hide that the update was reverted.
+    if journal.data.state != ApplyState::RolledBack {
+        journal.mark_restarted()?;
+    }
     Ok(())
 }
 
@@ -646,7 +719,23 @@ fn apply_prepared_inner(journal: &mut ApplyJournal) -> Result<(), UpdateError> {
         });
     }
     let staged = StagedUpdate::from_parts(manifest, artifact);
-    let outcome = apply_kind(kind, journal, &staged)?;
+    let outcome = match apply_kind(kind, journal, &staged) {
+        Ok(outcome) => outcome,
+        Err(error @ UpdateError::InstallerFailed { .. }) => {
+            let Some(rollback) = journal.data.rollback.as_ref() else {
+                return Err(error);
+            };
+            rollback_package(journal, kind, rollback).map_err(|rollback_error| {
+                UpdateError::ApplyAndRollbackFailed {
+                    apply: error.to_string(),
+                    rollback: rollback_error.to_string(),
+                }
+            })?;
+            journal.mark_rolled_back()?;
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     if let Some(backup) = outcome.backup {
         journal.set_backup(backup)?;
     }
@@ -753,6 +842,80 @@ fn apply_kind(
                 Err(UpdateError::UnsupportedApply { kind })
             }
         }
+    }
+}
+
+/// Re-verifies a caller-supplied older package and reinstalls it through the platform installer.
+fn rollback_package(
+    journal: &ApplyJournal,
+    kind: ApplyKind,
+    rollback: &RollbackData,
+) -> Result<(), UpdateError> {
+    if !matches!(kind, ApplyKind::DebPackage | ApplyKind::RpmPackage) {
+        return Err(UpdateError::RollbackPlanUnsupported { kind });
+    }
+    let key = PublicKey::from_base64(
+        rollback
+            .verify_key
+            .as_deref()
+            .ok_or(UpdateError::VerificationKeyMissing)?,
+    )?;
+    rollback
+        .manifest
+        .verify_artifact(&rollback.artifact, &key)?;
+    let host = crate::current_platform();
+    if rollback.manifest.platform != host {
+        return Err(UpdateError::PlatformMismatch {
+            expected: host,
+            actual: rollback.manifest.platform.clone(),
+        });
+    }
+    let failed =
+        semver::Version::parse(&journal.data.version).map_err(|_| UpdateError::InvalidVersion {
+            field: "journal version",
+            value: journal.data.version.clone(),
+        })?;
+    let older = semver::Version::parse(&rollback.manifest.version).map_err(|_| {
+        UpdateError::InvalidVersion {
+            field: "rollback manifest version",
+            value: rollback.manifest.version.clone(),
+        }
+    })?;
+    if older >= failed {
+        return Err(UpdateError::RollbackVersionNotOlder {
+            failed: failed.to_string(),
+            rollback: older.to_string(),
+        });
+    }
+    let staged = StagedUpdate::from_parts(rollback.manifest.clone(), rollback.artifact.clone());
+    apply_package_rollback(kind, &staged)
+}
+
+#[allow(unused_variables)]
+fn apply_package_rollback(kind: ApplyKind, staged: &StagedUpdate) -> Result<(), UpdateError> {
+    #[cfg(target_os = "linux")]
+    {
+        use crate::LinuxPackageKind;
+
+        let expected = match kind {
+            ApplyKind::DebPackage => LinuxPackageKind::Deb,
+            ApplyKind::RpmPackage => LinuxPackageKind::Rpm,
+            _ => return Err(UpdateError::RollbackPlanUnsupported { kind }),
+        };
+        if LinuxPackageKind::from_path(staged.path()) != Some(expected) {
+            return Err(UpdateError::UnsupportedInstaller {
+                path: staged.path().to_path_buf(),
+                expected: "a rollback package matching the apply kind",
+            });
+        }
+        crate::LinuxPackageInstaller::new()
+            .elevated()
+            .rollback(staged)?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(UpdateError::UnsupportedApply { kind })
     }
 }
 
@@ -1095,6 +1258,181 @@ mod tests {
         assert!(matches!(
             journal.spawn_helper(),
             Err(UpdateError::RestartLock { .. })
+        ));
+    }
+
+    #[test]
+    fn round_trips_a_package_rollback_plan() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let new_artifact = temp.path().join("new.deb");
+        std::fs::write(&new_artifact, b"new package").expect("new");
+        let old_artifact = temp.path().join("old.deb");
+        std::fs::write(&old_artifact, b"old package").expect("old");
+        let new_manifest = Manifest::for_artifact(
+            &new_artifact,
+            "1.2.3",
+            crate::current_platform(),
+            "https://example.test/new.deb",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let old_manifest = Manifest::for_artifact(
+            &old_artifact,
+            "1.1.0",
+            crate::current_platform(),
+            "https://example.test/old.deb",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let plan = ApplyPlan::new(
+            ApplyKind::DebPackage,
+            &new_artifact,
+            None,
+            new_manifest,
+            key.public_key(),
+        )
+        .with_package_rollback(PackageRollback::new(
+            &old_artifact,
+            old_manifest,
+            key.public_key(),
+        ));
+        let journal = ApplyJournal::create_for_apply(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            plan,
+            relaunch(),
+        )
+        .expect("journal");
+
+        let loaded = ApplyJournal::load(journal.path()).expect("load");
+        assert_eq!(loaded.kind(), ApplyKind::DebPackage);
+        assert_eq!(loaded.rollback_artifact(), Some(old_artifact.as_path()));
+    }
+
+    #[test]
+    fn rejects_a_rollback_plan_for_a_non_package_apply() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("new.AppImage");
+        std::fs::write(&artifact, b"appimage").expect("artifact");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            crate::current_platform(),
+            "https://example.test/new.AppImage",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let plan = ApplyPlan::new(
+            ApplyKind::AppImage,
+            &artifact,
+            Some(temp.path().join("App.AppImage")),
+            manifest.clone(),
+            key.public_key(),
+        )
+        .with_package_rollback(PackageRollback::new(&artifact, manifest, key.public_key()));
+
+        assert!(matches!(
+            ApplyJournal::create_for_apply(
+                temp.path().join("apply.json"),
+                "1.2.3",
+                plan,
+                relaunch(),
+            ),
+            Err(UpdateError::RollbackPlanUnsupported {
+                kind: ApplyKind::AppImage
+            })
+        ));
+    }
+
+    #[test]
+    fn rollback_verification_requires_an_older_verified_package() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let old_artifact = temp.path().join("old.deb");
+        std::fs::write(&old_artifact, b"old package").expect("old");
+        let journal = journal(&temp);
+        let host = crate::current_platform();
+
+        let manifest = |version: &str, platform: &str| {
+            Manifest::for_artifact(
+                &old_artifact,
+                version,
+                platform,
+                "https://example.test/old.deb",
+                "",
+                "2026-11-18T00:00:00Z",
+            )
+            .expect("manifest")
+            .sign(&key)
+            .expect("sign")
+        };
+        let rollback = |manifest: Manifest| RollbackData {
+            artifact: old_artifact.clone(),
+            manifest,
+            verify_key: Some(key.public_key().to_base64()),
+        };
+
+        assert!(matches!(
+            rollback_package(
+                &journal,
+                ApplyKind::DebPackage,
+                &rollback(manifest("1.2.3", &host)),
+            ),
+            Err(UpdateError::RollbackVersionNotOlder { .. })
+        ));
+        assert!(matches!(
+            rollback_package(
+                &journal,
+                ApplyKind::DebPackage,
+                &rollback(manifest("1.1.0", "windows-x86_64")),
+            ),
+            Err(UpdateError::PlatformMismatch { .. })
+        ));
+
+        let older = manifest("1.1.0", &host);
+        std::fs::write(&old_artifact, b"bad package").expect("tamper");
+        assert!(matches!(
+            rollback_package(&journal, ApplyKind::DebPackage, &rollback(older)),
+            Err(UpdateError::ArtifactHash)
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rollback_package_format_must_match_the_plan() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let artifact = temp.path().join("old.rpm");
+        std::fs::write(&artifact, b"rpm package").expect("artifact");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.1.0",
+            crate::current_platform(),
+            "https://example.test/old.rpm",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest");
+        let staged = StagedUpdate::from_parts(manifest, artifact);
+        assert!(matches!(
+            apply_package_rollback(ApplyKind::DebPackage, &staged),
+            Err(UpdateError::UnsupportedInstaller { .. })
         ));
     }
 

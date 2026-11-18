@@ -64,6 +64,9 @@ pub enum UpdateError {
     #[error("offered version {offered} is not newer than the running version {current}")]
     NotNewer { current: String, offered: String },
 
+    #[error("rollback version {offered} is not older than the running version {current}")]
+    NotOlder { current: String, offered: String },
+
     #[error("offered version {version} is held back by the rollout policy")]
     HeldBack { version: String },
 
@@ -165,6 +168,15 @@ pub enum UpdateError {
     #[error("journal has no public key for a prepared helper")]
     VerificationKeyMissing,
 
+    #[error("an automatic rollback plan is not supported for {kind:?}")]
+    RollbackPlanUnsupported { kind: crate::journal::ApplyKind },
+
+    #[error("rollback version {rollback} is not older than the failed version {failed}")]
+    RollbackVersionNotOlder { failed: String, rollback: String },
+
+    #[error("package apply failed: {apply}; automatic rollback failed: {rollback}")]
+    ApplyAndRollbackFailed { apply: String, rollback: String },
+
     #[error("journal version `{journal}` does not match manifest version `{manifest}`")]
     JournalVersionMismatch { journal: String, manifest: String },
 
@@ -187,8 +199,8 @@ pub enum UpdateError {
 mod journal;
 
 pub use journal::{
-    ApplyJournal, ApplyKind, ApplyPlan, ApplyState, RESTART_HELPER_ENV, Recovery, Relaunch,
-    run_restart_helper,
+    ApplyJournal, ApplyKind, ApplyPlan, ApplyState, PackageRollback, RESTART_HELPER_ENV, Recovery,
+    Relaunch, run_restart_helper,
 };
 
 mod installer;
