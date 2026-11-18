@@ -64,7 +64,7 @@ mod platform {
     use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
     use std::path::Path;
 
-    use super::{trust_error, UpdateError};
+    use super::{UpdateError, trust_error};
 
     pub(super) fn open_file(
         path: &Path,
@@ -80,7 +80,9 @@ mod platform {
             .truncate(false)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW);
-        options.open(path).map_err(|error| map_open_error(path, error))
+        options
+            .open(path)
+            .map_err(|error| map_open_error(path, error))
     }
 
     pub(super) fn validate_file(file: &File, path: &Path) -> Result<(), UpdateError> {
@@ -110,7 +112,9 @@ mod platform {
         options
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY);
-        options.open(path).map_err(|error| map_open_error(path, error))
+        options
+            .open(path)
+            .map_err(|error| map_open_error(path, error))
     }
 
     fn validate_ancestors(parent: &Path) -> Result<(), UpdateError> {
@@ -188,9 +192,7 @@ mod platform {
     use std::path::Path;
     use std::ptr::null_mut;
 
-    use windows::Win32::Foundation::{
-        CloseHandle, ERROR_SUCCESS, HANDLE, HLOCAL, LocalFree,
-    };
+    use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE, HLOCAL, LocalFree};
     use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
     use windows::Win32::Security::{
         ACCESS_ALLOWED_ACE, ACL, ACL_SIZE_INFORMATION, AclSizeInformation, CreateWellKnownSid,
@@ -200,17 +202,18 @@ mod platform {
         WinCreatorOwnerSid, WinLocalSystemSid,
     };
     use windows::Win32::Storage::FileSystem::{
-        DELETE, FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY, FILE_APPEND_DATA, FILE_ATTRIBUTE_REPARSE_POINT,
-        FILE_ATTRIBUTE_TAG_INFO, FILE_DELETE_CHILD, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA,
-        FileAttributeTagInfo, GetFileInformationByHandleEx, WRITE_DAC, WRITE_OWNER,
+        DELETE, FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY, FILE_APPEND_DATA,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_DELETE_CHILD,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_WRITE_ATTRIBUTES,
+        FILE_WRITE_DATA, FILE_WRITE_EA, FileAttributeTagInfo, GetFileInformationByHandleEx,
+        WRITE_DAC, WRITE_OWNER,
     };
     use windows::Win32::System::SystemServices::{
         ACCESS_ALLOWED_ACE_TYPE, ACCESS_ALLOWED_OBJECT_ACE_TYPE, ACCESS_DENIED_ACE_TYPE,
     };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
-    use super::{trust_error, UpdateError};
+    use super::{UpdateError, trust_error};
 
     const WRITE_ACCESS: u32 = FILE_WRITE_DATA.0
         | FILE_APPEND_DATA.0
@@ -253,9 +256,9 @@ mod platform {
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
         let mut options = OpenOptions::new();
-        options.read(true).custom_flags(
-            FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0,
-        );
+        options
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0);
         let directory = options.open(parent).map_err(UpdateError::Io)?;
         let handle = HANDLE(directory.as_raw_handle());
         reject_reparse(handle, parent)?;
@@ -314,7 +317,10 @@ mod platform {
                 && !sid_is_principal(owner, &creator_owner)
                 && !sid_is_principal(owner, &creator_owner_rights)
             {
-                return Err(trust_error(path, "journal path is not owned by the current user"));
+                return Err(trust_error(
+                    path,
+                    "journal path is not owned by the current user",
+                ));
             }
             if dacl.is_null() {
                 return Err(trust_error(path, "journal path has no DACL"));
@@ -413,15 +419,16 @@ mod platform {
             .map_err(|_| trust_error(Path::new("."), "cannot open process token"))?;
         let mut length = 0u32;
         // SAFETY: a null buffer with length zero asks for the required size.
-        let _ = unsafe {
-            GetTokenInformation(token, TokenUser, None, 0, &mut length)
-        };
+        let _ = unsafe { GetTokenInformation(token, TokenUser, None, 0, &mut length) };
         if length == 0 {
             // SAFETY: token was opened by this function and is closed below.
             unsafe {
                 let _ = CloseHandle(token);
             }
-            return Err(trust_error(Path::new("."), "cannot size the process token user"));
+            return Err(trust_error(
+                Path::new("."),
+                "cannot size the process token user",
+            ));
         }
         let mut buffer = vec![0u8; length as usize];
         // SAFETY: buffer is at least `length` bytes and token is live.
@@ -445,13 +452,18 @@ mod platform {
         // SAFETY: sid points into the live token buffer and GetLengthSid returns its byte length.
         let length = unsafe { GetLengthSid(sid) } as usize;
         if length == 0 {
-            return Err(trust_error(Path::new("."), "the process token user has no SID"));
+            return Err(trust_error(
+                Path::new("."),
+                "the process token user has no SID",
+            ));
         }
         // SAFETY: sid is valid for `length` bytes.
         Ok(unsafe { std::slice::from_raw_parts(sid.0 as *const u8, length) }.to_vec())
     }
 
-    fn well_known_sid(kind: windows::Win32::Security::WELL_KNOWN_SID_TYPE) -> Result<Vec<u8>, UpdateError> {
+    fn well_known_sid(
+        kind: windows::Win32::Security::WELL_KNOWN_SID_TYPE,
+    ) -> Result<Vec<u8>, UpdateError> {
         let mut buffer = vec![0u8; windows::Win32::Security::SECURITY_MAX_SID_SIZE as usize];
         let mut length = buffer.len() as u32;
         // SAFETY: buffer is SECURITY_MAX_SID_SIZE bytes and length matches.
