@@ -39,12 +39,13 @@ effect on behalf of a subject, so a missing grant must be an error, not a shortc
 capability, value)` matches the value against the compiled form; it never re-parses the pattern per
 call.
 
-A filesystem value must be an absolute path with no `.` or `..` components. The match is lexical,
-so `/var/lib/notes/../secret` would otherwise match `/var/lib/notes/**` and escape the grant. A
-shell value must have no `.`/`..` components either, but may be a bare executable name; a full
-command string must be parsed and validated by the caller. The policy does not resolve symlinks;
-the call site that performs the effect must canonicalize and re-check when a symlink could leave
-the granted tree. `net` keeps its caller-defined value shape.
+A filesystem value must be rooted (absolute, or a leading separator) with no `.` or `..`
+components. The match is lexical, so `/var/lib/notes/../secret` would otherwise match
+`/var/lib/notes/**` and escape the grant. A shell value must have no `.`/`..` components either,
+but may be a bare executable name; a full command string must be parsed and validated by the
+caller. The policy does not resolve symlinks; the call site that performs the effect must
+canonicalize and re-check when a symlink could leave the granted tree. `net` keeps its
+caller-defined value shape.
 
 *Rejected:* substring or prefix matching. It is too coarse for paths and hosts. *Rejected:* regular
 expressions. Globs are easier to audit and sufficient for the current boundaries.
