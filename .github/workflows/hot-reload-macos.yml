@@ -54,6 +54,10 @@ jobs:
         run: |
           set -euo pipefail
           cd target/hot-macos
+          identifier=$(sed -n 's/^identifier = "\(.*\)"/\1/p' Auro.toml)
+          state_dir="$HOME/Library/Application Support/$identifier"
+          mkdir -p "$state_dir"
+          printf '%s' '{"format_version":1,"build":"0.1.0","entries":{"counter":{"version":1,"payload":{"count":7}}}}' > "$state_dir/dev-snapshot.json"
           ../../target/debug/auro dev > hot.log 2>&1 &
           devpid=$!
           ready=0
@@ -80,7 +84,7 @@ jobs:
           restart=0
           for _ in $(seq 1 60); do
             if grep -q 'outside the hot boundary; restarting' hot.log &&
-               grep -q 'auro: restarted (' hot.log; then
+               grep -q 'auro: restarted (state restored)' hot.log; then
               restart=1
               break
             fi
