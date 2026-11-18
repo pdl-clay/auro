@@ -429,14 +429,18 @@ state-preserving restart.
 | Outcome | Condition | Host behaviour | User-visible label |
 |---|---|---|---|
 | Hot-reloaded | Reloadable build/patch succeeds, compatibility checks pass, apply and restore complete (with or without per-entry resets) | Keep window and host state; present updated UI; repaint | “reloaded” with duration and any reset warnings |
-| Build failed | Build/patch compilation fails | Keep previous UI active and interactive; do not apply a partial reload | compiler/build diagnostics; “previous UI still running” |
+| Build failed | A boundary build/patch compilation fails | Keep previous UI active and interactive; do not apply a partial reload | compiler/build diagnostics; “previous UI still running” |
+| Host restart, rebuild failed | A host-code save restarted the devserver/app and its rebuild fails | No app runs; keep the devserver for the next save; do not apply a partial reload | “host rebuild failed; no app is running until the next successful build” |
 | Reload failed, recovered | Build/patch succeeds but compatibility/apply/restore fails and previous UI remains valid or can be safely rolled back | Keep or restore previous UI as applicable; do not present as reloaded | explicit failure reason |
 | State-preserving restart (fallback) | Reload cannot be completed safely, or a configured/required restart change occurred | Persist snapshot to a host-controlled location, restart app/host session, restore on boot | “restarted (state restored)” or “restarted (state reset: \<reason\>)” - never “hot reloaded” |
 | Hard failure | Restart/restore impossible | Exit non-zero with diagnostic | error |
 
-A failed build must never apply broken code or leave the session without a usable previous UI.
-Reloadable tasks/callbacks that can outlive a reload must be cancellable or invalidated before
-replaced code can run; the host must not invoke replaced code after a failed or completed reload.
+A failed build must never apply broken code. A boundary build failure keeps the previous UI active.
+A host-code save restarts the process before its rebuild, so a failed host rebuild has no previous
+process to keep; it is reported, the devserver stays alive for the next save, and the next
+successful save starts a new app. Reloadable tasks/callbacks that can outlive a reload must be
+cancellable or invalidated before replaced code can run; the host must not invoke replaced code
+after a failed or completed reload.
 
 *Rejected:* applying partial/broken reloads. *Rejected:* leaving tasks running against replaced code.
 *Rejected:* presenting a restart as hot reload.
@@ -444,7 +448,9 @@ replaced code can run; the host must not invoke replaced code after a failed or 
 **Implemented (2026-11-16, relaunch mode).** The dev loop reads the app's snapshot report from its
 stderr and prints the label for the relaunch that follows a save: `auro: restarted (state restored)`
 or `auro: restarted (state reset: <reason>)`. The first launch prints no label because nothing
-restarted. A failed rebuild prints the tail of the compiler output and keeps the previous UI running.
+restarted. A failed boundary rebuild prints the tail of the compiler output and keeps the previous
+UI running. A failed host rebuild is reported as `host rebuild failed; no app is running until the
+next successful build`; the old process was stopped for the restart.
 On Windows the app runs from `target/auro-dev/<stem>-<pid>-<n>.exe`: a running image cannot be
 relinked, and a staging failure is reported while the previous UI stays up. Verified on niri/Wayland
 and on Windows 11 (WinBoat), both with a hand-written snapshot: restore and version-mismatch reset
@@ -453,14 +459,17 @@ each produced the matching label, initial start produced none, and the two relau
 
 **Implemented (2026-11-18, hot mode).** `auro dev` labels the hot outcomes separately: an applied
 patch prints `hot patch applied (<took> ms, <elapsed> ms after the save)` and, when the boundary
-renders, `reloaded in <n> ms (window kept)` plus the JSON trace; a failed build prints
+renders, `reloaded in <n> ms (window kept)` plus the JSON trace; a failed boundary build prints
 `build failed, previous UI still running` and applies nothing; `Failed to hot-patch app` prints
-`hot patch failed, dev server is rebuilding the app`. A relaunch is detected by a changed app pid
-(`auro:trace pid`) and only then is the snapshot report labelled `restarted (state restored)` or
+`hot patch failed, dev server is rebuilding the app`. A host-code save prints `outside the hot
+boundary; restarting the app (state preserved)` and a failed host rebuild prints `host rebuild
+failed; no app is running until the next successful build`. A relaunch is detected by a changed app
+pid (`auro:trace pid`) and only then is the snapshot report labelled `restarted (state restored)` or
 `restarted (state reset: <reason>)`; the first launch is not labelled. A graceful app exit ends the
 loop with exit 0, and Ctrl-C kills the devserver and the app process (verified on Linux; the Windows
-run was ended by closing its window, which also exited 0). The `< 500 ms` target is not
-yet met by the Linux median (see D6); the label never claims it is.
+run was ended by closing its window, which also exited 0). The `< 500 ms` target is met by the Linux
+median (368 ms) for the documented warm case; Windows exceeds it and macOS is at the boundary (see
+D6). The label never claims a target it did not measure.
 
 **Rejected patches (2026-11-18).** A patch the app cannot load prints
 `auro: patch rejected by the app: <reason>`; the previous UI stays live and no timing line is
@@ -661,7 +670,7 @@ above and the keys/items listed here.
 |---|---|
 | `auro dev` | Default remains the documented relaunch loop until hot reload is declared stable for the selected project; hot reload is enabled by an explicit opt-in (flag and/or `[dev]` config key defined at implementation time and recorded in spec 0002/CLI docs). |
 | `auro dev` (hot-reload mode) | Starts/uses the dev host, watches configured paths, builds the reload unit(s), performs reload or fallback per D4, streams diagnostics, and emits timing events per D6. |
-| Exit/status | Ctrl-C stops host and child tasks cleanly (exit 0). Natural app exit in dev follows current contract. A failed build keeps the session alive with previous UI; a non-recoverable host/reload failure exits non-zero with a labelled reason. |
+| Exit/status | Ctrl-C stops host and child tasks cleanly (exit 0). Natural app exit in dev follows current contract. A failed boundary build keeps the session alive with previous UI; a failed host rebuild keeps the devserver alive without an app and reports it. A non-recoverable host/reload failure exits non-zero with a labelled reason. |
 | Diagnostics | Build failures, compatibility mismatches, apply/restore failures, snapshot resets, and fallbacks are reported with actionable labels distinguishing “reloaded”, “previous UI still running”, and “restarted (state restored/reset)”. |
 
 ### Configuration (`Auro.toml`, coordinated with spec 0002)
@@ -777,8 +786,9 @@ patch-generation failure keeping app on previous code, and warm view-only save-t
    question, roadmap, performance budget, changelog, and architecture notes are updated to refer to
    this spec and the measured status.
 
-**Status (2026-11-18, integrated hot mode, four-crate scaffold):** item 2 (build failure keeps the
-previous UI) is demonstrated on Linux and Windows; item 3's apply-failure path is contained by
+**Status (2026-11-18, integrated hot mode, four-crate scaffold):** item 2 (a boundary build failure
+keeps the previous UI) is demonstrated on Linux and Windows; a failed host rebuild is reported
+separately and leaves no app until the next successful save. Item 3's apply-failure path is contained by
 `apply_patch` error/panic handling (unit-tested selection, manual rejection of an incompatible frame
 observed). Item 5 is demonstrated: a save outside `data/src` restarts the devserver and app,
 restores the snapshot and is labelled `restarted (state restored)`. Item 6 is demonstrated

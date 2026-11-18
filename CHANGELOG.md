@@ -54,7 +54,8 @@ installable `auro-cli` yet.
   also catches a panic in the patched boundary and keeps the previous values; removing the panic
   applied in 327 ms in the same process.
 - `auro-cli dev` hot mode: requires dioxus-cli 0.7.x, preflights the app's `hot-reload` feature,
-  labels build failures (`previous UI still running`), detects devserver relaunches by app pid,
+  labels boundary build failures (`previous UI still running`) and host rebuild failures, detects
+  devserver relaunches by app pid,
   exits when the app window closes gracefully, and Ctrl-C ends the devserver and the app process
   (Ctrl-C verified on Linux; the Windows run was ended by closing its window). `auro doctor` reports
   whether hot reload is available, missing `dx`, or enabled.
