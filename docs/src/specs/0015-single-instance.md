@@ -84,8 +84,8 @@ forwarding thread and the process exit releases the socket. Neither is stored in
 ### D6 - Local socket, one JSON line per message
 
 On Unix the primary binds a filesystem socket in the per-user runtime directory selected by D2 (name
-derived from the same sanitised identifier truncated to 40 characters plus a stable hash of the
-full identifier, so long reverse-DNS identifiers sharing a prefix cannot collide); Linux applies
+derived from a short sanitised prefix plus a stable hash of the full identifier, so long
+reverse-DNS identifiers sharing a prefix cannot collide and the path stays inside `sun_path`); Linux applies
 mode `0600`, and macOS uses the private directory under its per-user `$TMPDIR`. Windows uses a
 named pipe with the same label. The listener accepts connections in a background thread, reads one
 JSON line capped at 64 KiB, and sends the decoded `InstanceMessage` to the app's `EventSender`. The

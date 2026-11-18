@@ -223,7 +223,7 @@ impl Drop for AppInstance {
 
 #[cfg(unix)]
 fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
-    let path = lock_dir(name)?.join(format!("{}.sock", socket_label(name)));
+    let path = socket_path(name)?;
     path.as_os_str()
         .to_fs_name::<GenericFilePath>()
         .map(Name::into_owned)
@@ -250,6 +250,11 @@ fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
         })
 }
 
+#[cfg(unix)]
+fn socket_path(name: &str) -> Result<PathBuf, AuroError> {
+    Ok(lock_dir(name)?.join(socket_label(name)))
+}
+
 /// A short, filesystem-safe socket name that keeps long identifiers distinct.
 ///
 /// The identifier is truncated to fit `sun_path`, so a stable hash of the full identifier is
@@ -258,7 +263,7 @@ fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
 fn socket_label(name: &str) -> String {
     format!(
         "auro-{}-{:016x}",
-        sanitized_name(name, 40),
+        sanitized_name(name, 8),
         stable_hash(name)
     )
 }
@@ -460,12 +465,28 @@ mod tests {
         assert_eq!(file, "auro-..-com.example-app.lock");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn socket_path_fits_sun_path() {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let name = "com.example.".to_owned() + &"a".repeat(80);
+        let path = socket_path(&name).expect("socket path");
+        let limit =
+            std::mem::size_of::<libc::sockaddr_un>() - std::mem::size_of::<libc::sa_family_t>();
+        assert!(
+            path.as_os_str().as_bytes().len() < limit,
+            "{} exceeds the {limit}-byte sun_path",
+            path.display()
+        );
+    }
+
     #[test]
     fn long_socket_labels_stay_distinct() {
         let shared = "com.example.".to_owned() + &"a".repeat(80);
         let other = "com.example.".to_owned() + &"b".repeat(80);
         assert_ne!(socket_label(&shared), socket_label(&other));
-        assert!(socket_label(&shared).len() <= 64);
+        assert!(socket_label(&shared).len() <= 40);
     }
 
     #[cfg(unix)]
