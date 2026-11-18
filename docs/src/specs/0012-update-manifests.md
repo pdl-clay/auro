@@ -1,9 +1,8 @@
 # 0012 - Update manifests
 
-**Status:** Implemented (manifest format, signing, verification and CLI; runtime download/staging is
-[spec 0013](0013-updater-runtime.md); Linux AppImage apply/rollback is
-[spec 0014](0014-appimage-apply.md); Windows/macOS apply is
-[spec 0025](0025-platform-apply.md); package installers, deltas and rollout are not implemented)
+**Status:** Implemented (manifest format v2, signing, verification and CLI; runtime download/staging
+is [spec 0013](0013-updater-runtime.md); deltas/rollout are [spec 0028](0028-deltas-rollout.md);
+platform apply is [spec 0014](0014-appimage-apply.md)/[0025](0025-platform-apply.md))
 
 Phase 2 needs a signed description of a release artifact. This spec fixes the manifest format and
 its verification; the runtime is specified separately ([0013](0013-updater-runtime.md) covers
@@ -11,8 +10,9 @@ check/download/stage and [0014](0014-appimage-apply.md) the first apply path).
 
 ## Scope
 
-- `auro-update`: manifest format v1, signing, verification, JSON encode/decode.
+- `auro-update`: manifest format v2, signing, verification, JSON encode/decode.
 - Artifact metadata: size and lowercase hex SHA-256.
+- Optional signed delta and rollout metadata (spec 0028).
 - `auro manifest --artifact ... --key ... --out ...` to produce a signed manifest.
 - Platform keys (`<os>-<arch>`) and publication timestamps as caller-supplied text.
 
@@ -20,18 +20,19 @@ check/download/stage and [0014](0014-appimage-apply.md) the first apply path).
 
 - Downloading, staging, applying or rolling back in this spec (the runtime is
   [0013](0013-updater-runtime.md) and [0014](0014-appimage-apply.md)).
-- Deltas, binary patches, staged rollout percentages, channels, rollback execution.
+- Delta application and rollout selection implementation details (spec 0028).
+- Channels, rollback execution, hosting behavior.
 - Hosting and CDN behavior.
 - Key distribution beyond the public key string; no built-in key pinning in this slice.
 - UI for update prompts.
 
 ## Decisions
 
-### D1 - Format v1 is a flat JSON object
+### D1 - Format v2 is a flat JSON object with optional fields
 
 ```json
 {
-  "format": 1,
+  "format": 2,
   "version": "1.2.3",
   "platform": "linux-x86_64",
   "url": "https://example.test/app-1.2.3.tar.gz",
@@ -43,14 +44,15 @@ check/download/stage and [0014](0014-appimage-apply.md) the first apply path).
 }
 ```
 
-Unknown fields are rejected. `format` other than 1 is an unsupported-format error, not a guess.
+`delta` and `rollout` are omitted when absent. Unknown fields are rejected. `format` other than 2 is
+an unsupported-format error, not a guess. Format v1 manifests are rejected by this build.
 `sha256` is exactly 64 lowercase hexadecimal characters; verification rejects anything else before
 hashing an artifact.
 
 ### D2 - Signature covers a canonical payload
 
 The payload is the same fields **without** `signature`, serialized with `serde_json` in the struct's
-field order. The signature is Ed25519 over those bytes. A field reorder or rename is a format
+field order, including any present delta/rollout fields. The signature is Ed25519 over those bytes. A field reorder or rename is a format
 change; bump `format` and migrate. `Manifest::verify` checks format, presence of a signature, then
 the signature.
 
@@ -98,12 +100,16 @@ pub struct Manifest {
     pub sha256: String,
     pub notes: String,
     pub published_at: String,
+    pub delta: Option<Delta>,
+    pub rollout: Option<Rollout>,
     pub signature: String,
 }
 
 impl Manifest {
     pub fn new(...) -> Self;
     pub fn for_artifact(...) -> Result<Self, UpdateError>;
+    pub fn with_delta(self, delta: Delta) -> Self;
+    pub fn with_rollout(self, rollout: Rollout) -> Self;
     pub fn sign(self, key: &SigningKey) -> Result<Self, UpdateError>;
     pub fn verify(&self, key: &PublicKey) -> Result<(), UpdateError>;
     pub fn verify_artifact(&self, path: &Path, key: &PublicKey) -> Result<(), UpdateError>;
@@ -122,7 +128,8 @@ impl Manifest {
    (`verifies_an_artifact_and_its_metadata`).
 4. JSON round-trips byte-for-byte at the value level (`json_round_trips`).
 5. The CLI creates a manifest that verifies and describes the artifact (`auro-cli` release test).
-6. `cargo fmt --all --check`,
+6. Delta/rollout metadata is signed and verified; see spec 0028.
+7. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 
@@ -131,7 +138,7 @@ impl Manifest {
 | Question | Where it settles |
 |---|---|
 | Download/apply/staging/restart and rollback | [Updater runtime](0013-updater-runtime.md) / [AppImage](0014-appimage-apply.md) / [Windows and macOS](0025-platform-apply.md) / [journal and restart](0026-update-journal.md) |
-| Deltas/patches and staged rollout percentages | Updater rollout spec |
+| Deltas/patches and staged rollout percentages | [Binary deltas and staged rollout](0028-deltas-rollout.md) |
 | Key pinning and rotation inside the app | Trust/update client spec |
 | Update channels and UI | Platform/update UX follow-up |
 | Hosting/CSP and mirror behavior | Release service follow-up |

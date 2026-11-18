@@ -85,6 +85,9 @@ impl Global for EventBus {}
 /// Set by `auro dev`; the app then reports when each window's first repaint is requested.
 const TRACE_ENV: &str = "AURO_DEV_TRACE";
 
+/// Set by `auro bench`; the app prints when the first frame is requested.
+pub const STARTUP_TRACE_ENV: &str = "AURO_STARTUP_TRACE";
+
 /// The application builder.
 ///
 /// Windows and identity come from `Auro.toml`; the builder attaches a root view to a window label.
@@ -99,6 +102,9 @@ pub struct App {
     event_rx: Option<UnboundedReceiver<QueuedEvent>>,
     sender: EventSender,
     single_instance: bool,
+    #[cfg(feature = "services")]
+    deep_links: Option<auro_services::AppLinks>,
+    activate_on_second_instance: bool,
 }
 
 impl App {
@@ -115,6 +121,9 @@ impl App {
             event_rx: Some(receiver),
             sender: sender.clone(),
             single_instance: false,
+            activate_on_second_instance: false,
+            #[cfg(feature = "services")]
+            deep_links: None,
         }
     }
 
@@ -144,10 +153,32 @@ impl App {
     ///
     /// A secondary process forwards its arguments and working directory to the primary, then gets
     /// [`AuroError::Instance`] before GPUI starts; [`Self::run`] prints it and exits with code 2.
-    /// Subscribe to [`InstanceMessage`] with [`Self::on_event`] on the primary to react. Window
-    /// activation remains app policy.
+    /// Subscribe to [`InstanceMessage`] with [`Self::on_event`] on the primary to react, or use
+    /// [`Self::activate_on_second_instance`] for the first-root focus default.
     pub fn single_instance(mut self) -> Self {
         self.single_instance = true;
+        self
+    }
+
+    /// Focuses the first root window when a second launch is forwarded to this instance.
+    ///
+    /// This enables [`Self::single_instance`] too. The first registered root is focused and the app
+    /// is activated. Apps that need a different window or custom behavior can leave this off and
+    /// use [`Self::on_event`] with [`InstanceMessage`].
+    pub fn activate_on_second_instance(mut self) -> Self {
+        self.single_instance = true;
+        self.activate_on_second_instance = true;
+        self
+    }
+
+    /// Feeds launch and forwarded instance arguments into a shared [`auro_services::AppLinks`].
+    ///
+    /// The initial process arguments are parsed at startup. When single-instance mode forwards an
+    /// [`InstanceMessage`], its arguments are pushed into the same queue. The app keeps its own
+    /// clone and drains it on the main thread.
+    #[cfg(feature = "services")]
+    pub fn deep_links(mut self, links: auro_services::AppLinks) -> Self {
+        self.deep_links = Some(links);
         self
     }
 
@@ -218,12 +249,19 @@ impl App {
         self
     }
 
+    fn activation_label(&self) -> Option<&'static str> {
+        if !self.activate_on_second_instance {
+            return None;
+        }
+        self.roots.first().map(|(label, _)| *label)
+    }
+
     /// Runs the app, returning before the event loop starts if configuration is invalid or another
     /// instance holds the single-instance lock.
     ///
     /// With the `updater` feature, setting `AURO_UPDATE_RESTART_HELPER` makes this run the restart
     /// helper instead of loading config or starting GPUI. The helper waits for the previous process,
-    /// relaunches it and returns.
+    /// applies a prepared update when present, relaunches and returns.
     pub fn try_run(self) -> Result<(), AuroError> {
         #[cfg(feature = "updater")]
         if let Some(path) =
@@ -266,6 +304,9 @@ impl App {
         } else {
             None
         };
+        let activation_label = self.activation_label();
+        #[cfg(feature = "services")]
+        let deep_links = self.deep_links.clone();
         let App {
             states,
             roots,
@@ -275,6 +316,26 @@ impl App {
             event_rx,
             ..
         } = self;
+
+        if let Some(label) = activation_label {
+            events.on(move |_: &InstanceMessage, cx| {
+                let _ = crate::windows::focus(label, cx);
+                cx.activate(true);
+            });
+        }
+
+        #[cfg(feature = "services")]
+        if let Some(links) = deep_links {
+            let initial: Vec<String> = std::env::args_os()
+                .skip(1)
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect();
+            links.push_raw(&initial);
+            let forwarded = links.clone();
+            events.on(move |message: &InstanceMessage, _cx| {
+                forwarded.push_raw(&message.args);
+            });
+        }
 
         Application::new().run(move |cx| {
             // Held for the process lifetime: commands resolve state through this store.
@@ -296,7 +357,26 @@ impl App {
             // Register before setups/Ready so a handler that closes a window still gets the close
             // path; the registry fills in as windows open.
             observe_closes(cx, Rc::clone(&lifecycle), Rc::clone(&open_windows));
-            open_all(cx, &config, setups, roots, lifecycle, open_windows);
+            open_all(
+                cx,
+                &config,
+                setups,
+                roots,
+                lifecycle,
+                Rc::clone(&open_windows),
+            );
+            if std::env::var_os(STARTUP_TRACE_ENV).is_some() {
+                let handles: Vec<_> = open_windows
+                    .borrow()
+                    .iter()
+                    .map(|(handle, _)| *handle)
+                    .collect();
+                for handle in handles {
+                    let _ = handle.update(cx, |_, window, _| {
+                        window.on_next_frame(|_, _| println!("auro:startup"));
+                    });
+                }
+            }
             #[cfg(feature = "hot-reload")]
             crate::hot::watch(cx);
             cx.activate(true);
@@ -516,6 +596,13 @@ mod tests {
         assert!(!app.single_instance);
         let app = app.single_instance();
         assert!(app.single_instance);
+
+        let app = App::new().root::<Blank>("main");
+        assert_eq!(app.activation_label(), None);
+        let app = app.activate_on_second_instance();
+        assert!(app.single_instance);
+        assert!(app.activate_on_second_instance);
+        assert_eq!(app.activation_label(), Some("main"));
     }
 
     impl Render for Blank {

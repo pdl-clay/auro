@@ -29,6 +29,11 @@
 - [0013 - AppImage updates](decisions/0013-appimage-updates.md)
 - [0014 - Platform update apply](decisions/0014-platform-update-apply.md)
 - [0015 - Self-helper restart](decisions/0015-self-helper-restart.md)
+- [0016 - Deltas and rollout](decisions/0016-deltas-and-rollout.md)
+- [0017 - Linux package elevation](decisions/0017-linux-package-elevation.md)
+- [0018 - Linux package rollback](decisions/0018-linux-package-rollback.md)
+- [0019 - macOS package elevation](decisions/0019-macos-package-elevation.md)
+- [0020 - macOS notarization](decisions/0020-macos-notarization.md)
 
 # Specifications
 
@@ -59,6 +64,12 @@
 - [0024 - Alpha release](specs/0024-alpha-release.md)
 - [0025 - Windows and macOS apply](specs/0025-platform-apply.md)
 - [0026 - Update journal and restart helper](specs/0026-update-journal.md)
+- [0027 - Linux package apply](specs/0027-linux-packages.md)
+- [0028 - Binary deltas and staged rollout](specs/0028-deltas-rollout.md)
+- [0029 - Linux package elevation](specs/0029-linux-package-elevation.md)
+- [0030 - Linux package rollback](specs/0030-linux-package-rollback.md)
+- [0031 - macOS package apply](specs/0031-macos-package-apply.md)
+- [0032 - macOS notarization submission](specs/0032-macos-notarization.md)
 
 # Reference
 

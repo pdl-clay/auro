@@ -2,7 +2,7 @@
 
 **Status:** Implemented (2026-11-17; Linux AppImage only; Windows/macOS apply is
 [spec 0025](0025-platform-apply.md), restart handoff is [spec 0026](0026-update-journal.md);
-helper-side apply, elevation and package-manager installers are not implemented)
+helper-side apply and package-manager installers are separate; elevation is [spec 0029](0029-linux-package-elevation.md))
 
 Spec 0013 stops at a verified staged artifact. This spec adds the first apply path: replacing a
 single-file Linux AppImage, with a receipt that can roll the previous file back. It deliberately
@@ -126,7 +126,7 @@ The snippet is an intended call shape, not code that exists as an app.
 |---|---|
 | Windows MSI/NSIS apply and privilege handling | [Windows and macOS apply](0025-platform-apply.md) / Windows UX |
 | macOS `.dmg`/`.pkg` replacement and notarization | macOS updater spec |
-| `.deb`/`.rpm` package-manager updates | Linux package updater spec |
+| `.deb`/`.rpm` package-manager updates | [Linux package apply](0027-linux-packages.md) |
 | Restart/helper protocol and crash-safe receipt | [Update journal and restart helper](0026-update-journal.md) |
 | Preserving xattrs, SELinux labels and ownership | Platform apply hardening |
 | Rollout, deltas and downgrade policy | Updater rollout spec |

@@ -287,21 +287,21 @@ cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.
 the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
-notarization, `.dmg`/`.pkg` and package-manager updater apply, elevation and helper-side apply,
-deltas/rollout, single-instance activation, AccessKit/IME, and the product exit remain.
+macOS `.pkg` runtime verification, notarization credentials/runtime verification, automatic package
+rollback/downgrade policy, AccessKit/IME, and the product exit remain.
 
 **Signing/update foundations (2026-11-18):** `auro-sign` provides Ed25519 keys/signatures and
 SHA-256 hashes; `[bundle.macos]`/`[bundle.windows]` map signing inputs to the bundler; `auro-update`
-defines signed manifest format v1; `auro generate-key` and `auro manifest` are usable. The runtime
+defines signed manifest format v2 with optional deltas/rollout; `auro generate-key` and `auro manifest` are usable. The runtime
 `Updater` now verifies offers, downloads within the manifest size, verifies SHA-256 and stages a
 content-addressed artifact atomically. On Linux, `AppImageInstaller` replaces an AppImage with a
 mode-0755 atomic rename, retains a hard-link/copy backup, and returns a receipt that can roll back
 or discard it. On Windows, `WindowsInstaller` runs staged MSI/NSIS installers silently and maps
 `3010` to a restart request; on macOS, `MacAppInstaller` swaps a `.app` from a staged `.app.zip`
-and returns a rollback receipt. `ApplyJournal` and the self-helper restart handoff record what was
-applied, wait for the old process to exit through a lock, and relaunch the replacement without a
-shell or a second binary. Platform signing still needs certificates/credentials; `.dmg`, `.pkg`,
-package-manager apply, elevation, helper-side apply, deltas and staged rollout are not implemented.
+and returns a rollback receipt. `ApplyJournal` and the self-helper handoff record, verify and apply what was staged, wait for the
+old process to exit through a lock, and relaunch the replacement without a shell or a second
+binary. Platform signing still needs certificates/credentials; macOS `.pkg` runtime verification,
+notarization credentials/runtime verification and automatic package rollback/downgrade policy remain.
 
 **Platform services (2026-11-17):** `AppInstance` and `App::single_instance()` acquire a per-user
 advisory file lock after config load and refuse a secondary process before GPUI starts
@@ -309,20 +309,43 @@ advisory file lock after config load and refuse a secondary process before GPUI 
 a local socket; the primary receives `InstanceMessage` on its event pump. Automatic primary-window
 activation remains app policy. GPUI supplies clipboard, file dialogs and open/reveal path/URL
 primitives; `auro-services` implements autostart, notifications, keychain, global shortcuts, tray
-and deep-link parsing/queue (`Autostart`, `Notifications`, `Keychain`, `Shortcuts`, `Tray`,
-`AppLinks`, specs 0017-0022). Tray menus/click handlers and shortcut callbacks are implemented;
-tray icon selection and persistence remain. `auro-perms` implements the capability `Policy` with
+and deep-link parsing/queue plus initial/forwarded argument wiring (`Autostart`, `Notifications`,
+`Keychain`, `Shortcuts`, `Tray`, `AppLinks`, specs 0017-0022). Tray menus/click handlers, icon selection and shortcut callbacks are implemented; tray
+persistence remains. `auro-perms` implements the capability `Policy` with
 deny-by-default grants and compiled glob scopes; the plugin host that consumes it is Phase 3.
 
 **Keyboard (2026-11-17):** `Button` is focusable, a tab stop, and activates on unmodified Enter or
 Space (spec 0023). AccessKit is absent from GPUI 0.2.2, so the screen-reader/IME portion of the
 accessibility pass remains blocked upstream.
 
+**Deltas and rollout (2026-11-18):** manifest v2 carries optional base-bound bsdiff deltas and a
+deterministic percentage rollout; full downloads remain the fallback.
+
+**macOS notarization (2026-11-18):** `MacNotarizer` submits a signed artifact with an existing
+keychain profile through `xcrun notarytool` and staples it with `xcrun stapler`; `auro notarize`
+exposes it. No Apple credentials or macOS runtime verification are available here, and `auro bundle`
+does not invoke it automatically.
+
+**macOS package apply (2026-11-18):** `MacPkgInstaller` runs a staged `.pkg` through
+`/usr/sbin/installer`; the elevated helper uses a fixed AppleScript `quoted form` prompt and the
+`ApplyKind::MacPkg` journal path. The code is unit-tested on Linux but not yet verified on a macOS
+runtime. Notarization remains separate.
+
+**Linux package elevation (2026-11-18):** the restart helper runs `.deb`/`.rpm` apply through
+`pkexec` with a held descriptor; the app never self-elevates. An explicit rollback API accepts a
+caller-supplied older `.deb`/`.rpm`; automatic rollback/downgrade remains the package manager's
+policy (spec 0030).
+
+**Benchmark harness (2026-11-18):** `auro bench` measures spawn-to-first-frame-request, idle RSS
+and stripped binary size; `examples/hello` is the no-toolkit fixture. A local 5-run Linux/Wayland
+result (154.9 ms, 105.3 MB, 15.6 MB) is recorded in the performance budget, not as a published
+baseline or comparison.
+
 **Phase 2 technical status (2026-11-18):** bundling; signed manifests, staging and Linux AppImage
 apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
 `auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
-package-manager updater apply, macOS `.dmg`/`.pkg`, elevation and helper-side apply,
-deltas/staged rollout, single-instance activation, and AccessKit/IME. The exit criterion also needs
+automatic Linux package rollback/downgrade policy, macOS `.pkg` runtime verification/notarization
+credentials, and AccessKit/IME. The exit criterion also needs
 three real apps and published benchmarks; it is not met by the workspace alone.
 
 **Alpha candidate (2026-11-17):** the workspace and internal requirements are
@@ -362,7 +385,7 @@ Tauri and Electron.
 - API freeze, semver from here on, LTS policy.
 - Security policy, external audit, contributor guide, RFC process.
 - **Performance budget in CI:** startup, first paint, RAM, binary size. Regressions fail the
-  build.
+  build. (Local harness exists; no baseline/gate yet.)
 - Launch: docs, three flagship example apps, benchmarks page, announcement.
 
 ---

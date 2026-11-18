@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+mod bench;
 mod dev;
 mod doctor;
 mod project;
@@ -21,6 +22,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// Create a new Auro app
     New {
@@ -80,6 +82,60 @@ enum Command {
         /// Publication timestamp (RFC 3339 or any stable text)
         #[arg(long)]
         published_at: String,
+        /// Rollout percentage (0-100)
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+        rollout_percentage: Option<u8>,
+        /// Previous artifact for an optional delta
+        #[arg(long)]
+        delta_from: Option<PathBuf>,
+        /// Version of `--delta-from`
+        #[arg(long)]
+        delta_from_version: Option<String>,
+        /// URL of the delta patch
+        #[arg(long)]
+        delta_url: Option<String>,
+        /// Write the generated delta patch here
+        #[arg(long)]
+        delta_out: Option<PathBuf>,
+    },
+    /// Submit a macOS artifact for notarization
+    Notarize {
+        /// Artifact to submit (usually `.pkg`, `.dmg` or a zipped `.app`)
+        #[arg(long)]
+        artifact: PathBuf,
+        /// Keychain profile created by `xcrun notarytool store-credentials`
+        #[arg(long)]
+        profile: String,
+        /// Submit without stapling the ticket
+        #[arg(long)]
+        skip_staple: bool,
+    },
+    /// Create a bsdiff-compatible update patch
+    Delta {
+        /// Previous artifact
+        #[arg(long)]
+        from: PathBuf,
+        /// New artifact
+        #[arg(long)]
+        to: PathBuf,
+        /// Patch file to write
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Measure startup, idle RSS and binary size for an app
+    Bench {
+        /// App directory (defaults to the current one)
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Number of process runs
+        #[arg(long, default_value_t = 5)]
+        runs: u32,
+        /// Seconds to wait before sampling idle RSS
+        #[arg(long, default_value_t = 5)]
+        idle_seconds: u64,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Report toolchain, config and platform status
     Doctor {
@@ -108,6 +164,11 @@ fn main() {
             notes,
             platform,
             published_at,
+            rollout_percentage,
+            delta_from,
+            delta_from_version,
+            delta_url,
+            delta_out,
         } => release::manifest(
             &artifact,
             &version,
@@ -117,7 +178,24 @@ fn main() {
             &notes,
             platform.as_deref(),
             &published_at,
+            rollout_percentage,
+            delta_from.as_deref(),
+            delta_from_version.as_deref(),
+            delta_url.as_deref(),
+            delta_out.as_deref(),
         ),
+        Command::Notarize {
+            artifact,
+            profile,
+            skip_staple,
+        } => release::notarize(&artifact, &profile, skip_staple),
+        Command::Delta { from, to, out } => release::delta(&from, &to, &out),
+        Command::Bench {
+            dir,
+            runs,
+            idle_seconds,
+            json,
+        } => bench::run(&dir.unwrap_or_else(current), runs, idle_seconds, json),
         Command::Doctor { dir } => doctor::run(&dir.unwrap_or_else(current)),
     };
 

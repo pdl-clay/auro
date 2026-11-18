@@ -48,18 +48,24 @@ Every spec carries:
 | [0009](0009-window-manager.md) | Window manager: open/close/focus by configured label | 1 | Implemented |
 | [0010](0010-bundling.md) | Bundling: map `[bundle]` to `tauri-bundler`, host formats, `auro bundle` | 2 | Implemented (Linux, Windows and macOS verified) |
 | [0011](0011-signing.md) | Signing keys, artifact hashes, platform signing config | 2 | Implemented |
-| [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (download/stage 0013; AppImage 0014; Windows/macOS 0025) |
-| [0013](0013-updater-runtime.md) | Updater runtime: check, download, verify and stage | 2 | Implemented (AppImage in 0014; Windows/macOS in 0025; package/deltas pending) |
+| [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (v2; 0013 stage, 0028 deltas/rollout) |
+| [0013](0013-updater-runtime.md) | Updater runtime: check, download, verify and stage | 2 | Implemented (full/delta; 0014/0025 apply) |
 | [0014](0014-appimage-apply.md) | AppImage apply: atomic replacement and rollback receipt | 2 | Implemented (Linux only) |
-| [0015](0015-single-instance.md) | Single instance: advisory lock, argument forwarding | 2 | Implemented (automatic activation pending) |
+| [0015](0015-single-instance.md) | Single instance: advisory lock, argument forwarding | 2 | Implemented (opt-in activation helper) |
 | [0016](0016-capabilities.md) | Capability manifests and enforcement | 2 | Implemented (host wiring pending) |
 | [0017](0017-autostart.md) | Autostart service | 2 | Implemented |
 | [0018](0018-notifications.md) | Notifications service | 2 | Implemented |
 | [0019](0019-keychain.md) | Keychain service | 2 | Implemented |
 | [0020](0020-shortcuts.md) | Global shortcuts service | 2 | Implemented (pressed callbacks) |
-| [0021](0021-tray.md) | Tray service | 2 | Implemented (menus and click callbacks) |
-| [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (forwarded-argument wiring pending) |
+| [0021](0021-tray.md) | Tray service | 2 | Implemented (icons, menus and click callbacks) |
+| [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (initial and forwarded wiring) |
 | [0023](0023-keyboard-activation.md) | Keyboard activation for Button | 2 | Implemented (AccessKit/IME pending) |
 | [0024](0024-alpha-release.md) | Alpha release: version, publish order, facade features, scaffold | 2 | Draft (alpha candidate; publication pending) |
-| [0025](0025-platform-apply.md) | Windows installer execution and macOS `.app` replacement | 2 | Implemented (.dmg and elevation pending) |
-| [0026](0026-update-journal.md) | Update journal and restart helper | 2 | Implemented (relaunch helper; helper-side apply pending) |
+| [0025](0025-platform-apply.md) | Windows installer execution and macOS `.app` replacement | 2 | Implemented (`.dmg` and macOS elevation separate) |
+| [0026](0026-update-journal.md) | Update journal and restart helper | 2 | Implemented (helper applies, relaunches, reconciles) |
+| [0027](0027-linux-packages.md) | Linux `.deb`/`.rpm` package apply | 2 | Implemented (elevation in 0029) |
+| [0028](0028-deltas-rollout.md) | Binary deltas and deterministic staged rollout | 2 | Implemented |
+| [0029](0029-linux-package-elevation.md) | Linux package elevation through pkexec | 2 | Implemented |
+| [0030](0030-linux-package-rollback.md) | Linux package rollback with an explicit older artifact | 2 | Implemented (manual policy) |
+| [0031](0031-macos-package-apply.md) | macOS `.pkg` apply through installer/osascript | 2 | Implemented in tree (runtime unverified) |
+| [0032](0032-macos-notarization.md) | macOS notarization submission and stapling | 2 | Implemented in tree (credentials/runtime unverified) |

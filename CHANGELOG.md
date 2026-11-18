@@ -34,13 +34,13 @@ installable `auro-cli` yet.
 
 - `auro-sign`: Ed25519 signing keys, detached signatures and SHA-256 file hashes; key files are
   0600 on Unix and debug output hides the seed.
-- `auro-update`: signed update manifest format v1 with canonical JSON payloads, artifact
+- `auro-update`: signed update manifest format v2 with canonical JSON payloads, artifact
   size/SHA-256 verification, and `auro manifest`.
 - `auro-update`: runtime `Updater` checks signature/platform/semantic version, downloads with
   connect/per-call/per-read timeouts and an exact manifest-size bound, verifies SHA-256, and stages
   content-addressed artifacts atomically; `stage_from_path` uses the same path for local artifacts.
-  Staged files that still verify are reused. Apply paths live in specs 0014/0025; deltas and staged
-  rollout are not implemented (spec 0013). The facade exposes this as `auro::update` behind the
+  Staged files that still verify are reused. Apply paths live in specs 0014/0025; deltas and
+  staged rollout are spec 0028. The facade exposes this as `auro::update` behind the
   opt-in `updater` feature; `PublicKey` is re-exported for key loading.
 - `auro-update`: Windows `WindowsInstaller` runs staged MSI (`msiexec /i ... /qn /norestart`) or
   NSIS (`/S`) installers through an injectable, shell-free command runner and maps code `3010` to
@@ -50,21 +50,52 @@ installable `auro-cli` yet.
 - `auro-update`: Linux `AppImageInstaller` replaces a staged AppImage atomically, sets mode `0755`,
   and retains a hard-link (or copy) backup. `InstallReceipt` can roll the previous file back or
   discard the backup after the new version is accepted. Windows/macOS apply is in spec 0025;
-  package-manager apply, restart orchestration, deltas and staged rollout are not implemented
-  (spec 0014, ADR 0013).
+  package-manager apply is spec 0027 and elevation is spec 0029; rollback remains package-manager policy.
 - `auro-update`: `ApplyJournal` records one apply attempt atomically (`Prepared`, `Applied`,
-  `Failed`, `RolledBack`, `Restarted`), with artifact/target/backup and relaunch command. The
+  `RebootRequired`, `Failed`, `RolledBack`, `Restarted`), with artifact/target/backup and relaunch
+  command. The
   restart helper re-executes the app with `AURO_UPDATE_RESTART_HELPER`, waits on a lock until the old
-  process exits, then relaunches with that variable removed. The helper only relaunches; platform
-  apply stays synchronous (specs 0026, ADR 0015).
+  process exits, then applies a prepared `AppImage`/MSI-NSIS/`.app` plan through the platform
+  installers or relaunches an already-applied update. The helper re-verifies the manifest and
+  artifact with the app-provided public key, records `Failed` or `RebootRequired` diagnostics, retains the
+  backup and relaunches with the helper variable removed. `reconcile` classifies the next start
+  and `finalize` removes a sibling backup, journal and lock (specs 0026, ADR 0015).
+- `auro-update`: `LinuxPackageInstaller` runs a staged `.deb` through `/usr/bin/dpkg -i` or a
+  `.rpm` through `/usr/bin/rpm -U` using the shell-free runner and helper journal
+  (`ApplyKind::DebPackage`/`RpmPackage`). The helper elevates through `pkexec` with a held
+  descriptor and reports `ElevationFailed`; rollback remains package-manager policy
+  (spec 0027, spec 0029).
+- `auro-update`: Linux package apply can run through `pkexec` in the restart helper (`LinuxElevation::Pkexec`),
+  passing the opened, journal-verified package via `/proc/<pid>/fd/<fd>`; a non-zero `pkexec` result is
+  `ElevationFailed`. The app never self-elevates (spec 0029, ADR 0017).
+- `auro-update`: `MacPkgInstaller` runs a staged `.pkg` through `/usr/sbin/installer`; the
+  elevated path uses a fixed AppleScript `quoted form` authorization prompt, and `ApplyKind::MacPkg`
+  dispatches through the restart helper. Command construction is unit-tested on Linux; macOS runtime
+  verification and notarization remain (spec 0031, ADR 0019).
+- `auro-update`: `LinuxPackageInstaller::rollback` installs a caller-supplied older `.deb`
+  (`dpkg --force-downgrade -i`) or `.rpm` (`rpm -U --oldpackage`) through the same optional
+  `pkexec` elevation and held-descriptor path; this is an explicit manual rollback policy, not
+  automatic failure recovery (spec 0030, ADR 0018).
+- `auro-cli`: `auro notarize --artifact <path> --profile <keychain-profile>` submits through
+  `xcrun notarytool` and staples with `xcrun stapler` unless `--skip-staple` is set. The command is
+  shell-free and requires an existing macOS keychain profile; credentials, runtime verification and
+  automatic bundling integration remain release/CI work (spec 0032, ADR 0020).
+- `auro-cli`: `auro bench --dir <app>` builds the release binary and reports median startup to the
+  first-frame marker, idle RSS and binary size, with `--json` output. The `examples/hello` fixture
+  is the no-toolkit benchmark app; a local 5-run Linux measurement is recorded as 154.9 ms,
+  105.3 MB RSS and 15.6 MB stripped, explicitly not a published baseline.
+- `auro-update`: manifest v2 adds signed delta (bsdiff-compatible base-bound patch) and deterministic
+  rollout metadata. `download_delta`/`stage_delta_from_path` verify base, patch and full artifact;
+  `with_rollout_key` gates partial releases. CLI gains `auro delta` and `--rollout-percentage`/
+  delta options on `auro manifest` (spec 0028, ADR 0016).
 - `auro-perms`: deny-by-default capability `Policy` with `fs`/`net`/`shell`/`clipboard`/
   `notification`/`keychain` grants, compiled glob scopes for the scoped capabilities, typed
   `Denied` errors, and `auro::perms` re-exports (spec 0016).
 - `auro-core`: `AppInstance` and `App::single_instance()` use a per-user advisory file lock to
   refuse a secondary process before GPUI starts. The secondary forwards its arguments and working
   directory over a local socket, then gets `AuroError::Instance` (`run` exits 2); the primary
-  receives `InstanceMessage` on its event pump. Automatic primary-window activation is app policy
-  (spec 0015).
+  receives `InstanceMessage` on its event pump. `App::activate_on_second_instance()` opts into
+  focusing the first root window; custom activation remains app policy via `on_event` (spec 0015).
 - `auro-services`: `Autostart` and `Autostart::for_current_app` use `auto-launch` to enable,
   disable and query login-item autostart on Linux/macOS/Windows. Windows always uses the
   per-user registry mode; macOS uses a Launch Agent (spec 0017).
@@ -76,12 +107,13 @@ installable `auro-cli` yet.
   and dispatches pressed-hotkey callbacks on a background thread, with a pluggable backend trait
   for tests (spec 0020).
 - `auro-services`: `Tray` shows and hides a tray icon, sets its tooltip, installs a flat menu and
-  dispatches menu/click callbacks through `tray-icon`, with a pluggable backend trait for tests
-  (spec 0021).
+  dispatches menu/click callbacks through `tray-icon`, and sets a validated RGBA `TrayIcon`, with a
+  pluggable backend trait for tests (spec 0021).
 - `auro-ui`: `Button` is a focusable tab stop and activates its click handler on Enter or Space
   without modifiers; held keys do not repeat (spec 0023). AccessKit and IME remain upstream gaps.
 - `auro-services`: `AppLinks` parses, filters and queues URL-scheme deep links;
-  `register_scheme` writes per-user Windows/Linux registrations (macOS stays packager-owned)
+  `register_scheme` writes per-user Windows/Linux registrations (macOS stays packager-owned),
+  and `App::deep_links` shares a cloneable queue fed by initial and forwarded instance arguments
   (spec 0022).
 - `auro`: platform services are opt-in (`services`), and `tray` is a separate feature because
   `tray-icon` requires GTK/AppIndicator development libraries on Linux.

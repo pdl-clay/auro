@@ -1,6 +1,6 @@
 # 0022 - Deep links
 
-**Status:** Implemented (2026-11-17; macOS bundle registration is packager-owned)
+**Status:** Implemented (2026-11-18; initial and forwarded arguments are wired; macOS bundle registration is packager-owned)
 
 Phase 2 needs apps to accept URL-scheme launches. This spec fixes the deep-link service contract:
 scheme validation, registration, parsing and a queue that waits for the app. The `auro::services`
@@ -12,16 +12,16 @@ re-export requires the facade's `services` feature.
 - `auro-services::AppLinks`: parse accepted schemes and queue links until drained.
 - `DeepLink`: scheme, host, decoded segments, decoded query and raw argument.
 - `auro::services::AppLinks` and `register_scheme` re-exports.
+- `App::deep_links(links)`: queues initial process arguments and forwarded `InstanceMessage`
+  arguments into a shared queue.
 
 ## Out of scope
 
 - macOS `CFBundleURLTypes` editing; the packager owns the bundle's `Info.plist`.
 - Linux `.desktop` installation by the packager; the service writes a user entry and calls
   `xdg-mime`.
-- Universal links / HTTPS associations.
 - Authentication, consent prompts and unknown-origin policy.
-- Forwarding to an already-running instance; `AppInstance` forwards raw arguments, but feeding
-  them into `AppLinks` remains app/API work.
+- Universal links / HTTPS associations.
 
 ## Decisions
 
@@ -83,13 +83,22 @@ impl AppLinks {
     pub fn drain(&self) -> Vec<DeepLink>;
     pub fn schemes(&self) -> &[String];
 }
+
+impl App {
+    #[cfg(feature = "services")]
+    pub fn deep_links(self, links: AppLinks) -> Self;
+}
 ```
 
 Usage:
 
 ```rust,ignore
 let links = auro::services::AppLinks::new(vec!["myapp".to_owned()]);
-links.push_raw(&std::env::args().collect::<Vec<_>>());
+App::new()
+    .deep_links(links.clone())
+    .single_instance()
+    .root::<View>("main")
+    .run();
 for link in links.drain() {
     // route `link.host`, `link.segments`, `link.query`
 }
@@ -103,8 +112,11 @@ for link in links.drain() {
    `rejects_a_traversal_path`).
 3. Empty or malformed schemes are rejected before registration
    (`rejects_an_empty_or_bad_scheme`).
-4. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
-5. `cargo fmt --all --check`,
+4. Cloned `AppLinks` handles share one FIFO (`clones_share_the_same_queue`); `App::deep_links`
+   stores that shared handle behind the `services` feature and the run path feeds initial and
+   forwarded `InstanceMessage` arguments.
+5. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
+6. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 
@@ -112,7 +124,6 @@ for link in links.drain() {
 
 | Question | Where it settles |
 |---|---|
-| Feeding forwarded arguments into `AppLinks` | Deep-link follow-up |
 | Universal links / HTTPS associations | Deep-link follow-up |
 | macOS bundle registration automation | Packager follow-up |
 | Unknown-origin consent policy | Deep-link UX spec |

@@ -114,7 +114,7 @@ fn plain_path(path: PathBuf) -> PathBuf {
 }
 
 /// The executable cargo places in `target/release`: `default-run`, or the package name.
-fn binary_name(dir: &Path) -> Result<String, AuroError> {
+pub fn binary_name(dir: &Path) -> Result<String, AuroError> {
     let manifest = dir.join("Cargo.toml");
     let text = fs::read_to_string(&manifest)?;
     let value: toml::Value = toml::from_str(&text).map_err(|error: toml::de::Error| {

@@ -7,7 +7,7 @@
 //! macOS `CFBundleURLTypes` entry.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Why a deep link operation failed.
 #[derive(Debug, thiserror::Error)]
@@ -54,18 +54,21 @@ pub fn register_scheme(scheme: &str, executable: &std::path::Path) -> Result<(),
 }
 
 /// Links wait here until the app asks for them.
-#[derive(Default)]
+///
+/// Clones share the same queue, so an app can keep one handle for draining while the facade
+/// feeds launch/instance arguments into another.
+#[derive(Clone, Default)]
 pub struct AppLinks {
-    queue: Mutex<VecDeque<DeepLink>>,
-    schemes: Vec<String>,
+    queue: Arc<Mutex<VecDeque<DeepLink>>>,
+    schemes: Arc<[String]>,
 }
 
 impl AppLinks {
     /// Creates a queue that accepts the given schemes.
     pub fn new(schemes: Vec<String>) -> Self {
         AppLinks {
-            queue: Mutex::new(VecDeque::new()),
-            schemes,
+            queue: Arc::new(Mutex::new(VecDeque::new())),
+            schemes: schemes.into(),
         }
     }
 
@@ -96,6 +99,9 @@ impl AppLinks {
     pub fn schemes(&self) -> &[String] {
         &self.schemes
     }
+
+    // Clones intentionally share `queue`; this is what lets `App::deep_links` feed the app's
+    // handle without a second consumer.
 }
 
 fn validate_scheme(scheme: &str) -> Result<(), DeepLinkError> {
@@ -268,6 +274,22 @@ mod tests {
         assert_eq!(links[0].host, "example.com");
         assert_eq!(links[0].segments, ["path"]);
         assert_eq!(links[0].query.get("token"), Some(&"abc".to_owned()));
+    }
+
+    #[test]
+    fn clones_share_the_same_queue() {
+        let links = AppLinks::new(vec!["auro".to_owned()]);
+        let other = links.clone();
+        links.push("auro://example.com/from-primary");
+        other.push("auro://example.com/from-instance");
+        let drained: Vec<_> = links.drain().into_iter().map(|link| link.raw).collect();
+        assert_eq!(
+            drained,
+            [
+                "auro://example.com/from-primary",
+                "auro://example.com/from-instance"
+            ]
+        );
     }
 
     #[test]

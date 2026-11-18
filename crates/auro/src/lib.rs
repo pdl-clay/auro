@@ -28,7 +28,8 @@ pub mod services {
 
     #[cfg(feature = "tray")]
     pub use auro_services::{
-        Tray, TrayBackend, TrayButton, TrayButtonState, TrayClick, TrayError, TrayMenuItem,
+        Tray, TrayBackend, TrayButton, TrayButtonState, TrayClick, TrayError, TrayIcon,
+        TrayMenuItem,
     };
 }
 
@@ -36,30 +37,33 @@ mod app;
 pub mod windows;
 
 #[cfg(feature = "updater")]
-/// Signed update manifests, staging, platform apply and restart handoff (specs 0012-0015, 0025, 0026).
+/// Signed update manifests, staging, platform apply and restart handoff (specs 0012-0015, 0025-0031).
 ///
 /// Enable the `updater` feature to use this module.
 pub mod update {
     pub use auro_update::{
-        ApplyJournal, ApplyState, FORMAT_VERSION, InstallerRunner, JOURNAL_FORMAT_VERSION,
-        Manifest, PublicKey, RESTART_HELPER_ENV, Relaunch, StagedUpdate, SystemInstallerRunner,
-        UpdateDecision, UpdateError, Updater, current_platform, run_restart_helper,
+        ApplyJournal, ApplyKind, ApplyPlan, ApplyState, FORMAT_VERSION, InstallerRunner,
+        JOURNAL_FORMAT_VERSION, Manifest, PublicKey, RESTART_HELPER_ENV, Recovery, Relaunch,
+        StagedUpdate, SystemInstallerRunner, UpdateDecision, UpdateError, Updater,
+        current_platform, run_restart_helper,
     };
 
     #[cfg(target_os = "linux")]
-    pub use auro_update::{AppImageInstaller, InstallReceipt};
+    pub use auro_update::{
+        AppImageInstaller, InstallReceipt, LinuxElevation, LinuxPackageInstaller, LinuxPackageKind,
+    };
 
     #[cfg(target_os = "windows")]
     pub use auro_update::{WindowsInstallOutcome, WindowsInstaller, WindowsInstallerKind};
 
     #[cfg(target_os = "macos")]
-    pub use auro_update::{MacAppInstaller, MacAppReceipt};
+    pub use auro_update::{MacAppInstaller, MacAppReceipt, MacPkgElevation, MacPkgInstaller};
 }
 
 #[cfg(feature = "hot-reload")]
 pub mod hot;
 
-pub use app::{App, emit};
+pub use app::{App, STARTUP_TRACE_ENV, emit};
 
 /// The implementation surface the macros expand against. Not a user-facing module.
 #[doc(hidden)]

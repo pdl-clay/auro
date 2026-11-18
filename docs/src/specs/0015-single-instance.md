@@ -1,7 +1,7 @@
 # 0015 - Single instance
 
-**Status:** Implemented (2026-11-17; duplicate prevention and argument forwarding; automatic
-activation is app policy)
+**Status:** Implemented (2026-11-17; duplicate prevention, argument forwarding and opt-in
+activation helper)
 
 Phase 2 needs every app to be able to enforce one running instance. A process holds an advisory lock
 for its configured app identifier; a second process detects that it is secondary before GPUI starts,
@@ -14,14 +14,16 @@ typed [`InstanceMessage`] on its normal event pump.
 - `InstanceMessage`: forwarded arguments and working directory.
 - Primary listener and secondary forwarding over a local socket.
 - `App::single_instance()`: opt in when building an app; forwarding requires no app code.
+- `App::activate_on_second_instance()`: opt-in focus of the first root window on a forwarded
+  launch.
 - `InstanceListener`: keeps the primary lock and forwarding thread alive.
 - `AuroError::Instance` before any window opens on the secondary.
 - Lock/socket naming, owner-only lock permissions on Unix, and OS release on exit/crash.
 
 ## Out of scope
 
-- Automatically activating or focusing the primary window; the app decides from
-  `InstanceMessage`.
+- Custom activation policy; `App::activate_on_second_instance()` focuses the first root by
+  default, while apps with other needs use `InstanceMessage` and `on_event`.
 - Deep-link/file association policy; forwarded arguments are just arguments.
 - Cross-user or system-wide single-instance enforcement.
 - Cleaning up lock or socket files after exit (the lock file is retained; the socket file is
@@ -55,7 +57,9 @@ same user. That is outside the threat model.
 
 The secondary acquires the lock (finding it already held), forwards `InstanceMessage { args, cwd }`,
 and returns `AuroError::Instance` before GPUI starts. `App::run` prints it and exits with code 2. The
-primary receives the message on its event pump; automatic window activation is app policy.
+primary receives the message on its event pump. `App::activate_on_second_instance()` opts into
+focusing the first registered root and activating the app; apps that need another window use
+`InstanceMessage` and `on_event`.
 
 *Rejected:* returning success from the secondary process. It would hide a user's attempted launch
 and make automated tests unable to distinguish "opened" from "refused".
@@ -116,6 +120,7 @@ pub struct InstanceListener { /* guard, thread */ }
 
 impl App {
     pub fn single_instance(self) -> Self;
+    pub fn activate_on_second_instance(self) -> Self;
     pub fn on_event<E: Send + 'static>(
         self,
         handler: impl Fn(&E, &mut GpuiApp) + 'static,
@@ -129,9 +134,14 @@ Usage:
 
 ```rust,ignore
 App::new()
+    .activate_on_second_instance()
+    .root::<View>("main")
+    .run();
+
+// Or handle the forwarded launch yourself:
+App::new()
     .single_instance()
     .on_event(|message: &auro::InstanceMessage, cx| {
-        // `message.args` and `message.cwd` are the second launch's.
         let _ = auro::windows::focus("main", cx);
     })
     .root::<View>("main")
@@ -148,7 +158,8 @@ App::new()
    (`primary_cannot_forward_or_secondary_cannot_listen`).
 4. An empty identifier is a typed `AuroError::Instance` (`empty_name_is_rejected`).
 5. Lock-file names replace separators and cannot escape the lock directory (`path_is_sanitised`).
-6. `App::single_instance()` is opt-in and sets the builder flag (`single_instance_is_opt_in`).
+6. `App::single_instance()` is opt-in and sets the builder flag; the activation helper enables
+   both flags (`single_instance_is_opt_in`).
 7. `AuroError::Instance` reports kind `"instance"` and includes name/message
    (`instance_errors_have_context_and_kind`).
 8. `cargo fmt --all --check`,
@@ -159,7 +170,7 @@ App::new()
 
 | Question | Where it settles |
 |---|---|
-| Automatic primary-window activation | App policy / platform activation follow-up |
+| Custom activation behavior | App policy / `on_event` |
 | File and deep-link routing into the primary | Deep-link and instance IPC follow-up |
 | Lock/socket cleanup policy | Operations follow-up |
 | Stable IPC protocol for third-party clients | Revisit only if required |

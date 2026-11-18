@@ -2,10 +2,11 @@
 
 //! Durable apply journal and the restart helper handshake.
 //!
-//! The app writes a journal after a platform apply, then spawns the same executable in helper mode.
-//! The helper waits for the app to release a lock file, verifies the journal says `Applied`, and
-//! relaunches the new executable. The journal is written atomically and remains on disk for
-//! diagnosis after the restart.
+//! The app writes a journal, then spawns the same executable in helper mode. A prepared journal
+//! carries the platform action; the helper waits for the app to release a lock file, applies the
+//! staged artifact through the platform installers, and relaunches the new executable. An
+//! already-applied journal is relaunch-only. The journal is written atomically and remains on disk
+//! for diagnosis after the restart.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::{JOURNAL_FORMAT_VERSION, UpdateError};
+use crate::{JOURNAL_FORMAT_VERSION, Manifest, PublicKey, StagedUpdate, UpdateError};
 
 /// Environment variable used to enter restart-helper mode.
 pub const RESTART_HELPER_ENV: &str = "AURO_UPDATE_RESTART_HELPER";
@@ -25,6 +26,80 @@ const LOCK_WAIT: Duration = Duration::from_secs(120);
 const LOCK_POLL: Duration = Duration::from_millis(50);
 
 static HELPER_LOCKS: OnceLock<Mutex<Vec<File>>> = OnceLock::new();
+
+/// The platform action a prepared helper performs before relaunching.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyKind {
+    /// No platform apply; the helper only relaunches an already-applied update.
+    #[default]
+    None,
+    /// Linux AppImage replacement.
+    AppImage,
+    /// Windows MSI/NSIS installer execution.
+    WindowsInstaller,
+    /// Debian package installation.
+    DebPackage,
+    /// RPM package installation.
+    RpmPackage,
+    /// macOS `.app` bundle replacement.
+    MacApp,
+    /// macOS package installation.
+    MacPkg,
+}
+
+/// The platform action and verification data for a helper-side apply.
+#[derive(Clone, Debug)]
+pub struct ApplyPlan {
+    /// Platform action.
+    pub kind: ApplyKind,
+    /// Already-staged, already-downloaded artifact.
+    pub artifact: PathBuf,
+    /// Platform target (AppImage path or macOS `.app`).
+    pub target: Option<PathBuf>,
+    /// Signed manifest describing the artifact.
+    pub manifest: Manifest,
+    /// Public key pinned by the app.
+    pub public_key: PublicKey,
+}
+
+impl ApplyPlan {
+    /// Creates an apply plan.
+    pub fn new(
+        kind: ApplyKind,
+        artifact: impl Into<PathBuf>,
+        target: Option<PathBuf>,
+        manifest: Manifest,
+        public_key: PublicKey,
+    ) -> Self {
+        ApplyPlan {
+            kind,
+            artifact: artifact.into(),
+            target,
+            manifest,
+            public_key,
+        }
+    }
+}
+
+/// What the next app start should do with a journal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Recovery {
+    /// A prepared plan needs the helper to apply it.
+    RetryApply,
+    /// The journal is prepared but has no apply kind; inspect it manually.
+    Prepared,
+    /// The new version is already running; finalize the journal.
+    Complete,
+    /// The update is applied but the current process is not the new version; relaunch.
+    Relaunch,
+    /// The installer asked for a reboot; do not relaunch as if complete.
+    AwaitReboot,
+    /// The apply failed; retain the journal and backup for diagnosis/rollback.
+    Failed,
+    /// The previous artifact was restored.
+    RolledBack,
+}
 
 /// The durable state of one apply/restart attempt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +113,9 @@ pub enum ApplyState {
     Failed,
     /// The previous artifact was restored.
     RolledBack,
+    /// The installer completed but requires a reboot before the new version is usable.
+    RebootRequired,
+
     /// The helper launched the replacement executable.
     Restarted,
 }
@@ -81,9 +159,25 @@ fn relaunch_program(appimage: Option<std::ffi::OsString>) -> Result<PathBuf, Upd
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+struct JournalSpec {
+    artifact: PathBuf,
+    target: Option<PathBuf>,
+    kind: ApplyKind,
+    manifest: Option<Manifest>,
+    verify_key: Option<String>,
+    relaunch: Relaunch,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct JournalData {
     format: u32,
     version: String,
+    #[serde(default)]
+    kind: ApplyKind,
+    #[serde(default)]
+    manifest: Option<Manifest>,
+    #[serde(default)]
+    verify_key: Option<String>,
     artifact: PathBuf,
     target: Option<PathBuf>,
     backup: Option<PathBuf>,
@@ -111,6 +205,49 @@ impl ApplyJournal {
         target: Option<PathBuf>,
         relaunch: Relaunch,
     ) -> Result<Self, UpdateError> {
+        Self::create_with(
+            path,
+            version,
+            JournalSpec {
+                artifact: artifact.into(),
+                target,
+                kind: ApplyKind::None,
+                manifest: None,
+                verify_key: None,
+                relaunch,
+            },
+        )
+    }
+
+    /// Creates a `Prepared` journal whose helper applies `plan` before relaunching.
+    ///
+    /// The manifest and app-provided public key are kept so the helper can re-verify the
+    /// artifact's signature, size and SHA-256 before applying it.
+    pub fn create_for_apply(
+        path: impl Into<PathBuf>,
+        version: impl Into<String>,
+        plan: ApplyPlan,
+        relaunch: Relaunch,
+    ) -> Result<Self, UpdateError> {
+        Self::create_with(
+            path,
+            version,
+            JournalSpec {
+                artifact: plan.artifact,
+                target: plan.target,
+                kind: plan.kind,
+                manifest: Some(plan.manifest),
+                verify_key: Some(plan.public_key.to_base64()),
+                relaunch,
+            },
+        )
+    }
+
+    fn create_with(
+        path: impl Into<PathBuf>,
+        version: impl Into<String>,
+        spec: JournalSpec,
+    ) -> Result<Self, UpdateError> {
         let path = path.into();
         let path = if path.is_absolute() {
             path
@@ -121,12 +258,15 @@ impl ApplyJournal {
             data: JournalData {
                 format: JOURNAL_FORMAT_VERSION,
                 version: version.into(),
-                artifact: artifact.into(),
-                target,
+                kind: spec.kind,
+                manifest: spec.manifest,
+                verify_key: spec.verify_key,
+                artifact: spec.artifact,
+                target: spec.target,
                 backup: None,
                 state: ApplyState::Prepared,
                 message: None,
-                relaunch,
+                relaunch: spec.relaunch,
                 lock_file: path.with_extension("lock"),
             },
             path,
@@ -150,10 +290,17 @@ impl ApplyJournal {
                 UpdateError::Io(error)
             }
         })?;
-        let data: JournalData = serde_json::from_str(&text)?;
-        if data.format != JOURNAL_FORMAT_VERSION {
-            return Err(UpdateError::JournalFormat(data.format));
+        let value: serde_json::Value = serde_json::from_str(&text)?;
+        let format = value
+            .get("format")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(u64::from(JOURNAL_FORMAT_VERSION));
+        if format != u64::from(JOURNAL_FORMAT_VERSION) {
+            return Err(UpdateError::JournalFormat(
+                format.try_into().unwrap_or(u32::MAX),
+            ));
         }
+        let data: JournalData = serde_json::from_value(value)?;
         let expected_lock = path.with_extension("lock");
         if data.lock_file != expected_lock {
             return Err(UpdateError::JournalLockPath {
@@ -172,6 +319,21 @@ impl ApplyJournal {
     /// The journaled release version.
     pub fn version(&self) -> &str {
         &self.data.version
+    }
+
+    /// The platform action the helper performs, if any.
+    pub fn kind(&self) -> ApplyKind {
+        self.data.kind
+    }
+
+    /// The signed manifest retained for a helper-side apply.
+    pub fn manifest(&self) -> Option<&Manifest> {
+        self.data.manifest.as_ref()
+    }
+
+    /// The pinned verification key retained for a helper-side apply.
+    pub fn verify_key(&self) -> Option<&str> {
+        self.data.verify_key.as_deref()
     }
 
     /// The verified artifact that was applied.
@@ -239,9 +401,70 @@ impl ApplyJournal {
         Ok(())
     }
 
+    /// Records that the installer requires a reboot before the new version can run.
+    pub fn mark_reboot_required(&mut self) -> Result<(), UpdateError> {
+        self.transition(ApplyState::RebootRequired, None)
+    }
+
     /// Marks the helper handoff as complete.
     pub fn mark_restarted(&mut self) -> Result<(), UpdateError> {
         self.transition(ApplyState::Restarted, None)
+    }
+
+    /// Classifies what the next app start should do with this journal.
+    ///
+    /// `current_version` is the running app version (normally `env!("CARGO_PKG_VERSION")`). A
+    /// journal whose version matches the running app is complete; a mismatched applied/restarted
+    /// journal still needs a relaunch. Call [`Self::finalize`] only for `Complete`.
+    pub fn reconcile(&self, current_version: &str) -> Result<Recovery, UpdateError> {
+        let current =
+            semver::Version::parse(current_version).map_err(|_| UpdateError::InvalidVersion {
+                field: "current version",
+                value: current_version.to_owned(),
+            })?;
+        let journal = semver::Version::parse(&self.data.version).map_err(|_| {
+            UpdateError::InvalidVersion {
+                field: "journal version",
+                value: self.data.version.clone(),
+            }
+        })?;
+        Ok(match self.data.state {
+            ApplyState::Prepared if self.data.kind != ApplyKind::None => Recovery::RetryApply,
+            ApplyState::Prepared => Recovery::Prepared,
+            ApplyState::Applied | ApplyState::Restarted if current == journal => Recovery::Complete,
+            ApplyState::Applied | ApplyState::Restarted => Recovery::Relaunch,
+            ApplyState::RebootRequired => Recovery::AwaitReboot,
+            ApplyState::Failed => Recovery::Failed,
+            ApplyState::RolledBack => Recovery::RolledBack,
+        })
+    }
+
+    /// Removes the retained backup, journal and lock file after a completed update.
+    ///
+    /// Call this only after [`Self::reconcile`] returned [`Recovery::Complete`]. A backup must be
+    /// beside the target it replaced; other paths are rejected. Missing files are ignored.
+    pub fn finalize(self) -> Result<(), UpdateError> {
+        if let Some(backup) = self.data.backup.as_deref() {
+            let Some(target) = self.data.target.as_deref() else {
+                return Err(UpdateError::JournalBackupTargetMissing {
+                    backup: backup.to_path_buf(),
+                });
+            };
+            if backup == target || backup.parent() != target.parent() {
+                return Err(UpdateError::JournalBackupPath {
+                    backup: backup.to_path_buf(),
+                    target: target.to_path_buf(),
+                });
+            }
+            remove_path(backup)?;
+        }
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        let _ = std::fs::remove_file(&self.data.lock_file);
+        Ok(())
     }
 
     /// Removes the journal file. The lock file is intentionally left for the next attempt.
@@ -255,15 +478,21 @@ impl ApplyJournal {
 
     /// Spawns the same executable in restart-helper mode and retains the exit lock.
     ///
-    /// The app must call this only after [`Self::mark_applied`]. The helper waits until this
-    /// process releases the lock file, then relaunches [`Self::relaunch`]. The lock handle is kept
-    /// in a process-global guard, so callers do not have to hold a return value.
+    /// A `Prepared` journal must carry an [`ApplyKind`]; an `Applied` journal is relaunch-only.
+    /// The helper waits until this process releases the lock file, applies a prepared plan, then
+    /// relaunches [`Self::relaunch`]. The lock handle is kept in a process-global guard, so callers
+    /// do not have to hold a return value.
     pub fn spawn_helper(&self) -> Result<(), UpdateError> {
         self.spawn_helper_with(&std::env::current_exe()?)
     }
 
+    fn helper_ready(&self) -> bool {
+        self.data.state == ApplyState::Applied
+            || (self.data.state == ApplyState::Prepared && self.data.kind != ApplyKind::None)
+    }
+
     fn spawn_helper_with(&self, executable: &Path) -> Result<(), UpdateError> {
-        if self.data.state != ApplyState::Applied {
+        if !self.helper_ready() {
             return Err(UpdateError::JournalNotApplied {
                 actual: self.data.state,
             });
@@ -327,7 +556,8 @@ impl ApplyJournal {
 /// Runs the restart-helper half of the handshake.
 ///
 /// This is called by `App::try_run` when [`RESTART_HELPER_ENV`] is set. It waits for the old app
-/// to release the lock, requires an `Applied` journal, and launches the replacement process.
+/// to release the lock, applies a prepared plan (or accepts an already-applied one), and launches
+/// the replacement process.
 pub fn run_restart_helper(path: &Path) -> Result<(), UpdateError> {
     let result = run_restart_helper_inner(path);
     if let Err(error) = &result
@@ -339,18 +569,21 @@ pub fn run_restart_helper(path: &Path) -> Result<(), UpdateError> {
 }
 
 fn run_restart_helper_inner(path: &Path) -> Result<(), UpdateError> {
-    let mut journal = ApplyJournal::load(path)?;
-    if journal.data.state != ApplyState::Applied {
+    let journal = ApplyJournal::load(path)?;
+    if !journal.helper_ready() {
         return Err(UpdateError::JournalNotApplied {
             actual: journal.data.state,
         });
     }
     let _lock = wait_for_lock(&journal.data.lock_file)?;
-    journal = ApplyJournal::load(path)?;
-    if journal.data.state != ApplyState::Applied {
-        return Err(UpdateError::JournalNotApplied {
-            actual: journal.data.state,
-        });
+    let mut journal = ApplyJournal::load(path)?;
+    match journal.data.state {
+        ApplyState::Prepared => apply_prepared(&mut journal)?,
+        ApplyState::Applied => {}
+        actual => return Err(UpdateError::JournalNotApplied { actual }),
+    }
+    if journal.data.state == ApplyState::RebootRequired {
+        return Ok(());
     }
 
     let relaunch = &journal.data.relaunch;
@@ -369,6 +602,167 @@ fn run_restart_helper_inner(path: &Path) -> Result<(), UpdateError> {
         .stderr(Stdio::null())
         .spawn()?;
     journal.mark_restarted()?;
+    Ok(())
+}
+
+fn apply_prepared(journal: &mut ApplyJournal) -> Result<(), UpdateError> {
+    let result = apply_prepared_inner(journal);
+    if let Err(error) = &result {
+        let _ = journal.mark_failed(error.to_string());
+    }
+    result
+}
+
+fn apply_prepared_inner(journal: &mut ApplyJournal) -> Result<(), UpdateError> {
+    let kind = journal.data.kind;
+    if kind == ApplyKind::None {
+        return Err(UpdateError::ApplyKindMissing);
+    }
+    let manifest = journal
+        .data
+        .manifest
+        .clone()
+        .ok_or(UpdateError::ManifestMissing)?;
+    let artifact = journal.data.artifact.clone();
+    let key = PublicKey::from_base64(
+        journal
+            .data
+            .verify_key
+            .as_deref()
+            .ok_or(UpdateError::VerificationKeyMissing)?,
+    )?;
+    manifest.verify_artifact(&artifact, &key)?;
+    if manifest.version != journal.data.version {
+        return Err(UpdateError::JournalVersionMismatch {
+            journal: journal.data.version.clone(),
+            manifest: manifest.version.clone(),
+        });
+    }
+    let host = crate::current_platform();
+    if manifest.platform != host {
+        return Err(UpdateError::JournalPlatformMismatch {
+            expected: host,
+            actual: manifest.platform.clone(),
+        });
+    }
+    let staged = StagedUpdate::from_parts(manifest, artifact);
+    let outcome = apply_kind(kind, journal, &staged)?;
+    if let Some(backup) = outcome.backup {
+        journal.set_backup(backup)?;
+    }
+    if outcome.restart_required {
+        journal.mark_reboot_required()?;
+    } else {
+        journal.mark_applied()?;
+    }
+    Ok(())
+}
+
+struct ApplyOutcome {
+    backup: Option<PathBuf>,
+    restart_required: bool,
+}
+
+#[allow(unused_variables)]
+fn apply_kind(
+    kind: ApplyKind,
+    journal: &ApplyJournal,
+    staged: &StagedUpdate,
+) -> Result<ApplyOutcome, UpdateError> {
+    match kind {
+        ApplyKind::None => Err(UpdateError::ApplyKindMissing),
+        ApplyKind::AppImage => {
+            #[cfg(target_os = "linux")]
+            {
+                let target = journal
+                    .data
+                    .target
+                    .as_deref()
+                    .ok_or(UpdateError::ApplyTargetMissing { kind })?;
+                let receipt = crate::AppImageInstaller::new(target).install(staged)?;
+                Ok(ApplyOutcome {
+                    backup: Some(receipt.backup().to_path_buf()),
+                    restart_required: false,
+                })
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                Err(UpdateError::UnsupportedApply { kind })
+            }
+        }
+        ApplyKind::WindowsInstaller => {
+            #[cfg(target_os = "windows")]
+            {
+                let outcome = crate::WindowsInstaller::new().install(staged)?;
+                Ok(ApplyOutcome {
+                    backup: None,
+                    restart_required: outcome.restart_required,
+                })
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                Err(UpdateError::UnsupportedApply { kind })
+            }
+        }
+        ApplyKind::DebPackage | ApplyKind::RpmPackage => {
+            #[cfg(target_os = "linux")]
+            {
+                crate::LinuxPackageInstaller::new()
+                    .elevated()
+                    .install(staged)?;
+                Ok(ApplyOutcome {
+                    backup: None,
+                    restart_required: false,
+                })
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                Err(UpdateError::UnsupportedApply { kind })
+            }
+        }
+        ApplyKind::MacPkg => {
+            #[cfg(target_os = "macos")]
+            {
+                crate::MacPkgInstaller::new().elevated().install(staged)?;
+                Ok(ApplyOutcome {
+                    backup: None,
+                    restart_required: false,
+                })
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err(UpdateError::UnsupportedApply { kind })
+            }
+        }
+        ApplyKind::MacApp => {
+            #[cfg(target_os = "macos")]
+            {
+                let target = journal
+                    .data
+                    .target
+                    .as_deref()
+                    .ok_or(UpdateError::ApplyTargetMissing { kind })?;
+                let receipt = crate::MacAppInstaller::new(target).install(staged)?;
+                Ok(ApplyOutcome {
+                    backup: Some(receipt.backup().to_path_buf()),
+                    restart_required: false,
+                })
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err(UpdateError::UnsupportedApply { kind })
+            }
+        }
+    }
+}
+
+fn remove_path(path: &Path) -> Result<(), UpdateError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(path)?,
+        Ok(_) => std::fs::remove_file(path)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     Ok(())
 }
 
@@ -518,6 +912,126 @@ mod tests {
     }
 
     #[test]
+    fn reports_an_old_format_before_schema_fields() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let journal = journal(&temp);
+        let mut value = serde_json::to_value(&journal.data).expect("json");
+        value["format"] = serde_json::json!(1);
+        value.as_object_mut().expect("object").remove("kind");
+        std::fs::write(journal.path(), serde_json::to_vec(&value).expect("json")).expect("write");
+        assert!(matches!(
+            ApplyJournal::load(journal.path()),
+            Err(UpdateError::JournalFormat(1))
+        ));
+    }
+
+    #[test]
+    fn classifies_recovery_actions() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = journal(&temp);
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("prepared"),
+            Recovery::Prepared
+        );
+        journal.data.kind = ApplyKind::AppImage;
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("retry"),
+            Recovery::RetryApply
+        );
+        journal.data.kind = ApplyKind::None;
+        journal.mark_applied().expect("applied");
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("complete"),
+            Recovery::Complete
+        );
+        assert_eq!(
+            journal.reconcile("1.0.0").expect("relaunch"),
+            Recovery::Relaunch
+        );
+        journal.mark_reboot_required().expect("reboot");
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("reboot"),
+            Recovery::AwaitReboot
+        );
+        journal.mark_rolled_back().expect("rollback");
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("rollback"),
+            Recovery::RolledBack
+        );
+        journal.mark_failed("broken").expect("failed");
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("failed"),
+            Recovery::Failed
+        );
+        assert!(matches!(
+            journal.reconcile("not-a-version"),
+            Err(UpdateError::InvalidVersion { .. })
+        ));
+    }
+
+    #[test]
+    fn finalizes_backup_journal_and_lock() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = journal(&temp);
+        let backup = temp.path().join("backup");
+        std::fs::write(&backup, b"old").expect("backup");
+        std::fs::write(journal.lock_file(), b"").expect("lock");
+        journal.set_backup(&backup).expect("set backup");
+        let journal_path = journal.path().to_path_buf();
+        journal.finalize().expect("finalize");
+        assert!(!backup.exists());
+        assert!(!journal_path.exists());
+        assert!(!temp.path().join("apply.lock").exists());
+    }
+
+    #[test]
+    fn refuses_to_finalize_a_backup_without_a_target() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = ApplyJournal::create(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            temp.path().join("artifact"),
+            None,
+            relaunch(),
+        )
+        .expect("journal");
+        let backup = temp.path().join("backup");
+        std::fs::write(&backup, b"old").expect("backup");
+        journal.set_backup(&backup).expect("set backup");
+        assert!(matches!(
+            journal.finalize(),
+            Err(UpdateError::JournalBackupTargetMissing { .. })
+        ));
+        assert!(backup.exists());
+    }
+
+    #[test]
+    fn refuses_to_finalize_an_unrelated_backup() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = journal(&temp);
+        let elsewhere = tempfile::tempdir().expect("other");
+        let backup = elsewhere.path().join("backup");
+        std::fs::write(&backup, b"old").expect("backup");
+        journal.set_backup(&backup).expect("set backup");
+        assert!(matches!(
+            journal.finalize(),
+            Err(UpdateError::JournalBackupPath { .. })
+        ));
+        assert!(backup.exists());
+    }
+
+    #[test]
+    fn records_reboot_state() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = journal(&temp);
+        journal.mark_reboot_required().expect("reboot");
+        assert_eq!(
+            ApplyJournal::load(journal.path()).expect("load").state(),
+            ApplyState::RebootRequired
+        );
+    }
+
+    #[test]
     fn rejects_malformed_json() {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("apply.json");
@@ -606,6 +1120,229 @@ mod tests {
                 actual: ApplyState::Prepared
             })
         ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn helper_applies_an_appimage_before_relaunch() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("new.AppImage");
+        std::fs::write(&artifact, b"new appimage").expect("artifact");
+        let target = temp.path().join("App.AppImage");
+        std::fs::write(&target, b"old appimage").expect("target");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            "linux-x86_64",
+            "https://example.test/App.AppImage",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let journal = ApplyJournal::create_for_apply(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            ApplyPlan::new(
+                ApplyKind::AppImage,
+                &artifact,
+                Some(target.clone()),
+                manifest,
+                key.public_key(),
+            ),
+            relaunch(),
+        )
+        .expect("journal");
+
+        run_restart_helper(journal.path()).expect("helper");
+        assert_eq!(std::fs::read(&target).expect("target"), b"new appimage");
+        let loaded = ApplyJournal::load(journal.path()).expect("load");
+        assert_eq!(loaded.state(), ApplyState::Restarted);
+        assert!(loaded.backup().is_some_and(|backup| backup.is_file()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn helper_rejects_a_tampered_staged_artifact() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("new.AppImage");
+        std::fs::write(&artifact, b"new appimage").expect("artifact");
+        let target = temp.path().join("App.AppImage");
+        std::fs::write(&target, b"old appimage").expect("target");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            "linux-x86_64",
+            "https://example.test/App.AppImage",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let journal = ApplyJournal::create_for_apply(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            ApplyPlan::new(
+                ApplyKind::AppImage,
+                &artifact,
+                Some(target.clone()),
+                manifest,
+                key.public_key(),
+            ),
+            relaunch(),
+        )
+        .expect("journal");
+
+        std::fs::write(&artifact, b"tampered appimage").expect("tamper");
+        assert!(matches!(
+            run_restart_helper(journal.path()),
+            Err(UpdateError::ArtifactSize { .. } | UpdateError::ArtifactHash)
+        ));
+        assert_eq!(std::fs::read(&target).expect("target"), b"old appimage");
+        assert_eq!(
+            ApplyJournal::load(journal.path()).expect("load").state(),
+            ApplyState::Failed
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn helper_rejects_a_manifest_version_mismatch() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("new.AppImage");
+        std::fs::write(&artifact, b"new appimage").expect("artifact");
+        let target = temp.path().join("App.AppImage");
+        std::fs::write(&target, b"old appimage").expect("target");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "9.9.9",
+            "linux-x86_64",
+            "https://example.test/App.AppImage",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let journal = ApplyJournal::create_for_apply(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            ApplyPlan::new(
+                ApplyKind::AppImage,
+                &artifact,
+                Some(target.clone()),
+                manifest,
+                key.public_key(),
+            ),
+            relaunch(),
+        )
+        .expect("journal");
+
+        assert!(matches!(
+            run_restart_helper(journal.path()),
+            Err(UpdateError::JournalVersionMismatch { .. })
+        ));
+        assert_eq!(std::fs::read(&target).expect("target"), b"old appimage");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn helper_rejects_a_manifest_platform_mismatch() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("new.AppImage");
+        std::fs::write(&artifact, b"new appimage").expect("artifact");
+        let target = temp.path().join("App.AppImage");
+        std::fs::write(&target, b"old appimage").expect("target");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            "windows-x86_64",
+            "https://example.test/App.AppImage",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let journal = ApplyJournal::create_for_apply(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            ApplyPlan::new(
+                ApplyKind::AppImage,
+                &artifact,
+                Some(target.clone()),
+                manifest,
+                key.public_key(),
+            ),
+            relaunch(),
+        )
+        .expect("journal");
+
+        assert!(matches!(
+            run_restart_helper(journal.path()),
+            Err(UpdateError::JournalPlatformMismatch { .. })
+        ));
+        assert_eq!(std::fs::read(&target).expect("target"), b"old appimage");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn helper_marks_an_unsupported_apply_failed() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("installer.msi");
+        std::fs::write(&artifact, b"installer").expect("artifact");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            "linux-x86_64",
+            "https://example.test/installer.msi",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let journal = ApplyJournal::create_for_apply(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            ApplyPlan::new(
+                ApplyKind::WindowsInstaller,
+                &artifact,
+                None,
+                manifest,
+                key.public_key(),
+            ),
+            relaunch(),
+        )
+        .expect("journal");
+
+        assert!(matches!(
+            run_restart_helper(journal.path()),
+            Err(UpdateError::UnsupportedApply {
+                kind: ApplyKind::WindowsInstaller
+            })
+        ));
+        assert_eq!(
+            ApplyJournal::load(journal.path()).expect("load").state(),
+            ApplyState::Failed
+        );
     }
 
     #[test]

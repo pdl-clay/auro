@@ -5,9 +5,9 @@ a 40 MB binary has no reason to exist.
 
 | Metric | Target at 1.0 | Status |
 |---|---|---|
-| Cold start | < 80 ms | Not measured - no binary |
-| Idle RAM (hello world) | < 40 MB | Not measured - no binary |
-| Hello-world binary (stripped) | < 6 MB | Not measured - no binary |
+| Cold start | < 80 ms | Local 5-run median **154.9 ms** (first-frame request, not painted frame) |
+| Idle RAM (hello world) | < 40 MB | Local 5-run median **105.3 MB** |
+| Hello-world binary (stripped) | < 6 MB | Local **15.6 MB** |
 | Edit to see | < 500 ms | **Not met as a median.** Hot mode (opt-in): Linux **521 ms** median save→render (N=11, 473-572, `debug=0` ThinLink, state preserved), patch→render 8-24 ms; Windows (WinBoat, MSVC, interactive session) **1375 ms** median over five steady-state patches (1237-1823, first patch 2806; patch→render 8-38 ms). macOS unmeasured. Relaunch mode still measures 2730 ms save→repaint-requested; an earlier relink-dominated run measured ~60 s. See [spec 0004](../specs/0004-hot-reload.md) and [hot reload](../architecture/hot-reload.md) |
 | Frame time | 16.6 ms at 60 fps | Inherited from GPUI, unverified |
 
@@ -23,10 +23,25 @@ Precision matters more than the number, because a budget you cannot reproduce is
 - **Edit to see** - save event in the editor to a changed pixel, median of N edits, hot reload
   enabled, state preserved.
 
+## Process harness
+
+`auro bench --dir <app>` builds the release binary, spawns it `--runs` times with
+`AURO_STARTUP_TRACE=1`, measures spawn-to-`auro:startup` (first-frame request), samples RSS after
+`--idle-seconds`, and reports the release binary size. `--json` emits a machine-readable result.
+The marker is a first-frame request, not proof of a painted frame; the stricter painted-frame
+method remains a target. Run it on an otherwise idle machine and record the platform/toolchain with
+the result.
+
+Local measurement, 2026-11-18, Linux x86_64, niri/Wayland, release build, `examples/hello`, five
+runs with a five-second idle sample: startup median **154.9 ms**, idle RSS median **105.3 MB**,
+stripped binary **15.6 MB**. These are alpha measurements, not a published baseline or a Tauri/
+Electron comparison; the 1.0 targets above are not met yet.
+
 ## Enforcement
 
 The roadmap commits to measuring these in CI and failing the build on regression. That is not
-implemented yet: nothing is bundled, so there is no binary to measure. When it lands:
+implemented yet: the harness exists, but there is no committed baseline, pinned runner class or
+regression gate. When it lands:
 
 - benchmarks run on a pinned runner class, and the runner is recorded with the result;
 - results are committed as a baseline file, so a pull request shows a delta;

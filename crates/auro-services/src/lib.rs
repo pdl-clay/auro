@@ -22,7 +22,7 @@ pub use notifications::{Notifications, NotificationsBackend, NotificationsError}
 pub use shortcuts::{ShortcutBackend, Shortcuts, ShortcutsError};
 #[cfg(feature = "tray")]
 pub use tray::{
-    Tray, TrayBackend, TrayButton, TrayButtonState, TrayClick, TrayError, TrayMenuItem,
+    Tray, TrayBackend, TrayButton, TrayButtonState, TrayClick, TrayError, TrayIcon, TrayMenuItem,
 };
 
 /// Why an autostart operation failed.
