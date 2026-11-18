@@ -47,9 +47,9 @@ manager's own non-zero code is an installer failure.
 ## Journal and restart
 
 The app writes an atomically replaced JSON journal (`Prepared`), keeps a lock file and spawns the
-same executable with `AURO_UPDATE_RESTART_HELPER`. The helper waits for the lock, re-verifies the
-manifest and artifact, applies the platform action, marks `Applied` (or `RebootRequired`), and
-relaunches after the old process exits. Failures are `Failed` with a diagnostic and no relaunch.
+same executable with `AURO_UPDATE_RESTART_HELPER`. The helper waits for the old process to release
+the lock, re-verifies the manifest and artifact, applies the platform action, marks `Applied` (or
+`RebootRequired`), and relaunches. Failures are `Failed` with a diagnostic and no relaunch.
 The app classifies the next start with `reconcile` and cleans up with `finalize` after `Complete`.
 
 The journal is user-writable local state. It is a crash-recovery record, not a second trust
