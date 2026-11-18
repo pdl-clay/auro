@@ -31,7 +31,7 @@ installable `auro-cli` yet.
 - `auro-update`: Linux `AppImageInstaller` replaces a staged AppImage atomically, sets mode `0755`,
   and retains a hard-link (or copy) backup. `InstallReceipt` can roll the previous file back or
   discard the backup after the new version is accepted. Windows/macOS apply is in spec 0025;
-  package-manager apply and elevation are not implemented (spec 0014, ADR 0013).
+  package-manager apply is spec 0027 and elevation is spec 0029; rollback remains package-manager policy.
 - `auro-update`: `ApplyJournal` records one apply attempt atomically (`Prepared`, `Applied`,
   `RebootRequired`, `Failed`, `RolledBack`, `Restarted`), with artifact/target/backup and relaunch
   command. The
@@ -43,8 +43,12 @@ installable `auro-cli` yet.
   and `finalize` removes a sibling backup, journal and lock (specs 0026, ADR 0015).
 - `auro-update`: `LinuxPackageInstaller` runs a staged `.deb` through `/usr/bin/dpkg -i` or a
   `.rpm` through `/usr/bin/rpm -U` using the shell-free runner and helper journal
-  (`ApplyKind::DebPackage`/`RpmPackage`). Elevation and rollback remain package-manager policy
-  (spec 0027).
+  (`ApplyKind::DebPackage`/`RpmPackage`). The helper elevates through `pkexec` with a held
+  descriptor and reports `ElevationFailed`; rollback remains package-manager policy
+  (spec 0027, spec 0029).
+- `auro-update`: Linux package apply can run through `pkexec` in the restart helper (`LinuxElevation::Pkexec`),
+  passing the opened, journal-verified package via `/proc/<pid>/fd/<fd>`; a non-zero `pkexec` result is
+  `ElevationFailed`. The app never self-elevates (spec 0029, ADR 0017).
 - `auro-cli`: `auro bench --dir <app>` builds the release binary and reports median startup to the
   first-frame marker, idle RSS and binary size, with `--json` output. The `examples/hello` fixture
   is the no-toolkit benchmark app; a local 5-run Linux measurement is recorded as 154.9 ms,

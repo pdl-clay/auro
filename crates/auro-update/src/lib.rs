@@ -103,6 +103,9 @@ pub enum UpdateError {
     #[error("installer `{}` failed with exit code {code:?}", .path.display())]
     InstallerFailed { path: PathBuf, code: Option<i32> },
 
+    #[error("elevation program `{}` failed with exit code {code:?}", .program.display())]
+    ElevationFailed { program: PathBuf, code: Option<i32> },
+
     #[error("update archive `{}` contains no .app bundle", .path.display())]
     AppBundleMissing { path: PathBuf },
 
@@ -214,7 +217,7 @@ pub use windows::{WindowsInstallOutcome, WindowsInstaller, WindowsInstallerKind}
 mod linux_package;
 
 #[cfg(target_os = "linux")]
-pub use linux_package::{LinuxPackageInstaller, LinuxPackageKind};
+pub use linux_package::{LinuxElevation, LinuxPackageInstaller, LinuxPackageKind};
 
 #[cfg(any(target_os = "macos", test))]
 mod macos;

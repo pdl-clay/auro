@@ -37,7 +37,7 @@ mod app;
 pub mod windows;
 
 #[cfg(feature = "updater")]
-/// Signed update manifests, staging, platform apply and restart handoff (specs 0012-0015, 0025, 0026).
+/// Signed update manifests, staging, platform apply and restart handoff (specs 0012-0015, 0025-0029).
 ///
 /// Enable the `updater` feature to use this module.
 pub mod update {
@@ -50,7 +50,7 @@ pub mod update {
 
     #[cfg(target_os = "linux")]
     pub use auro_update::{
-        AppImageInstaller, InstallReceipt, LinuxPackageInstaller, LinuxPackageKind,
+        AppImageInstaller, InstallReceipt, LinuxElevation, LinuxPackageInstaller, LinuxPackageKind,
     };
 
     #[cfg(target_os = "windows")]

@@ -1,7 +1,7 @@
 # 0025 - Windows and macOS apply
 
 **Status:** Implemented (2026-11-17; Windows MSI/NSIS execution and macOS `.app.zip` replacement;
-`.dmg`, macOS packages and elevation are not implemented; restart handoff is spec 0026)
+`.dmg`, macOS packages and elevation are separate; Linux package elevation is [spec 0029](0029-linux-package-elevation.md); restart handoff is spec 0026)
 
 Spec 0013 stops at a verified staged artifact. Spec 0014 adds the Linux AppImage apply path. This
 spec adds the next two platform paths: run a Windows MSI/NSIS installer, and replace a macOS `.app`
@@ -197,7 +197,7 @@ The snippet is an intended call shape, not an app that exists yet.
 |---|---|
 | Windows elevation, reboot and installer UI policy | Windows update UX/spec |
 | macOS `.dmg` and `.pkg` apply | macOS package apply spec |
-| `.deb`/`.rpm` package-manager apply | Linux package updater spec |
+| `.deb`/`.rpm` package-manager apply | [Linux package apply](0027-linux-packages.md), [elevation](0029-linux-package-elevation.md) |
 | Restart/helper protocol and crash-safe apply journal | [Update journal and restart helper](0026-update-journal.md) |
 | macOS code-signing preservation and notarization checks | macOS update hardening |
 | Deltas, rollout and downgrade policy | Updater rollout spec |

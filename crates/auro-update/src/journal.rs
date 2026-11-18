@@ -705,7 +705,9 @@ fn apply_kind(
         ApplyKind::DebPackage | ApplyKind::RpmPackage => {
             #[cfg(target_os = "linux")]
             {
-                crate::LinuxPackageInstaller::new().install(staged)?;
+                crate::LinuxPackageInstaller::new()
+                    .elevated()
+                    .install(staged)?;
                 Ok(ApplyOutcome {
                     backup: None,
                     restart_required: false,

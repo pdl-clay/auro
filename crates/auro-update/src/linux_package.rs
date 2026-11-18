@@ -7,9 +7,24 @@
 //! [`UpdateError::InstallerFailed`].
 
 use std::ffi::OsString;
+use std::fs::File;
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::process;
 
 use crate::{InstallerRunner, StagedUpdate, SystemInstallerRunner, UpdateError};
+
+const PKEXEC: &str = "/usr/bin/pkexec";
+
+/// How a package-manager command obtains root.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LinuxElevation {
+    /// Run the package manager as the current user.
+    #[default]
+    None,
+    /// Authenticate through polkit and run the package manager as root with `pkexec`.
+    Pkexec,
+}
 
 /// The Linux package format detected from the staged artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +52,7 @@ impl LinuxPackageKind {
 /// Runs staged `.deb`/`.rpm` packages through the host package manager.
 pub struct LinuxPackageInstaller {
     runner: Box<dyn InstallerRunner>,
+    elevation: LinuxElevation,
 }
 
 impl Default for LinuxPackageInstaller {
@@ -55,13 +71,35 @@ impl LinuxPackageInstaller {
     pub fn with_runner(runner: impl InstallerRunner + 'static) -> Self {
         LinuxPackageInstaller {
             runner: Box::new(runner),
+            elevation: LinuxElevation::None,
+        }
+    }
+
+    /// Requests polkit elevation through `pkexec` before running the package manager.
+    ///
+    /// The helper passes the opened staged artifact through `/proc/<pid>/fd/<fd>` so the package
+    /// manager does not reopen a path that can be replaced after verification.
+    pub fn elevated(mut self) -> Self {
+        self.elevation = LinuxElevation::Pkexec;
+        self
+    }
+
+    /// Creates an installer with an explicit elevation policy.
+    pub fn with_elevation(
+        runner: impl InstallerRunner + 'static,
+        elevation: LinuxElevation,
+    ) -> Self {
+        LinuxPackageInstaller {
+            runner: Box::new(runner),
+            elevation,
         }
     }
 
     /// Runs `dpkg -i` or `rpm -U` on the staged package.
     ///
-    /// The package manager's exit code is the result. Elevation is not requested; a non-root
-    /// invocation that the package manager rejects surfaces as `InstallerFailed`.
+    /// Without elevation a permission failure is reported as `InstallerFailed`. With
+    /// [`LinuxElevation::Pkexec`], a non-zero `pkexec` result (including a denied polkit prompt) is
+    /// [`UpdateError::ElevationFailed`]; a missing `pkexec` executable surfaces as an I/O error.
     pub fn install(&self, staged: &StagedUpdate) -> Result<LinuxPackageKind, UpdateError> {
         let path = staged.path();
         if !path.is_file() {
@@ -74,10 +112,33 @@ impl LinuxPackageInstaller {
                 path: path.to_path_buf(),
                 expected: ".deb or .rpm",
             })?;
-        let (program, args) = command_for(kind, path);
+        let (program, args, held) = match self.elevation {
+            LinuxElevation::None => {
+                let (program, args) = command_for(kind, path);
+                (program, args, None)
+            }
+            LinuxElevation::Pkexec => {
+                // Keep the descriptor open until the privileged child opens the `/proc` path.
+                // SECURITY: this avoids reopening a user-replaceable path after verification.
+                let artifact = File::open(path)?;
+                let descriptor = PathBuf::from(format!(
+                    "/proc/{}/fd/{}",
+                    process::id(),
+                    artifact.as_raw_fd()
+                ));
+                let (package, package_args) = command_for(kind, &descriptor);
+                let mut args = Vec::with_capacity(package_args.len() + 1);
+                args.push(package.into_os_string());
+                args.extend(package_args);
+                (PathBuf::from(PKEXEC), args, Some(artifact))
+            }
+        };
         let code = self.runner.run(&program, &args)?;
+        drop(held);
         if code == Some(0) {
             Ok(kind)
+        } else if self.elevation == LinuxElevation::Pkexec {
+            Err(UpdateError::ElevationFailed { program, code })
         } else {
             Err(UpdateError::InstallerFailed {
                 path: path.to_path_buf(),
@@ -200,6 +261,64 @@ mod tests {
                 vec![OsString::from("-U"), staged.path().as_os_str().to_owned()]
             )]
         );
+    }
+
+    #[test]
+    fn elevated_deb_runs_pkexec_dpkg_with_a_held_descriptor() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let staged = staged(&temp, "deb");
+        let runner = MockRunner::with_code(0);
+        let installer = LinuxPackageInstaller::with_runner(runner.clone()).elevated();
+
+        assert_eq!(
+            installer.install(&staged).expect("install"),
+            LinuxPackageKind::Deb
+        );
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, PathBuf::from("/usr/bin/pkexec"));
+        let args = &calls[0].1;
+        assert_eq!(args[0], OsString::from("/usr/bin/dpkg"));
+        assert_eq!(args[1], OsString::from("-i"));
+        assert!(
+            args[2]
+                .to_string_lossy()
+                .starts_with(&format!("/proc/{}/fd/", std::process::id())),
+            "elevated package path must be the helper's held descriptor: {args:?}"
+        );
+    }
+
+    #[test]
+    fn elevated_rpm_runs_pkexec_rpm() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let staged = staged(&temp, "rpm");
+        let runner = MockRunner::with_code(0);
+        let installer = LinuxPackageInstaller::with_runner(runner.clone()).elevated();
+
+        assert_eq!(
+            installer.install(&staged).expect("install"),
+            LinuxPackageKind::Rpm
+        );
+        let calls = runner.calls();
+        assert_eq!(calls[0].0, PathBuf::from("/usr/bin/pkexec"));
+        assert_eq!(
+            &calls[0].1[..2],
+            [OsString::from("/usr/bin/rpm"), OsString::from("-U")]
+        );
+    }
+
+    #[test]
+    fn reports_pkexec_authorization_failure() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let staged = staged(&temp, "deb");
+        let installer = LinuxPackageInstaller::with_runner(MockRunner::with_code(126)).elevated();
+        assert!(matches!(
+            installer.install(&staged),
+            Err(UpdateError::ElevationFailed {
+                code: Some(126),
+                ..
+            })
+        ));
     }
 
     #[test]

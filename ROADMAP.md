@@ -279,7 +279,7 @@ cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.
 the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
-notarization, `.dmg`/`.pkg`, elevated package-manager apply, AccessKit/IME, and the product exit
+notarization, `.pkg`, package rollback/downgrade, AccessKit/IME, and the product exit
 remain.
 
 **Signing/update foundations (2026-11-18):** `auro-sign` provides Ed25519 keys/signatures and
@@ -292,8 +292,8 @@ or discard it. On Windows, `WindowsInstaller` runs staged MSI/NSIS installers si
 `3010` to a restart request; on macOS, `MacAppInstaller` swaps a `.app` from a staged `.app.zip`
 and returns a rollback receipt. `ApplyJournal` and the self-helper handoff record, verify and apply what was staged, wait for the
 old process to exit through a lock, and relaunch the replacement without a shell or a second
-binary. Platform signing still needs certificates/credentials; `.pkg`, notarization and
-elevated package-manager apply are not implemented.
+binary. Platform signing still needs certificates/credentials; `.pkg`, notarization and package
+rollback/downgrade are not implemented.
 
 **Platform services (2026-11-17):** `AppInstance` and `App::single_instance()` acquire a per-user
 advisory file lock after config load and refuse a secondary process before GPUI starts
@@ -313,6 +313,10 @@ accessibility pass remains blocked upstream.
 **Deltas and rollout (2026-11-18):** manifest v2 carries optional base-bound bsdiff deltas and a
 deterministic percentage rollout; full downloads remain the fallback.
 
+**Linux package elevation (2026-11-18):** the restart helper runs `.deb`/`.rpm` apply through
+`pkexec` with a held descriptor; the app never self-elevates. Package rollback/downgrade remains
+the package manager's policy.
+
 **Benchmark harness (2026-11-18):** `auro bench` measures spawn-to-first-frame-request, idle RSS
 and stripped binary size; `examples/hello` is the no-toolkit fixture. A local 5-run Linux/Wayland
 result (154.9 ms, 105.3 MB, 15.6 MB) is recorded in the performance budget, not as a published
@@ -321,7 +325,7 @@ baseline or comparison.
 **Phase 2 technical status (2026-11-18):** bundling; signed manifests, staging and Linux AppImage
 apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
 `auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
-elevated package-manager apply, macOS `.dmg`/`.pkg`, and AccessKit/IME. The exit criterion also needs
+Linux package rollback/downgrade, macOS `.pkg`/notarization, and AccessKit/IME. The exit criterion also needs
 three real apps and published benchmarks; it is not met by the workspace alone.
 
 **Alpha candidate (2026-11-17):** the workspace and internal requirements are

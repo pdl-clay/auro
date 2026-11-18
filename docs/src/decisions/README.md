@@ -58,3 +58,4 @@ ADR keeps the conclusion.
 | [0014](0014-platform-update-apply.md) | Platform updates use the native installer or bundle swap | Accepted |
 | [0015](0015-self-helper-restart.md) | Restart through the app executable and a durable journal | Accepted |
 | [0016](0016-deltas-and-rollout.md) | Delta patches are base-bound; rollout is deterministic | Accepted |
+| [0017](0017-linux-package-elevation.md) | Linux package elevation is explicit pkexec, never self-root | Accepted |

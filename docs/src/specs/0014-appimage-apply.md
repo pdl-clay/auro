@@ -2,7 +2,7 @@
 
 **Status:** Implemented (2026-11-17; Linux AppImage only; Windows/macOS apply is
 [spec 0025](0025-platform-apply.md), restart handoff is [spec 0026](0026-update-journal.md);
-helper-side apply, elevation and package-manager installers are not implemented)
+helper-side apply and package-manager installers are separate; elevation is [spec 0029](0029-linux-package-elevation.md))
 
 Spec 0013 stops at a verified staged artifact. This spec adds the first apply path: replacing a
 single-file Linux AppImage, with a receipt that can roll the previous file back. It deliberately

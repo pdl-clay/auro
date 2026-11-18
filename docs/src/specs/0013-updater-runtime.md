@@ -2,7 +2,7 @@
 
 **Status:** Implemented (2026-11-18; full and delta staging and staged rollout; platform apply is
 [spec 0014](0014-appimage-apply.md)/[0025](0025-platform-apply.md); package-manager apply and
-helper-side apply are separate)
+helper-side apply are separate; Linux package elevation is [spec 0029](0029-linux-package-elevation.md))
 
 Spec 0012 fixes the signed manifest. This spec fixes the first runtime half: deciding whether an
 offer is acceptable, downloading it, verifying the bytes and putting a verified artifact in a

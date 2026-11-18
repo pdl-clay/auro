@@ -1,7 +1,7 @@
 # 0026 - Update journal and restart helper
 
 **Status:** Implemented (2026-11-18; journal, helper-side apply/relaunch, reconciliation and cleanup;
-automatic startup recovery, elevation and helper-side `.dmg` apply are not implemented)
+automatic startup recovery, elevation ([spec 0029](0029-linux-package-elevation.md)) and helper-side `.dmg` apply are separate)
 
 Spec 0025 stops after the platform apply. A running app still needs to record what it installed,
 hand off after it exits, and relaunch the replacement. This spec fixes that handoff.
@@ -24,7 +24,7 @@ hand off after it exits, and relaunch the replacement. This spec fixes that hand
 ## Out of scope
 
 - `.dmg`/`.pkg`, `.deb`/`.rpm` and package-manager helper apply.
-- Elevation, UAC, `sudo` or a privileged helper.
+- Root-owned helper installation, UAC, `sudo` or Auro-managed passwords.
 - A separate helper binary, service, launchd job or Windows scheduled task.
 - State snapshots across the restart; that contract belongs to spec 0004.
 - Automatic cleanup of journals, backups or old artifacts.
@@ -266,7 +266,7 @@ until `spawn_helper` returns; the lock is retained by the helper module.
 | Question | Where it settles |
 |---|---|
 | Automatic startup recovery and cleanup policy | Apply/restart follow-up |
-| Elevation and an OS service/scheduled task | Platform update UX/spec |
+| Root-owned helper, polkit policy and an OS service/scheduled task | [Package elevation](0029-linux-package-elevation.md) |
 | Journal/backup cleanup policy | Operations follow-up |
 | Persistent download resume | Updater resume spec |
 | State preservation across the relaunch | Spec 0004 snapshot contract |

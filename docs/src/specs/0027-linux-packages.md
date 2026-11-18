@@ -1,7 +1,8 @@
 # 0027 - Linux package apply
 
 **Status:** Implemented (2026-11-18; `.deb`/`.rpm` command execution and helper integration;
-elevation, rollback and package-manager policy are not implemented)
+pkexec elevation is [spec 0029](0029-linux-package-elevation.md); rollback and package-manager
+policy are not implemented)
 
 Spec 0014 handles a single-file AppImage. This spec covers distribution packages: run `dpkg -i` for
 a staged `.deb`, or `rpm -U` for a staged `.rpm`, through the same shell-free runner used by the
@@ -16,7 +17,7 @@ Windows installer.
 
 ## Out of scope
 
-- Elevation, `sudo`, `pkexec`, polkit or a privileged helper.
+- A root-owned helper, `sudo`, polkit policy installation or an Auro-managed password prompt.
 - Rollback or package downgrade policy; the package manager owns the transaction.
 - Signature verification of the package itself; the staged artifact is already verified by the
   unsigned manifest hash.
@@ -42,11 +43,12 @@ other code is `InstallerFailed`.
 *Rejected:* auto-detecting APT/DNF/Zypper. The low-level tool is deterministic; dependency policy
 belongs to a later package-manager spec.
 
-### D2 - No implicit elevation
+### D2 - Elevation is a separate, explicit policy
 
-The helper and app run as the current user. A package manager that needs root will fail with a
-non-zero code and a typed `InstallerFailed`; Auro does not invoke `sudo`, `pkexec` or a privileged
-helper. The app can surface the failure or choose a different install path.
+`LinuxPackageInstaller::new()` runs as the current user; a package manager that needs root fails
+with `InstallerFailed`. The restart helper uses the explicit `pkexec` policy in
+[spec 0029](0029-linux-package-elevation.md) for `DebPackage`/`RpmPackage`. The app itself never
+self-elevates, and `sudo` is not used.
 
 ### D3 - The helper reuses the platform apply layer
 
@@ -60,10 +62,13 @@ failure.
 ```rust
 pub enum LinuxPackageKind { Deb, Rpm }
 
-pub struct LinuxPackageInstaller { /* runner */ }
+pub enum LinuxElevation { None, Pkexec }
+
+pub struct LinuxPackageInstaller { /* runner, elevation */ }
 
 impl LinuxPackageInstaller {
-    pub fn new() -> Self;
+    pub fn new() -> Self;                         // direct
+    pub fn elevated(self) -> Self;                // pkexec, spec 0029
     pub fn with_runner(runner: impl InstallerRunner + 'static) -> Self;
     pub fn install(
         &self,
@@ -102,8 +107,9 @@ The snippet is an intended call shape, not an app that exists yet.
 1. `.deb` runs `/usr/bin/dpkg -i <staged>` (`runs_dpkg_for_a_deb`).
 2. `.rpm` runs `/usr/bin/rpm -U <staged>` (`runs_rpm_for_an_rpm`).
 3. A non-zero package-manager code is `InstallerFailed` (`reports_package_manager_failure`).
+   Elevated failures are `ElevationFailed` (`reports_pkexec_authorization_failure`).
 4. An unknown extension is `UnsupportedInstaller` (`rejects_unknown_artifacts`).
-5. `ApplyKind::DebPackage`/`RpmPackage` dispatch through the helper on Linux.
+5. `ApplyKind::DebPackage`/`RpmPackage` dispatch through the elevated helper on Linux.
 6. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, `cargo test -p auro-services --features tray --locked`,
@@ -113,7 +119,7 @@ The snippet is an intended call shape, not an app that exists yet.
 
 | Question | Where it settles |
 |---|---|
-| Elevation/polkit/privileged helper | Platform package UX spec |
+| Root-owned helper and narrowed polkit policy | [Package elevation](0029-linux-package-elevation.md) |
 | Package rollback and downgrade policy | Package updater spec |
 | apt/dnf/zypper policy and dependency repair | Package-manager spec |
 | Package signature verification | Release/package trust spec |
