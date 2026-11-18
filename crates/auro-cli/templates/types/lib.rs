@@ -6,8 +6,10 @@
 
 /// Bytes in the fixed frame. Changing this is an ABI change.
 const FRAME_BYTES: usize = 240;
-/// A title longer than this is truncated when encoded; the scaffold view uses short labels.
+/// A title must fit here; a longer one is rejected instead of silently truncated.
 const TITLE_BYTES: usize = 200;
+/// Marks a frame whose payload did not fit; never a valid schema value.
+const OVERFLOW: u64 = 1 << 63;
 
 /// The user-facing view values. This type may change; the frame below carries them.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -37,22 +39,26 @@ impl HotData {
     pub fn encode(data: &ViewData) -> Self {
         let mut bytes = [0u8; FRAME_BYTES];
         let title = data.title.as_bytes();
-        let mut len = title.len().min(TITLE_BYTES);
-        // Never split a UTF-8 code point: the decoder would reject the whole frame.
-        while !data.title.is_char_boundary(len) {
-            len -= 1;
-        }
+        let len = title.len().min(TITLE_BYTES);
         bytes[..4].copy_from_slice(&(len as u32).to_le_bytes());
         bytes[4..4 + len].copy_from_slice(&title[..len]);
         let accent_at = 4 + TITLE_BYTES;
         bytes[accent_at..accent_at + 4].copy_from_slice(&data.accent.to_le_bytes());
+        let overflow = if data.title.len() > TITLE_BYTES {
+            OVERFLOW
+        } else {
+            0
+        };
         Self {
-            schema: Self::SCHEMA,
+            schema: Self::SCHEMA | overflow,
             bytes,
         }
     }
 
     pub fn decode(&self) -> Result<ViewData, &'static str> {
+        if self.schema & OVERFLOW != 0 {
+            return Err("the view title is longer than the fixed frame");
+        }
         if self.schema != Self::SCHEMA {
             return Err("the patched boundary uses a different view-data schema");
         }
@@ -96,20 +102,17 @@ mod tests {
     }
 
     #[test]
-    fn truncates_an_oversized_title_safely() {
+    fn rejects_an_oversized_title_instead_of_truncating_it() {
         let data = ViewData {
             title: "x".repeat(TITLE_BYTES + 50),
             accent: 0,
         };
-        let decoded = HotData::encode(&data).decode().expect("decodes");
-        assert_eq!(decoded.title.len(), TITLE_BYTES);
+        assert!(HotData::encode(&data).decode().is_err());
 
         let data = ViewData {
             title: "é".repeat(TITLE_BYTES),
             accent: 0,
         };
-        let decoded = HotData::encode(&data).decode().expect("decodes");
-        assert!(decoded.title.len() <= TITLE_BYTES);
-        assert!(decoded.title.is_char_boundary(decoded.title.len()));
+        assert!(HotData::encode(&data).decode().is_err());
     }
 }
