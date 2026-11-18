@@ -20,7 +20,8 @@ re-export requires the facade's `services` feature.
   `xdg-mime`.
 - Universal links / HTTPS associations.
 - Authentication, consent prompts and unknown-origin policy.
-- Forwarding to an already-running instance; single-instance forwarding is a separate slice.
+- Forwarding to an already-running instance; `AppInstance` forwards raw arguments, but feeding
+  them into `AppLinks` remains app/API work.
 
 ## Decisions
 
@@ -111,7 +112,7 @@ for link in links.drain() {
 
 | Question | Where it settles |
 |---|---|
-| Forwarding links to a running instance | Single-instance IPC spec |
+| Feeding forwarded arguments into `AppLinks` | Deep-link follow-up |
 | Universal links / HTTPS associations | Deep-link follow-up |
 | macOS bundle registration automation | Packager follow-up |
 | Unknown-origin consent policy | Deep-link UX spec |

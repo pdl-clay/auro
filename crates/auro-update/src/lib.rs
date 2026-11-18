@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 /// The manifest format this build understands.
 pub const FORMAT_VERSION: u32 = 1;
 
+/// The update journal format this build understands.
+pub const JOURNAL_FORMAT_VERSION: u32 = 1;
+
 /// Why a manifest or artifact failed verification.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -64,22 +67,104 @@ pub enum UpdateError {
     #[error("download failed: {0}")]
     Http(#[from] ureq::Error),
 
-    #[error("AppImage target `{}` does not exist", .path.display())]
+    #[error("install target `{}` does not exist", .path.display())]
     InstallTargetMissing { path: PathBuf },
 
-    #[error("AppImage target `{}` is not a regular file", .path.display())]
+    #[error("install target `{}` is not a regular file", .path.display())]
     InstallTargetNotFile { path: PathBuf },
+
+    #[error("install target `{}` is not a directory", .path.display())]
+    InstallTargetNotDirectory { path: PathBuf },
 
     #[error("staged artifact `{}` is missing", .path.display())]
     StagedArtifactMissing { path: PathBuf },
 
     #[error("rollback backup `{}` is missing", .path.display())]
     RollbackBackupMissing { path: PathBuf },
+
+    #[error("unsupported installer artifact `{}`; expected {expected}", .path.display())]
+    UnsupportedInstaller {
+        path: PathBuf,
+        expected: &'static str,
+    },
+
+    #[error("installer `{}` failed with exit code {code:?}", .path.display())]
+    InstallerFailed { path: PathBuf, code: Option<i32> },
+
+    #[error("update archive `{}` contains no .app bundle", .path.display())]
+    AppBundleMissing { path: PathBuf },
+
+    #[error("update archive `{}` contains more than one .app bundle", .path.display())]
+    AppBundleAmbiguous { path: PathBuf },
+
+    #[cfg(any(target_os = "macos", test))]
+    #[error("archive error: {0}")]
+    Archive(#[from] zip::result::ZipError),
+
+    #[error("cannot install `{}`; restoring backup `{}` failed: {message}", .target.display(), .backup.display())]
+    RestoreFailed {
+        target: PathBuf,
+        backup: PathBuf,
+        message: String,
+    },
+
+    #[error("cannot roll back `{}`; backup `{}` remains: {message}", .target.display(), .backup.display())]
+    RollbackFailed {
+        target: PathBuf,
+        backup: PathBuf,
+        message: String,
+    },
+
+    #[error("archive entry `{}` escapes the extraction directory through a symlink", .path.display())]
+    UnsafeArchive { path: PathBuf },
+
+    #[error("update journal `{}` is missing", .path.display())]
+    JournalMissing { path: PathBuf },
+
+    #[error(
+        "unsupported update journal format {0}; this build understands {JOURNAL_FORMAT_VERSION}"
+    )]
+    JournalFormat(u32),
+
+    #[error("update journal is {actual:?}; expected Applied")]
+    JournalNotApplied { actual: crate::journal::ApplyState },
+
+    #[error("restart lock `{}` is busy: {message}", .path.display())]
+    RestartLock { path: PathBuf, message: String },
+
+    #[error("timed out waiting for the app to exit before restart")]
+    RestartTimeout,
+
+    #[error("journal lock `{}` is not the sibling of `{}`", .lock.display(), .path.display())]
+    JournalLockPath { path: PathBuf, lock: PathBuf },
+
+    #[error("relaunch executable `{}` is missing", .path.display())]
+    RelaunchMissing { path: PathBuf },
 }
+
+mod journal;
+
+pub use journal::{ApplyJournal, ApplyState, RESTART_HELPER_ENV, Relaunch, run_restart_helper};
+
+mod installer;
+
+pub use installer::{InstallerRunner, SystemInstallerRunner};
 
 mod runtime;
 
 pub use runtime::{StagedUpdate, UpdateDecision, Updater};
+
+#[cfg(any(target_os = "windows", test))]
+mod windows;
+
+#[cfg(target_os = "windows")]
+pub use windows::{WindowsInstallOutcome, WindowsInstaller, WindowsInstallerKind};
+
+#[cfg(any(target_os = "macos", test))]
+mod macos;
+
+#[cfg(target_os = "macos")]
+pub use macos::{MacAppInstaller, MacAppReceipt};
 
 #[cfg(target_os = "linux")]
 mod appimage;

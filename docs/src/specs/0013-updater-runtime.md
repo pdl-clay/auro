@@ -1,12 +1,13 @@
 # 0013 - Updater runtime: check, download and stage
 
 **Status:** Implemented (2026-11-17; download and staging; Linux AppImage apply is
-[spec 0014](0014-appimage-apply.md); other apply paths, deltas and staged rollout are not
-implemented)
+[spec 0014](0014-appimage-apply.md), Windows/macOS apply is [spec 0025](0025-platform-apply.md);
+package-manager apply, deltas and staged rollout are not implemented)
 
 Spec 0012 fixes the signed manifest. This spec fixes the first runtime half: deciding whether an
 offer is acceptable, downloading it, verifying the bytes and putting a verified artifact in a
-staging directory. Installation starts in [spec 0014](0014-appimage-apply.md).
+staging directory. Installation starts in [spec 0014](0014-appimage-apply.md) for AppImage and
+[spec 0025](0025-platform-apply.md) for Windows/macOS.
 
 ## Scope
 
@@ -21,7 +22,8 @@ staging directory. Installation starts in [spec 0014](0014-appimage-apply.md).
 ## Out of scope
 
 - Installing, launching an installer, replacing the running app, restarting, and rollback (Linux
-  AppImage apply/rollback is [spec 0014](0014-appimage-apply.md); other artifacts remain separate).
+  AppImage apply/rollback is [spec 0014](0014-appimage-apply.md); Windows/macOS apply is
+  [spec 0025](0025-platform-apply.md); package-manager artifacts remain separate).
 - Deltas, binary patches, staged rollout percentages, channels and update UI.
 - Background scheduling, retry policy, resume of an interrupted download and UI prompts.
 - Key distribution, rotation and revocation inside the app.
@@ -176,8 +178,8 @@ the facade's `updater` feature (or depend on `auro-update` directly) to use the 
 
 | Question | Where it settles |
 |---|---|
-| Install/restart/rollback by platform | [AppImage apply](0014-appimage-apply.md) / other installer specs |
+| Install/restart/rollback by platform | [AppImage apply](0014-appimage-apply.md) / [Windows and macOS apply](0025-platform-apply.md) / restart spec |
 | Deltas and staged rollout selection | Updater rollout spec |
-| Persistent update journal and resume | Updater apply spec |
+| Persistent update journal and resume | [Update journal](0026-update-journal.md) / resume spec |
 | Key rotation/revocation and pinning in the app | Trust/update client spec |
 | Update channels, prompts and scheduling | Platform/update UX follow-up |

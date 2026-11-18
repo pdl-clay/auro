@@ -88,7 +88,7 @@ It is never read at runtime and never affects behaviour.
 | `watch` | array of string | `["src", "Auro.toml"]` | paths relative to the app dir |
 | `run-args` | array of string | `[]` | passed to the spawned binary in relaunch mode; `dx` owns the process in hot mode and `auro dev` prints a note |
 | `build-args` | array of string | `[]` | passed to `cargo build` |
-| `hot` | bool | `false` | run `dx serve --hot-patch` instead of rebuild-and-relaunch; needs `dx` (dioxus-cli 0.7.10) on `PATH` or `AURO_DX`, plus the app's `hot-reload` feature |
+| `hot` | bool | `false` | run `dx serve --hot-patch` instead of rebuild-and-relaunch; needs `dx` (dioxus-cli 0.7.x) on `PATH` or `AURO_DX`, plus the app's `hot-reload` feature. `auro dev` refuses with the missing feature named, and `auro doctor` reports availability. Patches are applied by `dx`, so `run-args` are not forwarded, target-dir builds belong to dx, and only code reached through `auro::hot::hot`/`hot_with` reloads in-process |
 
 ### `[bundle]`
 

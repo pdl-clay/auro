@@ -20,3 +20,9 @@ serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+zip.workspace = true
+
+[dev-dependencies]
+zip.workspace = true

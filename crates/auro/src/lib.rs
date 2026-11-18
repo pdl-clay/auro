@@ -8,6 +8,7 @@
 extern crate self as auro;
 
 pub use auro_core::AppInstance;
+pub use auro_core::InstanceMessage;
 pub use auro_core::{AuroError, Config, EventSender, LifecycleEvent, State, StateStore, Theme};
 pub use auro_core::{Autosave, ReloadSnapshot, ResetReason, Restored, Snapshot};
 pub use auro_macros::{command, generate_handler};
@@ -26,24 +27,33 @@ pub mod services {
     };
 
     #[cfg(feature = "tray")]
-    pub use auro_services::{Tray, TrayBackend, TrayError};
+    pub use auro_services::{
+        Tray, TrayBackend, TrayButton, TrayButtonState, TrayClick, TrayError, TrayMenuItem,
+    };
 }
 
 mod app;
 pub mod windows;
 
 #[cfg(feature = "updater")]
-/// Signed update manifests and the staged updater runtime (specs 0012, 0013).
+/// Signed update manifests, staging, platform apply and restart handoff (specs 0012-0015, 0025, 0026).
 ///
 /// Enable the `updater` feature to use this module.
 pub mod update {
     pub use auro_update::{
-        FORMAT_VERSION, Manifest, PublicKey, StagedUpdate, UpdateDecision, UpdateError, Updater,
-        current_platform,
+        ApplyJournal, ApplyState, FORMAT_VERSION, InstallerRunner, JOURNAL_FORMAT_VERSION,
+        Manifest, PublicKey, RESTART_HELPER_ENV, Relaunch, StagedUpdate, SystemInstallerRunner,
+        UpdateDecision, UpdateError, Updater, current_platform, run_restart_helper,
     };
 
     #[cfg(target_os = "linux")]
     pub use auro_update::{AppImageInstaller, InstallReceipt};
+
+    #[cfg(target_os = "windows")]
+    pub use auro_update::{WindowsInstallOutcome, WindowsInstaller, WindowsInstallerKind};
+
+    #[cfg(target_os = "macos")]
+    pub use auro_update::{MacAppInstaller, MacAppReceipt};
 }
 
 #[cfg(feature = "hot-reload")]
@@ -65,7 +75,9 @@ pub mod ipc {
 }
 
 pub mod prelude {
-    pub use auro_core::{AuroError, Config, EventSender, LifecycleEvent, State, Theme};
+    pub use auro_core::{
+        AuroError, Config, EventSender, InstanceMessage, LifecycleEvent, State, Theme,
+    };
     pub use auro_macros::{command, generate_handler};
     pub use auro_ui::prelude::*;
 

@@ -30,7 +30,7 @@ direction as later phases land.
 | Layer | Owns | Must not |
 |---|---|---|
 | `auro-cli` | project scaffolding, dev loop, bundling entry points, diagnostics | contain runtime logic the app needs |
-| `auro-core` | `App`, window manager, config, lifecycle, command registry, state store, event bus, single-instance guard | render anything |
+| `auro-core` | `App`, window manager, config, lifecycle, command registry, state store, event bus, single-instance guard and forwarding | render anything |
 | `auro-ui` | GPUI re-export, toolkit seam, tokens, minimal primitives | ship a component toolkit; check permissions |
 | `auro-ipc` | typed command transport, schema derivation, event delivery | decide policy |
 | `auro-perms` | capability manifests, runtime enforcement for plugin and content boundaries | guard code that the compiler already guards |

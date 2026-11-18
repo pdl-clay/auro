@@ -166,6 +166,22 @@ pub fn check_version(dir: &Path, config: &Config) -> Result<(), AuroError> {
     Ok(())
 }
 
+/// Whether the app's manifest declares the `hot-reload` feature `dx` enables.
+///
+/// `dx serve --features hot-reload` fails deep in cargo when the feature does not exist; this makes
+/// the CLI name the missing manifest entry before it starts a build.
+pub fn declares_hot_feature(dir: &Path) -> Result<bool, AuroError> {
+    let manifest = dir.join("Cargo.toml");
+    let text = fs::read_to_string(&manifest)?;
+    let value: toml::Value = toml::from_str(&text).map_err(|error: toml::de::Error| {
+        AuroError::config(&manifest, None, format!("invalid Cargo.toml: {error}"))
+    })?;
+    Ok(value
+        .get("features")
+        .and_then(|features| features.get("hot-reload"))
+        .is_some())
+}
+
 /// TOML basic strings treat `\` as an escape, and a Windows path full of backslashes breaks the
 /// generated manifest (`\U` is a unicode escape). Cargo accepts forward slashes on every platform.
 fn toml_path(path: &Path) -> String {
@@ -310,6 +326,24 @@ mod tests {
         std::fs::write(temp.path().join("keep.txt"), "x").expect("write");
         let error = new(temp.path()).expect_err("refuses");
         assert!(error.to_string().contains("not empty"), "{error}");
+    }
+
+    #[test]
+    fn detects_the_hot_reload_feature() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[features]\nhot-reload = [\"auro/hot-reload\"]\n",
+        )
+        .expect("write");
+        assert!(declares_hot_feature(temp.path()).expect("reads"));
+
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("write");
+        assert!(!declares_hot_feature(temp.path()).expect("reads"));
     }
 
     #[test]

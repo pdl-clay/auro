@@ -140,10 +140,18 @@ the web. This is *the* bet of the project.
   leaf `HotFn` patches twice without crashing, and that a `ViewData`-returning boundary hot-reloads
   UI values with state preserved (1324/1084 ms, 2/2, screenshot). So on Windows: framework-free hot
   boundaries work, element-returning view code does not. `auro dev` remains relaunch by default.
-- **Experimental hot mode (2026-11-16, opt-in):** `[dev] hot = true` drives `dx serve --hot-patch`
-  with a data-only hot boundary in the scaffold; on niri/Wayland one patch (3198 ms) reloaded the
-  boundary in the same window, while on Windows 11 the patch applied (4679 ms) but the patched
-  boundary was not observed running. `auro dev` still relaunches by default.
+- **Experimental hot mode (2026-11-18, opt-in):** `[dev] hot = true` drives `dx serve --hot-patch`
+  with a data-only boundary. `auro::hot` re-renders every open root when a patch commits (without
+  that, a patch stayed invisible until the next interaction), the dev loop emits one JSON timing
+  line per edit, and scaffolds build the `desktop-dev` profile with `debug=0`/`incremental=false`.
+  On niri/Wayland, boundary-only edits measured 473-572 ms save-to-render (median 521 ms, N=11,
+  patch-to-render 8-24 ms) with the same pid and host state across patches; a type error kept the
+  previous UI live and the fix reloaded in 634 ms. In the WinBoat Windows 11 guest (interactive
+  session, MSVC), the first patch measured 2806 ms and five steady-state patches
+  1823/1505/1375/1237/1282 ms (median 1375, patch-to-render 8-38 ms), also with the same pid and
+  continuing host state; the fix after a type error reloaded in 1696 ms and closing the window
+  exited 0. The <500 ms median target is not met on either platform. macOS is unmeasured (no Apple
+  host); CI compile/tests the feature there. `auro dev` still relaunches by default.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 
@@ -241,7 +249,7 @@ headless test asserts the title reaches the window.
 - Reference app: [`examples/log-viewer`](examples/log-viewer/README.md) — log viewer plus a
   settings window, using `gpui-component 0.5.1` at the app level. It is the phase's manual exit
   proof and is not built by the main CI matrix.
-- `auro dev`: watch + rebuild + relaunch. Experimental hot reload (mechanism under [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
+- `auro dev`: watch + rebuild + relaunch by default; opt-in hot mode (`[dev] hot = true`) with a data-only boundary, measured on Linux and Windows and unmeasured on macOS ([spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 - CLI: `new`, `dev`, `build`, `doctor`.
 
 **Progress (2026-11-17):** the toolkit seam ([spec 0005](docs/src/specs/0005-toolkit-seam.md)),
@@ -279,38 +287,43 @@ cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.
 the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
-notarization, updater installers beyond AppImage, deltas/rollout, single-instance
-forwarding/activation, tray menus/shortcut callbacks, AccessKit/IME, and the product exit remain.
+notarization, `.dmg`/`.pkg` and package-manager updater apply, elevation and helper-side apply,
+deltas/rollout, single-instance activation, AccessKit/IME, and the product exit remain.
 
-**Signing/update foundations (2026-11-17):** `auro-sign` provides Ed25519 keys/signatures and
+**Signing/update foundations (2026-11-18):** `auro-sign` provides Ed25519 keys/signatures and
 SHA-256 hashes; `[bundle.macos]`/`[bundle.windows]` map signing inputs to the bundler; `auro-update`
 defines signed manifest format v1; `auro generate-key` and `auro manifest` are usable. The runtime
 `Updater` now verifies offers, downloads within the manifest size, verifies SHA-256 and stages a
 content-addressed artifact atomically. On Linux, `AppImageInstaller` replaces an AppImage with a
 mode-0755 atomic rename, retains a hard-link/copy backup, and returns a receipt that can roll back
-or discard it. Platform signing still needs certificates/credentials; Windows/macOS/package
-installers, restart orchestration, deltas and staged rollout are not implemented.
+or discard it. On Windows, `WindowsInstaller` runs staged MSI/NSIS installers silently and maps
+`3010` to a restart request; on macOS, `MacAppInstaller` swaps a `.app` from a staged `.app.zip`
+and returns a rollback receipt. `ApplyJournal` and the self-helper restart handoff record what was
+applied, wait for the old process to exit through a lock, and relaunch the replacement without a
+shell or a second binary. Platform signing still needs certificates/credentials; `.dmg`, `.pkg`,
+package-manager apply, elevation, helper-side apply, deltas and staged rollout are not implemented.
 
 **Platform services (2026-11-17):** `AppInstance` and `App::single_instance()` acquire a per-user
 advisory file lock after config load and refuse a secondary process before GPUI starts
-(`AuroError::Instance`, exit code 2). Argument/deep-link forwarding and primary-window activation
-are not implemented. GPUI supplies clipboard, file dialogs and open/reveal path/URL primitives;
-`auro-services` implements autostart, notifications, keychain, global shortcuts, tray and
-deep-link parsing/queue (`Autostart`, `Notifications`, `Keychain`, `Shortcuts`, `Tray`,
-`AppLinks`, specs 0017-0022). Tray menus/click handlers and shortcut callbacks remain.
-`auro-perms` implements the capability `Policy` with deny-by-default grants and compiled glob
-scopes; the plugin host that consumes it is Phase 3.
+(`AuroError::Instance`, exit code 2). A secondary forwards its arguments and working directory over
+a local socket; the primary receives `InstanceMessage` on its event pump. Automatic primary-window
+activation remains app policy. GPUI supplies clipboard, file dialogs and open/reveal path/URL
+primitives; `auro-services` implements autostart, notifications, keychain, global shortcuts, tray
+and deep-link parsing/queue (`Autostart`, `Notifications`, `Keychain`, `Shortcuts`, `Tray`,
+`AppLinks`, specs 0017-0022). Tray menus/click handlers and shortcut callbacks are implemented;
+tray icon selection and persistence remain. `auro-perms` implements the capability `Policy` with
+deny-by-default grants and compiled glob scopes; the plugin host that consumes it is Phase 3.
 
 **Keyboard (2026-11-17):** `Button` is focusable, a tab stop, and activates on unmodified Enter or
 Space (spec 0023). AccessKit is absent from GPUI 0.2.2, so the screen-reader/IME portion of the
 accessibility pass remains blocked upstream.
 
-**Phase 2 technical status (2026-11-17):** bundling; signed manifests, staging and Linux AppImage
+**Phase 2 technical status (2026-11-18):** bundling; signed manifests, staging and Linux AppImage
 apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
 `auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
-Windows/macOS/package updater apply, deltas/staged rollout, single-instance
-forwarding/activation, tray menus/shortcut callbacks, and AccessKit/IME. The exit criterion also
-needs three real apps and published benchmarks; it is not met by the workspace alone.
+package-manager updater apply, macOS `.dmg`/`.pkg`, elevation and helper-side apply,
+deltas/staged rollout, single-instance activation, and AccessKit/IME. The exit criterion also needs
+three real apps and published benchmarks; it is not met by the workspace alone.
 
 **Alpha candidate (2026-11-17):** the workspace and internal requirements are
 `0.1.0-alpha.1`; every crate has a README, homepage and discovery metadata; the facade's services

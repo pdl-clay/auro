@@ -1,28 +1,33 @@
 # 0015 - Single instance
 
-**Status:** Implemented (2026-11-17; duplicate prevention only; argument forwarding and primary
-activation are not implemented)
+**Status:** Implemented (2026-11-17; duplicate prevention and argument forwarding; automatic
+activation is app policy)
 
-Phase 2 needs every app to be able to enforce one running instance. This spec fixes the first
-service contract: a process holds an advisory lock for its configured app identifier, and a second
-process detects that it is secondary before GPUI starts. It deliberately does not implement IPC
-argument forwarding or window activation yet.
+Phase 2 needs every app to be able to enforce one running instance. A process holds an advisory lock
+for its configured app identifier; a second process detects that it is secondary before GPUI starts,
+forwards its arguments and working directory over a local socket, and exits. The primary receives a
+typed [`InstanceMessage`] on its normal event pump.
 
 ## Scope
 
-- `auro-core::AppInstance`: acquire an advisory per-user file lock, report primary/secondary.
-- `App::single_instance()`: opt in when building an app.
-- Secondary startup fails with `AuroError::Instance` before any window opens.
-- Lock-file naming, owner-only permissions on Unix, and OS release on process exit/crash.
+- `auro-core::AppInstance`: acquire an advisory per-user file lock and report primary/secondary.
+- `InstanceMessage`: forwarded arguments and working directory.
+- Primary listener and secondary forwarding over a local socket.
+- `App::single_instance()`: opt in when building an app; forwarding requires no app code.
+- `InstanceListener`: keeps the primary lock and forwarding thread alive.
+- `AuroError::Instance` before any window opens on the secondary.
+- Lock/socket naming, owner-only lock permissions on Unix, and OS release on exit/crash.
 
 ## Out of scope
 
-- Forwarding command-line arguments, deep links or files to the primary instance.
-- Activating or focusing the primary window.
-- A network/socket protocol between instances.
+- Automatically activating or focusing the primary window; the app decides from
+  `InstanceMessage`.
+- Deep-link/file association policy; forwarded arguments are just arguments.
 - Cross-user or system-wide single-instance enforcement.
-- Cleaning up lock files after exit (the file is intentionally retained; the OS lock is not).
+- Cleaning up lock or socket files after exit (the lock file is retained; the socket file is
+  reused or overwritten on the next start).
 - Defending against a same-user process that deliberately pre-creates or locks the file.
+- A stable public IPC protocol for third-party clients.
 
 ## Decisions
 
@@ -33,8 +38,7 @@ process holds it; any other error is an `AuroError::Instance`. The lock is relea
 closed, including on a crash; the lock file remains on disk and is reused.
 
 *Rejected:* a PID file. A stale PID can belong to an unrelated process after reboot, and checking it
-is racy. *Rejected:* a network listener for a first version; it adds ports/firewalls before argument
-forwarding exists.
+is racy. *Rejected:* a TCP listener; a local socket has no ports, firewall rules or network exposure.
 
 ### D2 - The lock lives in a per-user runtime directory
 
@@ -47,11 +51,11 @@ Linux containers without `XDG_RUNTIME_DIR` fall back to the temporary directory;
 per-process-user in the common case, but a shared `/tmp` can be deliberately interfered with by the
 same user. That is outside the threat model.
 
-### D3 - Secondary startup is an error, not a silent exit
+### D3 - Secondary startup forwards, then exits with an error
 
-`App::try_run` returns `AuroError::Instance` before GPUI starts; `App::run` prints it and exits with
-code 2. This makes a duplicate launch observable in scripts and logs. Activating the primary window
-is a later feature; the secondary process has no IPC channel yet.
+The secondary acquires the lock (finding it already held), forwards `InstanceMessage { args, cwd }`,
+and returns `AuroError::Instance` before GPUI starts. `App::run` prints it and exits with code 2. The
+primary receives the message on its event pump; automatic window activation is app policy.
 
 *Rejected:* returning success from the secondary process. It would hide a user's attempted launch
 and make automated tests unable to distinguish "opened" from "refused".
@@ -62,15 +66,38 @@ Single-instance is enabled with `App::single_instance()`; the default is off. An
 multiple independent windows/processes, or a CLI mode, is not forced into the guard. This mirrors the
 app model's preference for explicit capabilities over invisible global policy.
 
-### D5 - Guard lifetime is the app lifetime
+### D5 - Guard and listener lifetime are the app lifetime
 
-The guard is acquired after config load and before `Application::new().run`, and is held until
-`try_run` returns. Dropping it closes the lock file. The guard is not stored in managed state; app
-code does not need to keep a second handle alive.
+The lock and listener are acquired after config load and before `Application::new().run`, and are
+held until `try_run` returns. Dropping the guard closes the lock; dropping the listener detaches the
+forwarding thread and the process exit releases the socket. Neither is stored in managed state.
+
+### D6 - Local socket, one JSON line per message
+
+On Unix the primary binds a filesystem socket in the per-user runtime directory (name derived from
+the same sanitised identifier, truncated to 32 characters to fit `sun_path`); Linux applies mode
+`0600`, and macOS uses the per-user `$TMPDIR`. Windows uses a named pipe. The listener accepts
+connections in a background thread, reads one JSON line capped at 64 KiB, and sends the decoded
+`InstanceMessage` to the app's `EventSender`. The secondary writes the same JSON line and closes
+the connection.
+
+This avoids an abstract Linux socket, which has no filesystem permissions: a different local user
+could otherwise inject messages. `ListenerOptions::try_overwrite` handles a stale socket name; the
+file lock remains the authority that prevents two primaries. Invalid JSON is logged and never
+invokes the app handler.
+
+*Rejected:* a shared-memory or file-drop protocol. It needs polling or a second notification channel
+and is harder to test than a local socket. *Rejected:* an abstract socket, because peer credentials
+would become a second authentication path.
 
 ## Interfaces
 
 ```rust
+pub struct InstanceMessage {
+    pub args: Vec<String>,
+    pub cwd: PathBuf,
+}
+
 pub struct AppInstance { /* file, path, name, primary */ }
 
 impl AppInstance {
@@ -78,10 +105,21 @@ impl AppInstance {
     pub fn is_primary(&self) -> bool;
     pub fn name(&self) -> &str;
     pub fn path(&self) -> &Path;
+    pub fn forward(&self, message: &InstanceMessage) -> Result<(), AuroError>;
+    pub fn listen(
+        self,
+        handler: impl Fn(InstanceMessage) + Send + 'static,
+    ) -> Result<InstanceListener, AuroError>;
 }
+
+pub struct InstanceListener { /* guard, thread */ }
 
 impl App {
     pub fn single_instance(self) -> Self;
+    pub fn on_event<E: Send + 'static>(
+        self,
+        handler: impl Fn(&E, &mut GpuiApp) + 'static,
+    ) -> Self;
 }
 ```
 
@@ -92,6 +130,10 @@ Usage:
 ```rust,ignore
 App::new()
     .single_instance()
+    .on_event(|message: &auro::InstanceMessage, cx| {
+        // `message.args` and `message.cwd` are the second launch's.
+        let _ = auro::windows::focus("main", cx);
+    })
     .root::<View>("main")
     .run();
 ```
@@ -100,12 +142,16 @@ App::new()
 
 1. The first guard is primary; a second guard for the same name is secondary; after dropping the
    first, a new guard is primary again (`first_guard_is_primary_and_second_is_not`).
-2. An empty identifier is a typed `AuroError::Instance` (`empty_name_is_rejected`).
-3. Lock-file names replace separators and cannot escape the lock directory (`path_is_sanitised`).
-4. `App::single_instance()` is opt-in and sets the builder flag (`single_instance_is_opt_in`).
-5. `AuroError::Instance` reports kind `"instance"` and includes name/message
+2. A secondary forwards an `InstanceMessage` to the primary listener
+   (`forwards_a_message_to_the_primary_listener`).
+3. Primary forwarding and secondary listening are rejected
+   (`primary_cannot_forward_or_secondary_cannot_listen`).
+4. An empty identifier is a typed `AuroError::Instance` (`empty_name_is_rejected`).
+5. Lock-file names replace separators and cannot escape the lock directory (`path_is_sanitised`).
+6. `App::single_instance()` is opt-in and sets the builder flag (`single_instance_is_opt_in`).
+7. `AuroError::Instance` reports kind `"instance"` and includes name/message
    (`instance_errors_have_context_and_kind`).
-6. `cargo fmt --all --check`,
+8. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 
@@ -113,7 +159,8 @@ App::new()
 
 | Question | Where it settles |
 |---|---|
-| Argument/file/deep-link forwarding to the primary | Single-instance IPC spec |
-| Activating the primary window | Single-instance IPC / platform activation spec |
-| Lock-file cleanup policy | Operations follow-up |
-| A socket/DBus implementation instead of a file lock | Revisit if forwarding or cross-user semantics demand it |
+| Automatic primary-window activation | App policy / platform activation follow-up |
+| File and deep-link routing into the primary | Deep-link and instance IPC follow-up |
+| Lock/socket cleanup policy | Operations follow-up |
+| Stable IPC protocol for third-party clients | Revisit only if required |
+| Windows/macOS behavior under real desktop sessions | Platform audit |

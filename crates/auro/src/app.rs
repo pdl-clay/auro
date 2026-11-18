@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use auro_core::events::{QueuedEvent, channel};
 use auro_core::{
-    AppInstance, AuroError, Config, EventSender, LifecycleEvent, State, StateStore, WindowConfig,
+    AppInstance, AuroError, Config, EventSender, InstanceMessage, LifecycleEvent, State,
+    StateStore, WindowConfig,
 };
 use auro_ui::{
     AnyWindowHandle, App as GpuiApp, AppContext, Application, Bounds, Entity, Global, Pixels,
@@ -141,9 +142,10 @@ impl App {
 
     /// Refuses to start when another process holds the app identifier's instance lock.
     ///
-    /// A secondary process gets [`AuroError::Instance`] before GPUI starts; [`Self::run`] prints
-    /// it and exits with code 2. This slice prevents duplicate windows but does not forward
-    /// arguments or activate the primary instance.
+    /// A secondary process forwards its arguments and working directory to the primary, then gets
+    /// [`AuroError::Instance`] before GPUI starts; [`Self::run`] prints it and exits with code 2.
+    /// Subscribe to [`InstanceMessage`] with [`Self::on_event`] on the primary to react. Window
+    /// activation remains app policy.
     pub fn single_instance(mut self) -> Self {
         self.single_instance = true;
         self
@@ -218,20 +220,49 @@ impl App {
 
     /// Runs the app, returning before the event loop starts if configuration is invalid or another
     /// instance holds the single-instance lock.
+    ///
+    /// With the `updater` feature, setting `AURO_UPDATE_RESTART_HELPER` makes this run the restart
+    /// helper instead of loading config or starting GPUI. The helper waits for the previous process,
+    /// relaunches it and returns.
     pub fn try_run(self) -> Result<(), AuroError> {
+        #[cfg(feature = "updater")]
+        if let Some(path) =
+            std::env::var_os(auro_update::RESTART_HELPER_ENV).filter(|path| !path.is_empty())
+        {
+            return auro_update::run_restart_helper(std::path::Path::new(&path))
+                .map_err(|error| AuroError::Message(format!("update restart helper: {error}")));
+        }
+
         #[cfg(feature = "hot-reload")]
         crate::hot::install();
 
+        if std::env::var_os(TRACE_ENV).is_some() {
+            // Lets the dev loop tell a relaunch from the first launch (spec 0004, D4).
+            eprintln!("auro:trace pid {}", std::process::id());
+        }
+
         let config = Config::load(&std::env::current_dir()?)?;
-        let instance_guard = if self.single_instance {
+        let instance_listener = if self.single_instance {
             let instance = AppInstance::acquire(&config.app.identifier)?;
-            if !instance.is_primary() {
+            if instance.is_primary() {
+                let sender = self.sender.clone();
+                Some(instance.listen(move |message| {
+                    let _ = sender.emit(message);
+                })?)
+            } else {
+                let args = std::env::args_os()
+                    .skip(1)
+                    .map(|argument| argument.to_string_lossy().into_owned())
+                    .collect();
+                let message = InstanceMessage::new(args, std::env::current_dir()?);
+                if let Err(error) = instance.forward(&message) {
+                    tracing::warn!(%error, "failed to forward arguments to the primary instance");
+                }
                 return Err(AuroError::instance(
                     &config.app.identifier,
                     "another instance is already running",
                 ));
             }
-            Some(instance)
         } else {
             None
         };
@@ -266,10 +297,12 @@ impl App {
             // path; the registry fills in as windows open.
             observe_closes(cx, Rc::clone(&lifecycle), Rc::clone(&open_windows));
             open_all(cx, &config, setups, roots, lifecycle, open_windows);
+            #[cfg(feature = "hot-reload")]
+            crate::hot::watch(cx);
             cx.activate(true);
         });
 
-        drop(instance_guard);
+        drop(instance_listener);
         Ok(())
     }
 
