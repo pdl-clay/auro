@@ -76,6 +76,10 @@ installable `auro-cli` yet.
   (`dpkg --force-downgrade -i`) or `.rpm` (`rpm -U --oldpackage`) through the same optional
   `pkexec` elevation and held-descriptor path; this is an explicit manual rollback policy, not
   automatic failure recovery (spec 0030, ADR 0018).
+- `auro-cli`: `auro notarize --artifact <path> --profile <keychain-profile>` submits through
+  `xcrun notarytool` and staples with `xcrun stapler` unless `--skip-staple` is set. The command is
+  shell-free and requires an existing macOS keychain profile; credentials, runtime verification and
+  automatic bundling integration remain release/CI work (spec 0032, ADR 0020).
 - `auro-cli`: `auro bench --dir <app>` builds the release binary and reports median startup to the
   first-frame marker, idle RSS and binary size, with `--json` output. The `examples/hello` fixture
   is the no-toolkit benchmark app; a local 5-run Linux measurement is recorded as 154.9 ms,

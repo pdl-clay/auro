@@ -33,6 +33,7 @@
 - [0017 - Linux package elevation](decisions/0017-linux-package-elevation.md)
 - [0018 - Linux package rollback](decisions/0018-linux-package-rollback.md)
 - [0019 - macOS package elevation](decisions/0019-macos-package-elevation.md)
+- [0020 - macOS notarization](decisions/0020-macos-notarization.md)
 
 # Specifications
 
@@ -68,6 +69,7 @@
 - [0029 - Linux package elevation](specs/0029-linux-package-elevation.md)
 - [0030 - Linux package rollback](specs/0030-linux-package-rollback.md)
 - [0031 - macOS package apply](specs/0031-macos-package-apply.md)
+- [0032 - macOS notarization submission](specs/0032-macos-notarization.md)
 
 # Reference
 

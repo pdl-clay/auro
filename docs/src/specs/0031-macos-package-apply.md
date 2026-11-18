@@ -122,6 +122,6 @@ The snippet is an intended call shape, not an app that exists yet.
 |Question|Where it settles|
 |---|---|
 |macOS runtime verification and signed-package policy|macOS release CI/spec|
-|Notarization and Gatekeeper assessment|Signing/notarization spec|
+|Notarization and Gatekeeper assessment|[macOS notarization](0032-macos-notarization.md)|
 |Root-owned privileged helper and artifact-copy ownership|macOS hardening follow-up|
 |Automatic rollback/uninstall policy|Package transaction policy|

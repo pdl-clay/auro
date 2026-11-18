@@ -98,6 +98,18 @@ enum Command {
         #[arg(long)]
         delta_out: Option<PathBuf>,
     },
+    /// Submit a macOS artifact for notarization
+    Notarize {
+        /// Artifact to submit (usually `.pkg`, `.dmg` or a zipped `.app`)
+        #[arg(long)]
+        artifact: PathBuf,
+        /// Keychain profile created by `xcrun notarytool store-credentials`
+        #[arg(long)]
+        profile: String,
+        /// Submit without stapling the ticket
+        #[arg(long)]
+        skip_staple: bool,
+    },
     /// Create a bsdiff-compatible update patch
     Delta {
         /// Previous artifact
@@ -172,6 +184,11 @@ fn main() {
             delta_url.as_deref(),
             delta_out.as_deref(),
         ),
+        Command::Notarize {
+            artifact,
+            profile,
+            skip_staple,
+        } => release::notarize(&artifact, &profile, skip_staple),
         Command::Delta { from, to, out } => release::delta(&from, &to, &out),
         Command::Bench {
             dir,

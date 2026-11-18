@@ -153,7 +153,7 @@ is configured, so the artifacts are unsigned; signing/notarization belong to the
 
 | Question | Where it settles |
 |---|---|
-| Codesign/notarization and Windows signing | Signing spec |
+| Codesign/notarization and Windows signing | [macOS notarization](0032-macos-notarization.md) and signing spec |
 | Package-manager apply and restart/rollback orchestration | [Linux packages](0027-linux-packages.md), [elevation](0029-linux-package-elevation.md); deltas/rollout are [spec 0028](0028-deltas-rollout.md) |
 | Icon placeholders in the scaffold | Bundling follow-up; apps may supply icons today |
 | Cross-compilation | Not planned for 1.0; revisit if demand appears |

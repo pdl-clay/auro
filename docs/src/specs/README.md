@@ -68,3 +68,4 @@ Every spec carries:
 | [0029](0029-linux-package-elevation.md) | Linux package elevation through pkexec | 2 | Implemented |
 | [0030](0030-linux-package-rollback.md) | Linux package rollback with an explicit older artifact | 2 | Implemented (manual policy) |
 | [0031](0031-macos-package-apply.md) | macOS `.pkg` apply through installer/osascript | 2 | Implemented in tree (runtime unverified) |
+| [0032](0032-macos-notarization.md) | macOS notarization submission and stapling | 2 | Implemented in tree (credentials/runtime unverified) |

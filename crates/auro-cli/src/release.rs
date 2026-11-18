@@ -80,6 +80,11 @@ pub fn manifest(
     Ok(())
 }
 
+/// Submits an artifact to `notarytool` and optionally staples the ticket.
+pub fn notarize(artifact: &Path, profile: &str, skip_staple: bool) -> Result<(), AuroError> {
+    auro_bundle::MacNotarizer::new().notarize(artifact, profile, skip_staple)
+}
+
 /// Writes a bsdiff-compatible patch from `from` to `to`.
 pub fn delta(from: &Path, to: &Path, out: &Path) -> Result<(), AuroError> {
     let patch = auro_update::create_delta(from, to)

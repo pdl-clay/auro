@@ -15,6 +15,9 @@ use tauri_bundler::bundle::{
 };
 use tauri_utils::config::WebviewInstallMode;
 
+mod notarize;
+pub use notarize::{MacNotarizer, NotarizeRunner, SystemNotarizeRunner};
+
 /// The formats this host can produce. Mirrors spec 0002 validation.
 pub fn host_targets() -> &'static [&'static str] {
     #[cfg(target_os = "macos")]
