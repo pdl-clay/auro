@@ -615,14 +615,10 @@ impl ApplyJournal {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty());
         if let Some(parent) = parent {
-            #[cfg(test)]
-            eprintln!("save: create_parent({:?})", parent);
             create_parent(parent)?;
         }
         trust::validate_parent(&self.path)?;
         let directory = parent.unwrap_or_else(|| Path::new("."));
-        #[cfg(test)]
-        eprintln!("save: NamedTempFile::new_in({:?})", directory);
         let mut temporary = NamedTempFile::new_in(directory)?;
         serde_json::to_writer_pretty(temporary.as_file_mut(), &self.data)?;
         temporary.as_file_mut().sync_all()?;
@@ -1800,6 +1796,30 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let journal = journal(&temp);
         ApplyJournal::load(journal.path()).expect("private path accepted");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn accepts_a_journal_in_a_private_symlinked_directory() {
+        use std::os::unix::fs::{PermissionsExt as _, symlink};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let real = temp.path().join("real");
+        std::fs::create_dir(&real).expect("real");
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o700))
+            .expect("permissions");
+        let link = temp.path().join("link");
+        symlink(&real, &link).expect("symlink");
+        let journal = ApplyJournal::create(
+            link.join("apply.json"),
+            "1.2.3",
+            link.join("artifact"),
+            None,
+            relaunch(),
+        )
+        .expect("journal");
+        let loaded = ApplyJournal::load(journal.path()).expect("load");
+        assert_eq!(loaded.version(), "1.2.3");
     }
 
     #[cfg(unix)]

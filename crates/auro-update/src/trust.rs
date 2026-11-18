@@ -98,8 +98,6 @@ mod platform {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        #[cfg(test)]
-        eprintln!("trust: validate_parent path={:?} parent={:?}", path, parent);
         let directory = open_directory(parent)?;
         let metadata = directory.metadata().map_err(UpdateError::Io)?;
         if !metadata.is_dir() {
@@ -111,14 +109,13 @@ mod platform {
 
     fn open_directory(path: &Path) -> Result<File, UpdateError> {
         let mut options = OpenOptions::new();
+        // Directories are opened with O_DIRECTORY and the resolved target is validated below.
+        // O_NOFOLLOW is for the journal/lock files themselves; on macOS a parent path may
+        // legitimately contain a symlink (for example /var -> /private/var).
+        options.read(true).custom_flags(libc::O_DIRECTORY);
         options
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY);
-        options.open(path).map_err(|error| {
-            #[cfg(test)]
-            eprintln!("trust: open_directory({:?}) failed: {error}", path);
-            map_open_error(path, error)
-        })
+            .open(path)
+            .map_err(|error| map_open_error(path, error))
     }
 
     fn validate_ancestors(parent: &Path) -> Result<(), UpdateError> {

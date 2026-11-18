@@ -50,8 +50,11 @@ same file; internal consistency does not establish who wrote it.
 
 The journal file and its immediate parent must be owned by the effective user. The immediate
 parent must not have a group/other write bit. A journal file must be a regular file and must not be
-group/other writable. A lock file follows the same rule. Symlinks are refused for the journal, the
-lock and every opened directory component.
+group/other writable. A lock file follows the same rule. The journal and lock files are opened
+with `O_NOFOLLOW`, so a symlink at the final path is refused. Parent directories are opened with
+`O_DIRECTORY` and the resolved directory is validated; a private symlinked parent (for example the
+macOS `/var` symlink or a user-owned link to a private data directory) is accepted only when its
+resolved owner/mode pass the same checks.
 
 The walk from the immediate parent to the filesystem root rejects an ancestor that is not owned by
 the effective user or root, or that is group/other writable without the sticky bit. A root-owned
@@ -132,6 +135,7 @@ Unix tests in `crates/auro-update/src/journal.rs`:
 - `rejects_a_symlinked_journal`
 - `rejects_a_shared_ancestor_directory`
 - `refuses_a_symlinked_lock_file`
+- `accepts_a_journal_in_a_private_symlinked_directory`
 - `refuses_to_create_a_journal_in_a_shared_directory`
 
 The existing journal/helper tests continue to pass (100 tests in `auro-update` on Linux). The
