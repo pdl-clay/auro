@@ -738,9 +738,11 @@ patch-generation failure keeping app on previous code, and warm view-only save-t
    semantics remain correct (spec 0001 acceptance 3/4). Platform limitations are recorded, not hidden.
 8. **Documentation and gates:** `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-   `cargo test --workspace --locked`, and `mdbook build docs` pass. Spec 0001 open question, roadmap,
-   performance budget, changelog, and architecture notes are updated to reference this spec and the
-   measured status.
+   `cargo test --workspace --locked`, and `mdbook build docs` pass. CI also runs the
+   `hot-reload` feature tests and builds/tests a generated scaffold on Linux, macOS and Windows, so
+   template drift is caught on the platforms without a live hot-reload measurement. Spec 0001 open
+   question, roadmap, performance budget, changelog, and architecture notes are updated to refer to
+   this spec and the measured status.
 
 **Status (2026-11-18, integrated hot mode, four-crate scaffold):** item 2 (build failure keeps the
 previous UI) is demonstrated on Linux and Windows; item 3's apply-failure path is contained by
