@@ -598,11 +598,12 @@ fn ensure_relative(path: &Path, key: &str, value: &str) -> Result<(), AuroError>
             "must not be empty".to_owned(),
         ));
     }
-    if candidate.is_absolute()
-        || candidate
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
+    if candidate.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
         return Err(AuroError::config(
             path,
             Some(key),
