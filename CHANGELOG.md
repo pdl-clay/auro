@@ -42,8 +42,9 @@ installable `auro-cli` yet.
   removes the poll from patch-to-render and stops an idle app waking twice a frame. Saves outside
   `data/src` are host-code changes: `auro dev` restarts the devserver and app instead of applying a
   patch that cannot take effect, restores the snapshot and labels the outcome `restarted (state
-  restored)` or `restarted (state reset: <reason>)`, never `reloaded`. Editor swap/lock files are
-  ignored.
+  restored)` or `restarted (state reset: <reason>)`, never `reloaded`. A failed host rebuild stops
+  the old process before the build, so no app runs until the next successful save; the dev loop
+  says so. Editor swap/lock files are ignored.
 - Scaffolded hot boundaries return `types::HotData`, a fixed `#[repr(C)]` frame with a schema
   number; the running host checks the schema and bounds before decoding. A patch built against a
   changed `ViewData` layout is rejected with `auro: reload rejected by the view: ...; previous UI

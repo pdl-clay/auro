@@ -307,6 +307,8 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
     // must be labelled as a restart (spec 0004, D4).
     let mut known_pid: Option<u32> = None;
     let mut relaunches = 0u32;
+    // A host-code change restarts the process; a failed rebuild has no previous UI to keep.
+    let mut host_rebuild = false;
 
     loop {
         let mut newest_save = None;
@@ -330,6 +332,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     "auro: change in {path} is outside the hot boundary; restarting the app (state preserved)"
                 );
                 restart_devserver(&dx, dir, patch, &slot, &app_pid, &events)?;
+                host_rebuild = true;
                 saved_at = None;
                 patched_at = None;
                 patch_took = None;
@@ -351,6 +354,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                         println!("auro: app relaunched by the devserver");
                     }
                     known_pid = Some(pid);
+                    host_rebuild = false;
                     *app_pid.lock().expect("app pid lock") = Some(pid);
                 }
 
@@ -414,6 +418,13 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     patched_at = None;
                     patch_took = None;
                     build_failed = false;
+                }
+
+                if host_rebuild && build_failed_line(&plain) {
+                    host_rebuild = false;
+                    println!(
+                        "auro: host rebuild failed; no app is running until the next successful build"
+                    );
                 }
 
                 if saved_at.is_some() && !build_failed && build_failed_line(&plain) {

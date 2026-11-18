@@ -478,8 +478,11 @@ alive; removing the panic applied in 327 ms in the same process.
 boundary, the devserver and app were restarted (build 3.14 s), the app printed `state restored` from
 the existing snapshot, and the dev loop printed `restarted (state restored)`; the new process
 rendered the edited button and a following `data` edit hot-patched in 978 ms with a 5 ms
-patch-to-render. Editor swap files beside the source produced no restart. This is the
-state-preserving restart path required by D4/D7, not a reload.
+patch-to-render. Editor swap files beside the source produced no restart. A host rebuild with a
+syntax error stopped the old app before the build, printed `auro: host rebuild failed; no app is
+running until the next successful build`, and the fixed save rebuilt in 2.79 s and restored the
+snapshot. This is the state-preserving restart path required by D4/D7, not a reload; unlike a
+boundary build error, a failed host rebuild has no previous process to keep.
 
 ### D5 - Compatibility is enforced, not assumed
 
@@ -628,7 +631,10 @@ restored, and the outcome is labelled `restarted (state restored)` or
 `types::HotData` schema check still rejects a frame built against a changed data layout if a patch
 races the restart. A change to a non-tip crate or the dev profile takes the same restart path.
 A patch that cannot be generated makes `dx` start a full rebuild; the dev loop prints
-`hot patch failed, dev server is rebuilding the app`. Build errors keep the previous UI live.
+`hot patch failed, dev server is rebuilding the app`. A build error in a boundary patch keeps the
+previous UI live. A host-code change restarts the process before its rebuild, so a failed host
+rebuild leaves no app until the next successful save; the dev loop reports
+`host rebuild failed; no app is running until the next successful build`.
 
 Staged delivery (aligns roadmap):
 
