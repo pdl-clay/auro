@@ -466,7 +466,9 @@ successful reload; the view reports that frame as rejected rather than rendered
 (`hot_frame`/`rendered`), so no `hot_render` or timing line is produced. Observed on Linux: a
 `SCHEMA` bump produced `hot_data_rejected` and left the previous values, no reload line; reverting
 `SCHEMA` then applied in 959 ms in the same process, so the listener and jump table survived the
-rejection.
+rejection. A patched boundary that panics is caught by the generated view, reported as
+`hot data rejected: the patched boundary panicked`, and leaves the previous values and process
+alive; removing the panic applied in 327 ms in the same process.
 
 ### D5 - Compatibility is enforced, not assumed
 

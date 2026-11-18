@@ -258,6 +258,9 @@ context and is labelled honestly.
   grow the process by hundreds of MB per apply.
 - A patch that cannot be loaded must not kill the listener. `auro::hot` handles `apply_patch`
   errors and loader panics and keeps the previous jump table; the next edit can still apply.
+- A patched boundary must be pure data so a panic can be contained. The generated view wraps
+  `hot_frame` in `catch_unwind`, reports a rejected frame and keeps the previous values; removing a
+  panic applied in 327 ms in the same process.
 
 ## Open problems
 

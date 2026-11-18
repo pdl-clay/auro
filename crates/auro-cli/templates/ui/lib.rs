@@ -36,13 +36,16 @@ pub fn run(data: fn() -> HotData) {
 }
 
 #[cfg(feature = "hot-reload")]
-fn current_frame(data: fn() -> HotData) -> HotData {
-    auro::hot::hot_frame(data)
+fn current_frame(data: fn() -> HotData) -> Result<HotData, String> {
+    // The boundary is pure data, so a panic in patched code can be contained here: the view keeps
+    // its previous values and the next render can try again or accept the next patch.
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| auro::hot::hot_frame(data)))
+        .map_err(|_| "the patched boundary panicked".to_owned())
 }
 
 #[cfg(not(feature = "hot-reload"))]
-fn current_frame(data: fn() -> HotData) -> HotData {
-    data()
+fn current_frame(data: fn() -> HotData) -> Result<HotData, String> {
+    Ok(data())
 }
 
 pub struct Counter {
@@ -51,6 +54,7 @@ pub struct Counter {
     autosave: Option<Autosave>,
     last_data: Option<ViewData>,
     last_revision: u64,
+    rejected_revision: Option<u64>,
 }
 
 impl Counter {
@@ -84,6 +88,7 @@ impl Counter {
             autosave,
             last_data: None,
             last_revision: 0,
+            rejected_revision: None,
         }
     }
 }
@@ -96,14 +101,23 @@ impl Render for Counter {
         #[cfg(not(feature = "hot-reload"))]
         let revision = 0;
         let mut rejected = false;
-        let data = match current_frame(self.data).decode() {
+        // Do not retry a frame the patched code already failed to produce; a new patch changes the
+        // revision and is tried again.
+        let frame = if self.rejected_revision == Some(revision) {
+            Err("the patched boundary was rejected".to_owned())
+        } else {
+            current_frame(self.data).and_then(|frame| frame.decode().map_err(|error| error.to_owned()))
+        };
+        let data = match frame {
             Ok(data) => {
+                self.rejected_revision = None;
                 #[cfg(feature = "hot-reload")]
                 auro::hot::rendered();
                 data
             }
             Err(error) => {
                 rejected = true;
+                self.rejected_revision = Some(revision);
                 if self.last_revision != revision {
                     eprintln!("auro:trace hot_data_rejected {error}");
                     eprintln!("auro: hot data rejected: {error}; previous values stay");

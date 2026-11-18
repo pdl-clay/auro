@@ -46,7 +46,9 @@ installable `auro-cli` yet.
   changed `ViewData` layout is rejected with `auro: reload rejected by the view: ...; previous UI
   kept` instead of being read under the old layout. `types` documents bumping `SCHEMA` and not
   reshaping `HotData`. `auro::hot::hot_frame`/`rendered` let a view report a render only after it
-  accepts the frame, so a rejected frame produces no `hot_render` timing line.
+  accepts the frame, so a rejected frame produces no `hot_render` timing line. The generated view
+  also catches a panic in the patched boundary and keeps the previous values; removing the panic
+  applied in 327 ms in the same process.
 - `auro-cli dev` hot mode: requires dioxus-cli 0.7.x, preflights the app's `hot-reload` feature,
   labels build failures (`previous UI still running`), detects devserver relaunches by app pid,
   exits when the app window closes gracefully, and Ctrl-C ends the devserver and the app process

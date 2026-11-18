@@ -47,6 +47,8 @@ wakes the main thread through a watch channel rather than a poll.
   continue.
 - A mismatched data layout is a reported rejection instead of an out-of-bounds read.
 - A failed apply is a message and a still-live app, not a dead devserver listener.
+- A panic in patched boundary code is contained; the view keeps its previous values and the process
+  survives.
 
 **Harder**
 
