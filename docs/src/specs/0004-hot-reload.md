@@ -432,7 +432,7 @@ state-preserving restart.
 | Build failed | A boundary build/patch compilation fails | Keep previous UI active and interactive; do not apply a partial reload | compiler/build diagnostics; “previous UI still running” |
 | Host restart, rebuild failed | A host-code save restarted the devserver/app and its rebuild fails | No app runs; keep the devserver for the next save; do not apply a partial reload | “host rebuild failed; no app is running until the next successful build” |
 | Reload failed, recovered | Build/patch succeeds but compatibility/apply/restore fails and previous UI remains valid or can be safely rolled back | Keep or restore previous UI as applicable; do not present as reloaded | explicit failure reason |
-| State-preserving restart (fallback) | Reload cannot be completed safely, or a configured/required restart change occurred | Persist snapshot to a host-controlled location, restart app/host session, restore on boot | “restarted (state restored)” or “restarted (state reset: \<reason\>)” - never “hot reloaded” |
+| State-preserving restart (fallback) | Reload cannot be completed safely, or a configured/required restart change occurred | Restart app/host session; restore the last snapshot the app wrote to its host-controlled store. State changed since that write is reset and reported. | “restarted (state restored)” or “restarted (state reset: \<reason\>)” - never “hot reloaded” |
 | Hard failure | Restart/restore impossible | Exit non-zero with diagnostic | error |
 
 A failed build must never apply broken code. A boundary build failure keeps the previous UI active.
