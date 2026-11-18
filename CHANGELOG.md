@@ -354,6 +354,9 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ### Fixed
 
+- `auro-ui` pins `libc = "=0.2.189"` so GPUI 0.2.2's `xattr 0.2.3` dependency compiles for
+  crates.io consumers; libc 0.2.190 removed `ENOATTR` on Linux, and a published crate cannot rely
+  on the workspace's `[patch.crates-io]`.
 - `auro build`, `auro bundle` and `auro bench` resolve `CARGO_TARGET_DIR` the way cargo does and
   pass an explicit `--target-dir`; `auro bundle` previously looked under `<app>/target/release` and
   failed when the variable pointed elsewhere.
