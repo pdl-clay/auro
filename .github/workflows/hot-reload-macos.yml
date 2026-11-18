@@ -74,6 +74,31 @@ jobs:
             sleep 5
           done
           sleep 2
+          # A host-code save must restart the devserver/app instead of applying a patch.
+          pids_before=$(grep -c 'auro:trace pid' hot.log)
+          perl -pi -e 's/Button::new\("increment", "Increment"\)/Button::new("increment", "Add one")/' ui/src/lib.rs
+          restart=0
+          for _ in $(seq 1 60); do
+            if grep -q 'outside the hot boundary; restarting' hot.log &&
+               grep -q 'auro: restarted (' hot.log; then
+              restart=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$restart" -ne 1 ]; then
+            echo "host restart did not complete; log tail:"
+            tail -200 hot.log
+            kill -INT "$devpid" 2>/dev/null || true
+            exit 1
+          fi
+          pids_after=$(grep -c 'auro:trace pid' hot.log)
+          if [ "$pids_after" -le "$pids_before" ]; then
+            echo "host restart did not produce a new app pid: before=$pids_before after=$pids_after"
+            kill -INT "$devpid" 2>/dev/null || true
+            exit 1
+          fi
+          grep 'outside the hot boundary\|auro: restarted (' hot.log
           kill -INT "$devpid" 2>/dev/null || true
           wait "$devpid" 2>/dev/null || true
           cp hot.log "$RUNNER_TEMP/hot-macos.log"
