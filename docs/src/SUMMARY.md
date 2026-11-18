@@ -8,8 +8,10 @@
 - [Crates and layering](architecture/crates.md)
 - [Threading and IPC](architecture/threading-and-ipc.md)
 - [Capabilities](architecture/capabilities.md)
+- [Updates](architecture/updates.md)
 - [Choosing a toolkit](architecture/toolkits.md)
 - [Hot reload](architecture/hot-reload.md)
+- [Text input, IME and accessibility](architecture/accessibility.md)
 
 # Decisions
 
@@ -34,6 +36,7 @@
 - [0018 - Linux package rollback](decisions/0018-linux-package-rollback.md)
 - [0019 - macOS package elevation](decisions/0019-macos-package-elevation.md)
 - [0020 - macOS notarization](decisions/0020-macos-notarization.md)
+- [0021 - Opt-in rollback after a failed package apply](decisions/0021-opt-in-package-rollback.md)
 
 # Specifications
 

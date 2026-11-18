@@ -22,7 +22,10 @@ The frontend is Rust. There is no HTML, no CSS engine and no JavaScript in the a
 
 **Pre-alpha. Designing in public.** The workspace exists, Phase 0 and Phase 1 are complete, and
 Phase 2 is in progress; nothing is published on crates.io and there is no released CLI yet. You can
-build and try the framework from a checkout (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+build and try the framework from a checkout (see [CONTRIBUTING.md](CONTRIBUTING.md)). The Phase 2
+slices in tree cover bundling, signed updates with platform apply paths and platform services;
+macOS notarization submission and local verification are release tooling, not a tested end-user
+flow.
 
 | Phase | Codename | State |
 |---|---|---|
