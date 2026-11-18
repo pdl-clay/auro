@@ -242,8 +242,8 @@ on every successful reload.
 **Hot mode integrated (2026-11-18, experimental, opt-in).** `[dev] hot = true` makes `auro dev` run
 `dx serve --hot-patch --interactive false --platform desktop --features hot-reload` with
 `AURO_HOT_RELOAD=1` and `AURO_DEV_TRACE=1`; scaffolded apps expose a data-only boundary
-(`view_data() -> ViewData` wrapped by `auro::hot::hot`) and define the `desktop-dev` profile the
-devserver builds (`debug=0`, `incremental=false`). `auro dev` refuses to start unless `dx` is
+(`view_data() -> HotData` wrapped by `auro::hot::hot_frame`/`rendered`) and define the
+`desktop-dev` profile the devserver builds (`debug=0`, `incremental=false`). `auro dev` refuses to start unless `dx` is
 0.7.x-compatible and the app declares the `hot-reload` feature; `auro doctor` reports the same
 inputs.
 
@@ -305,7 +305,8 @@ incremental session.
 **macOS (2026-11-18): no live run.** There is no Apple host here, so no save-to-render number
 exists. The loop, preflight, `auro doctor` and diagnostics are platform-neutral, `subsecond`
 supports the Mach-O patch transport, and CI builds and runs the `hot-reload` feature tests on
-`macos-latest`; a real measurement needs an interactive Aqua session. A hardened-runtime build
+`macos-latest` (including a generated four-crate scaffold); a real measurement needs an
+interactive Aqua session. A hardened-runtime build
 would refuse the unsigned patch dylib, so hot-reload dev builds must not enable the hardened
 runtime; this is unverified and recorded as an open item, not as support.
 
@@ -360,7 +361,8 @@ invalidation contract so replaced code is never invoked after a reload completes
 teardown/rollback contract. *Rejected:* storing entity handles or view callbacks in process-global
 state that cannot be invalidated on reload.
 
-**Implemented layout (2026-11-18).** The boundary is a crate edge, not a convention: `ui` owns the
+**Implemented layout (2026-11-18, [ADR 0021](../decisions/0021-hot-reload-boundary-crate.md)).**
+The boundary is a crate edge, not a convention: `ui` owns the
 host-stable `Render`/window/element code and must not depend on `data`; `data` owns the reloadable
 boundary and depends only on `types`. The bin wires the function pointer
 (`ui::run(data::view_data)`), so a patch replaces code in `data` without recompiling the view. The

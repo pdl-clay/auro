@@ -62,3 +62,4 @@ ADR keeps the conclusion.
 | [0018](0018-linux-package-rollback.md) | Package rollback requires an explicit older artifact | Accepted |
 | [0019](0019-macos-package-elevation.md) | macOS package elevation uses an explicit AppleScript prompt | Accepted |
 | [0020](0020-macos-notarization.md) | Notarization uses a keychain profile through notarytool | Accepted |
+| [0021](0021-hot-reload-boundary-crate.md) | Hot reload boundary is a separate crate with a fixed frame | Accepted |

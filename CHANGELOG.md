@@ -27,7 +27,8 @@ installable `auro-cli` yet.
 - `auro` hot reload: the generated app is now a four-crate workspace - `types` (fixed `HotData`
   frame), `data` (the boundary), `ui` (view/render/window code) and a thin bin. `ui` does not depend
   on `data`, so a boundary edit recompiles the boundary and the bin instead of the GPUI view; the
-  patch library is ~12 KB instead of the size of the fat binary. On niri/Wayland the same reference
+  patch library is ~12 KB instead of the size of the fat binary (recorded in
+  [ADR 0021](docs/src/decisions/0021-hot-reload-boundary-crate.md)). On niri/Wayland the same reference
   machine measured 325-394 ms save-to-render (N=12, median 368, patch-to-render 1-26 ms,
   `desktop-dev` `debug=0`, `incremental=false`) with the same pid, window and state; a plain-struct
   boundary measured median 288 ms, so the fixed-frame guard costs ~80 ms. Windows still exceeds

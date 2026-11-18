@@ -198,7 +198,7 @@ run. It is reported per platform, never as a single global claim.
 |---|---|---|---|
 | Linux x86_64, niri/Wayland | Opt-in, verified | **368 ms** median, N=12 (325-394) | Four-crate scaffold, `desktop-dev`, boundary edits, same pid/window/state |
 | Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **813 ms** median, N=9 (752-897) | Guarded four-crate scaffold, `auro dev` trace, same pid/window; still above target (a plain-boundary series measured 1168 ms) |
-| macOS | Compiles/tests in CI only | Unmeasured | No Apple host; interactive Aqua run, signing and hardened-runtime behaviour open |
+| macOS | Compiles/tests in CI only | Unmeasured | No Apple host; the generated scaffold builds/tests on `macos-latest`; interactive Aqua run, signing and hardened-runtime behaviour open |
 
 ## Mechanism and layout
 
@@ -209,8 +209,9 @@ boundary, with host-owned GPUI state and a versioned snapshot. The generated lay
 reloadable unit a small workspace crate (`data`) that the view crate (`ui`) does not depend on,
 which keeps GPUI out of the patch and brings the Linux warm-edit median under 500 ms. The boundary
 returns a fixed `HotData` frame so a changed data layout is rejected rather than misinterpreted.
-The contract, measurements and remaining platform limits are in
-[spec 0004](../specs/0004-hot-reload.md).
+The layout and fixed-frame decision is recorded in
+[ADR 0021](../decisions/0021-hot-reload-boundary-crate.md); the contract, measurements and
+remaining platform limits are in [spec 0004](../specs/0004-hot-reload.md).
 
 ## State preservation
 
