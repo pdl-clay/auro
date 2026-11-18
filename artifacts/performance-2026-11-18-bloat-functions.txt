@@ -1,0 +1,28 @@
+ File  .text    Size       Crate Name
+ 0.3%   0.7% 77.4KiB       taffy taffy::compute::grid::track_sizing::resolve_intrinsic_track_sizes::<taffy::tree::taffy_tree::TaffyView<gpui::taffy::NodeContext, <gpui::taffy::TaffyLayoutEngine>::compute_layout::{closure#0}::{closure#1}>, for<'a, 'b> fn(&'a taffy::compute::grid::types::grid_track::GridTrack, core::option::Option<f32>, &'b taffy::tree::taffy_tree::TaffyView<gpui::taffy::NodeContext, <gpui::taffy::TaffyLayoutEngine>::compute_layout::{closure#0}::{closure#1}>) -> core::option::Option<f32>>
+ 0.2%   0.4% 45.7KiB       taffy taffy::compute::flexbox::compute_preliminary::<taffy::tree::taffy_tree::TaffyView<gpui::taffy::NodeContext, <gpui::taffy::TaffyLayoutEngine>::compute_layout::{closure#0}::{closure#1}>>
+ 0.2%   0.4% 43.3KiB       taffy <taffy::tree::taffy_tree::TaffyView<gpui::taffy::NodeContext, <gpui::taffy::TaffyLayoutEngine>::compute_layout::{closure#0}::{closure#1}> as taffy::tree::traits::LayoutPartialTree>::compute_child_layout::{closure#0}
+ 0.1%   0.3% 35.0KiB      skrifa <skrifa::outline::glyf::hint::engine::Engine>::run
+ 0.1%   0.3% 33.6KiB        zbus <zbus::connection::builder::Builder>::build_::{closure#0}
+ 0.1%   0.3% 33.1KiB        zbus <zbus::connection::builder::Builder>::build_::{closure#0}
+ 0.1%   0.3% 32.3KiB        zbus <zbus::proxy::Proxy>::receive_signals::{closure#0}
+ 0.1%   0.3% 32.0KiB        zbus <zbus::proxy::Proxy>::receive_signals::{closure#0}
+ 0.1%   0.3% 31.7KiB        zbus <zbus::proxy::PropertiesCache>::init::{closure#0}
+ 0.1%   0.3% 31.7KiB        zbus <zbus::proxy::Proxy>::receive_signals::{closure#0}
+ 0.1%   0.3% 31.6KiB         oo7 <oo7::keyring::Keyring>::new_inner::{closure#0}
+ 0.1%   0.3% 31.6KiB        zbus <zbus::proxy::Proxy>::receive_signals::{closure#0}
+ 0.1%   0.3% 31.2KiB         oo7 <oo7::keyring::Keyring>::new_inner::{closure#0}
+ 0.1%   0.3% 30.6KiB         oo7 <oo7::keyring::Keyring>::new_inner::{closure#0}
+ 0.1%   0.3% 30.4KiB        naga <naga::back::spv::Writer>::write_logical_layout
+ 0.1%   0.3% 29.5KiB         ash <ash::vk::enums::StructureType as core::fmt::Debug>::fmt
+ 0.1%   0.3% 29.2KiB       swash swash::scale::bitmap::resize
+ 0.1%   0.2% 28.2KiB        usvg usvg::text::layout::layout_text
+ 0.1%   0.2% 24.6KiB        naga <naga::back::spv::Writer>::write_function
+ 0.1%   0.2% 24.3KiB encoding_rs <encoding_rs::variant::VariantDecoder>::decode_to_utf8_raw
+ 0.1%   0.2% 23.3KiB        naga <naga::valid::Validator>::validate_function
+ 0.1%   0.2% 23.3KiB        naga <naga::back::spv::BlockContext>::write_block
+ 0.1%   0.2% 23.2KiB        naga <naga::front::wgsl::lower::Lowerer>::call
+ 0.1%   0.2% 22.1KiB        gpui <gpui::app::App>::flush_effects
+ 0.1%   0.2% 21.6KiB        naga <naga::valid::Validator>::validate_block_impl
+38.5%  91.9% 10.3MiB             And 18562 smaller methods. Use -n N to show more.
+41.9% 100.0% 11.2MiB             .text section size, the file size is 26.8MiB
