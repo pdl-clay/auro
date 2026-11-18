@@ -480,8 +480,8 @@ pid (`auro:trace pid`) and only then is the snapshot report labelled `restarted 
 `restarted (state reset: <reason>)`; the first launch is not labelled. A graceful app exit ends the
 loop with exit 0, and Ctrl-C kills the devserver and the app process (verified on Linux; the Windows
 run was ended by closing its window, which also exited 0). The `< 500 ms` target is met by the Linux
-median (368 ms) for the documented warm case; Windows exceeds it and macOS is at the boundary (see
-D6). The label never claims a target it did not measure.
+median (368 ms) for the documented warm case; Windows exceeds it and macOS is above it on a shared
+CI runner (see D6). The label never claims a target it did not measure.
 
 **Rejected patches (2026-11-18).** A patch the app cannot load prints
 `auro: patch rejected by the app: <reason>`; the previous UI stays live and no timing line is
@@ -818,8 +818,9 @@ fixture for mounting the view, changing the boundary output and keeping state
 (`crates/auro/tests/hot_fixture.rs`); it does not load a patch dylib, and the snapshot roundtrip is
 covered by the `auro-core` tests. Item 4 rests on the crate boundary (`ui` does not depend on `data`, only
 `hot`-wrapped calls read the jump table); item 8 is the repository gates. The Linux median is now
-under 500 ms for the documented warm case, macOS is at the boundary on a shared CI runner and
-Windows remains above it, so the target is not met platform-wide and experimental mode must not claim it.
+under 500 ms for the documented warm case, macOS is above the target on a shared CI runner and
+Windows remains above it, so the target is not met platform-wide and experimental mode must not
+claim it.
 
 GA additionally requires: measured < 500 ms save-to-visible for the documented warm view-only case on
 each Tier 1 platform (or an explicit, approved revision of the target recorded in the performance

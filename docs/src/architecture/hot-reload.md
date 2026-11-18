@@ -209,8 +209,8 @@ and left the previous values on screen.
   target is not claimed met. Local hardware, signing and hardened-runtime behaviour remain open.
 
 The < 500 ms reference case is met on Linux (median 368 ms), not on Windows (median 813 ms), and
-is at the boundary on a shared macOS runner (median 509.5 ms). It is reported per platform, never
-as a single global claim.
+is above the target on a shared macOS runner (509.5 ms median; a second run measured 837.0 ms). It
+is reported per platform, never as a single global claim.
 
 | Platform | Hot mode | Save-to-render (warm) | Evidence |
 |---|---|---|---|
