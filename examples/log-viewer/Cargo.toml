@@ -7,7 +7,7 @@ edition = "2024"
 
 [dependencies]
 auro = { path = "../../crates/auro" }
-gpui-component = "=0.5.1"
+gpui-component = "=0.10.0"
 
 # The README's binary size is a stripped release build.
 [profile.release]

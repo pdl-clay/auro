@@ -360,7 +360,7 @@ impl App {
             });
         }
 
-        Application::new().run(move |cx| {
+        Application::with_platform(gpui_linux::current_platform(false)).run(move |cx| {
             // Held for the process lifetime: commands resolve state through this store.
             let _states = states;
 
@@ -441,7 +441,7 @@ fn observe_closes(
     lifecycle: Rc<Lifecycle>,
     open_windows: Rc<RefCell<Vec<(AnyWindowHandle, String)>>>,
 ) {
-    cx.on_window_closed(move |cx| {
+    cx.on_window_closed(move |cx, _window_id| {
         let open = cx.windows();
         let mut closed = Vec::new();
         open_windows.borrow_mut().retain(|(handle, label)| {

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use {{crate}}_types::{HotData, ViewData};
-use auro::gpui::Timer;
+use smol::Timer;
 use auro::prelude::*;
 
 /// The part of this view that survives an `auro dev` restart (spec 0004, D3).

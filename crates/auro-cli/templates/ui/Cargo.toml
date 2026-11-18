@@ -7,6 +7,7 @@ rust-version = "1.90"
 [dependencies]
 auro = {{auro_dependency}}
 serde = { version = "1", features = ["derive"] }
+smol = "2"
 {{name}}-types = { path = "../types" }
 
 [features]
