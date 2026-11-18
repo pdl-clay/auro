@@ -454,6 +454,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn reports_pkexec_authorization_failure() {
         let temp = tempfile::tempdir().expect("tempdir");
