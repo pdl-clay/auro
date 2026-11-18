@@ -1,9 +1,9 @@
 # 0027 - Linux package apply
 
 **Status:** Implemented (2026-11-18; `.deb`/`.rpm` command execution and helper integration;
-pkexec elevation is [spec 0029](0029-linux-package-elevation.md) and explicit rollback is
-[spec 0030](0030-linux-package-rollback.md); automatic rollback and package-manager policy are
-not implemented)
+pkexec elevation is [spec 0029](0029-linux-package-elevation.md) and caller-supplied rollback,
+including the opt-in helper rollback, is
+[spec 0030](0030-linux-package-rollback.md); selecting a downgrade target remains out of scope)
 
 Spec 0014 handles a single-file AppImage. This spec covers distribution packages: run `dpkg -i` for
 a staged `.deb`, or `rpm -U` for a staged `.rpm`, through the same shell-free runner used by the
@@ -19,7 +19,7 @@ Windows installer.
 ## Out of scope
 
 - A root-owned helper, `sudo`, polkit policy installation or an Auro-managed password prompt.
-- Rollback or package downgrade policy; the package manager owns the transaction.
+- Choosing or retaining the package to downgrade to; the caller supplies it (spec 0030).
 - Signature verification of the package itself; the staged artifact is already verified by the
   unsigned manifest hash.
 - Choosing between `dpkg`, `apt`, `rpm`, `dnf` or `zypper`; this uses the low-level package tool.
@@ -55,8 +55,10 @@ self-elevates, and `sudo` is not used.
 
 A prepared journal can carry `ApplyKind::DebPackage` or `ApplyKind::RpmPackage`; the helper applies
 the staged package through `LinuxPackageInstaller` before relaunching. No backup is recorded because
-the package manager owns rollback. The helper still records `Failed` and does not relaunch on
-failure.
+the package manager owns the transaction. If the plan also carries a `PackageRollback` and the apply
+fails with `InstallerFailed`, the helper runs the caller-supplied older package as
+[spec 0030](0030-linux-package-rollback.md) describes. Otherwise it records `Failed` and does not
+relaunch.
 
 ## Interfaces
 

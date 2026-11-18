@@ -1,4 +1,4 @@
-# 0021 - Hot reload boundary is a separate crate with a fixed frame
+# 0022 - Hot reload boundary is a separate crate with a fixed frame
 
 **Status:** Accepted (2026-11-18)
 

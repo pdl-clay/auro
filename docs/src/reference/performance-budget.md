@@ -27,10 +27,13 @@ Precision matters more than the number, because a budget you cannot reproduce is
 
 `auro bench --dir <app>` builds the release binary, spawns it `--runs` times with
 `AURO_STARTUP_TRACE=1`, measures spawn-to-`auro:startup` (first-frame request), samples RSS after
-`--idle-seconds`, and reports the release binary size. `--json` emits a machine-readable result.
-The marker is a first-frame request, not proof of a painted frame; the stricter painted-frame
-method remains a target. Run it on an otherwise idle machine and record the platform/toolchain with
-the result.
+`--idle-seconds`, and reports the release binary size. Every sample is retained: the text report
+prints min, median, p95 and max for startup and RSS, and `--json` emits the same summary plus the
+raw `startup_ms_samples`/`rss_mb_samples` arrays. The p95 uses the nearest-rank definition, so a
+small run count (five is the default) makes p95 the maximum sample; raise `--runs` before reading
+it as a tail estimate. The marker is a first-frame request, not proof of a painted frame; the
+stricter painted-frame method remains a target. Run it on an otherwise idle machine and record the
+platform/toolchain with the result.
 
 Local measurement, 2026-11-18, Linux x86_64, niri/Wayland, release build, `examples/hello`, five
 runs with a five-second idle sample: startup median **154.9 ms**, idle RSS median **105.3 MB**,

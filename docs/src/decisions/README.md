@@ -59,7 +59,8 @@ ADR keeps the conclusion.
 | [0015](0015-self-helper-restart.md) | Restart through the app executable and a durable journal | Accepted |
 | [0016](0016-deltas-and-rollout.md) | Delta patches are base-bound; rollout is deterministic | Accepted |
 | [0017](0017-linux-package-elevation.md) | Linux package elevation is explicit pkexec, never self-root | Accepted |
-| [0018](0018-linux-package-rollback.md) | Package rollback requires an explicit older artifact | Accepted |
+| [0018](0018-linux-package-rollback.md) | Package rollback requires an explicit older artifact | Superseded in part by [0021](0021-opt-in-package-rollback.md) |
 | [0019](0019-macos-package-elevation.md) | macOS package elevation uses an explicit AppleScript prompt | Accepted |
 | [0020](0020-macos-notarization.md) | Notarization uses a keychain profile through notarytool | Accepted |
-| [0021](0021-hot-reload-boundary-crate.md) | Hot reload boundary is a separate crate with a fixed frame | Accepted |
+| [0021](0021-opt-in-package-rollback.md) | Opt-in rollback after a failed package apply | Accepted |
+| [0022](0022-hot-reload-boundary-crate.md) | Hot reload boundary is a separate crate with a fixed frame | Accepted |

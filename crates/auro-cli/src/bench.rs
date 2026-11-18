@@ -38,8 +38,10 @@ pub fn run(dir: &Path, runs: u32, idle_seconds: u64, json: bool) -> Result<(), A
     for _ in 0..runs {
         measurements.push(run_once(&binary, &dir, idle_seconds)?);
     }
-    let startup = median(measurements.iter().map(|run| run.startup_ms).collect());
-    let rss = median(measurements.iter().map(|run| run.rss_mb).collect());
+    let startup_samples: Vec<f64> = measurements.iter().map(|run| run.startup_ms).collect();
+    let rss_samples: Vec<f64> = measurements.iter().map(|run| run.rss_mb).collect();
+    let startup = summarize(&startup_samples);
+    let rss = summarize(&rss_samples);
     let app = dir
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -52,16 +54,30 @@ pub fn run(dir: &Path, runs: u32, idle_seconds: u64, json: bool) -> Result<(), A
             "binary_bytes": binary_bytes,
             "runs": runs,
             "idle_seconds": idle_seconds,
-            "startup_ms_median": startup,
-            "rss_mb_median": rss,
+            "startup_ms_min": startup.min,
+            "startup_ms_median": startup.median,
+            "startup_ms_p95": startup.p95,
+            "startup_ms_max": startup.max,
+            "startup_ms_samples": startup_samples,
+            "rss_mb_min": rss.min,
+            "rss_mb_median": rss.median,
+            "rss_mb_p95": rss.p95,
+            "rss_mb_max": rss.max,
+            "rss_mb_samples": rss_samples,
         });
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
         println!("app: {app}");
         println!("binary: {} ({binary_bytes} bytes)", binary.display());
         println!("runs: {runs} (idle {idle_seconds}s)");
-        println!("startup_ms_median: {startup:.1}");
-        println!("rss_mb_median: {rss:.1}");
+        println!(
+            "startup_ms: min {:.1}, median {:.1}, p95 {:.1}, max {:.1}",
+            startup.min, startup.median, startup.p95, startup.max
+        );
+        println!(
+            "rss_mb: min {:.1}, median {:.1}, p95 {:.1}, max {:.1}",
+            rss.min, rss.median, rss.p95, rss.max
+        );
     }
     Ok(())
 }
@@ -134,14 +150,41 @@ fn run_once(binary: &Path, dir: &Path, idle_seconds: u64) -> Result<Run, AuroErr
     })
 }
 
-fn median(mut values: Vec<f64>) -> f64 {
-    values.sort_by(f64::total_cmp);
-    let middle = values.len() / 2;
-    if values.len().is_multiple_of(2) {
-        (values[middle - 1] + values[middle]) / 2.0
-    } else {
-        values[middle]
+struct Summary {
+    min: f64,
+    median: f64,
+    p95: f64,
+    max: f64,
+}
+
+fn summarize(values: &[f64]) -> Summary {
+    assert!(
+        !values.is_empty(),
+        "a benchmark run yields at least one sample"
+    );
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    Summary {
+        min: sorted[0],
+        median: median(&sorted),
+        p95: percentile(&sorted, 95.0),
+        max: sorted[sorted.len() - 1],
     }
+}
+
+fn median(sorted: &[f64]) -> f64 {
+    let middle = sorted.len() / 2;
+    if sorted.len().is_multiple_of(2) {
+        (sorted[middle - 1] + sorted[middle]) / 2.0
+    } else {
+        sorted[middle]
+    }
+}
+
+/// Nearest-rank percentile; the input must be sorted.
+fn percentile(sorted: &[f64], percent: f64) -> f64 {
+    let rank = (percent / 100.0 * sorted.len() as f64).ceil() as usize;
+    sorted[rank.saturating_sub(1).min(sorted.len() - 1)]
 }
 
 #[cfg(test)]
@@ -149,8 +192,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn median_handles_odd_and_even_samples() {
-        assert_eq!(median(vec![3.0, 1.0, 2.0]), 2.0);
-        assert_eq!(median(vec![4.0, 1.0, 3.0, 2.0]), 2.5);
+    fn summarizes_odd_and_even_samples() {
+        let summary = summarize(&[3.0, 1.0, 2.0]);
+        assert_eq!(summary.min, 1.0);
+        assert_eq!(summary.median, 2.0);
+        assert_eq!(summary.p95, 3.0);
+        assert_eq!(summary.max, 3.0);
+
+        let summary = summarize(&[4.0, 1.0, 3.0, 2.0]);
+        assert_eq!(summary.min, 1.0);
+        assert_eq!(summary.median, 2.5);
+        assert_eq!(summary.p95, 4.0);
+        assert_eq!(summary.max, 4.0);
+    }
+
+    #[test]
+    fn percentile_uses_the_nearest_rank() {
+        let values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        assert_eq!(percentile(&values, 50.0), 5.0);
+        assert_eq!(percentile(&values, 95.0), 10.0);
+        assert_eq!(percentile(&[1.0, 2.0], 95.0), 2.0);
     }
 }

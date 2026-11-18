@@ -85,6 +85,11 @@ pub fn notarize(artifact: &Path, profile: &str, skip_staple: bool) -> Result<(),
     auro_bundle::MacNotarizer::new().notarize(artifact, profile, skip_staple)
 }
 
+/// Checks a notarized artifact's stapled ticket and Gatekeeper assessment.
+pub fn verify(artifact: &Path) -> Result<(), AuroError> {
+    auro_bundle::MacNotarizer::new().verify(artifact)
+}
+
 /// Writes a bsdiff-compatible patch from `from` to `to`.
 pub fn delta(from: &Path, to: &Path, out: &Path) -> Result<(), AuroError> {
     let patch = auro_update::create_delta(from, to)

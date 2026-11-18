@@ -56,8 +56,12 @@ semantics from the desktop polkit agent.
 
 ### D3 - Failure is explicit; the package manager owns the transaction
 
-`pkexec` exit `0` succeeds. Any other code is `ElevationFailed { program, code }`; `pkexec` commonly
-uses `126` for a denied/cancelled authorization and `127` for a missing command. A missing
+`pkexec` exit `0` succeeds. Codes `126` (authorization/execution failed) and `127` (invalid
+authorization or missing command), or termination without a code, are `ElevationFailed { program,
+code }`. Any other non-zero code is the package manager's own status: `pkexec` passes the child's
+exit code through, so code `1` from `dpkg` must not be reported as an authorization failure. That
+case is `InstallerFailed { path, code }`, which is also what the journal uses to decide whether an
+opt-in package rollback may run ([spec 0030](0030-linux-package-rollback.md)). A missing
 `/usr/bin/pkexec` itself surfaces as an I/O error. The helper records `Failed` in the journal and
 does not relaunch the app.
 
@@ -99,8 +103,10 @@ impl LinuxPackageInstaller {
    (`elevated_deb_runs_pkexec_dpkg_with_a_held_descriptor`).
 3. Elevated `.rpm` runs `pkexec` with `/usr/bin/rpm -U` (`elevated_rpm_runs_pkexec_rpm`).
 4. A `pkexec` exit of 126 is `ElevationFailed` (`reports_pkexec_authorization_failure`).
-5. The restart helper routes `ApplyKind::DebPackage`/`RpmPackage` through the elevated installer.
-6. `cargo fmt --all --check`,
+5. A package-manager exit of 1 through `pkexec` is `InstallerFailed`
+   (`elevated_package_manager_failure_is_an_installer_failure`).
+6. The restart helper routes `ApplyKind::DebPackage`/`RpmPackage` through the elevated installer.
+7. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 

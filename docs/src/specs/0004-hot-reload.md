@@ -377,7 +377,7 @@ invalidation contract so replaced code is never invoked after a reload completes
 teardown/rollback contract. *Rejected:* storing entity handles or view callbacks in process-global
 state that cannot be invalidated on reload.
 
-**Implemented layout (2026-11-18, [ADR 0021](../decisions/0021-hot-reload-boundary-crate.md)).**
+**Implemented layout (2026-11-18, [ADR 0022](../decisions/0022-hot-reload-boundary-crate.md)).**
 The boundary is a crate edge, not a convention: `ui` owns the
 host-stable `Render`/window/element code and must not depend on `data`; `data` owns the reloadable
 boundary and depends only on `types`. The bin wires the function pointer

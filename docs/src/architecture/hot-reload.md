@@ -231,7 +231,7 @@ reloadable unit a small workspace crate (`data`) that the view crate (`ui`) does
 which keeps GPUI out of the patch and brings the Linux warm-edit median under 500 ms. The boundary
 returns a fixed `HotData` frame so a changed data layout is rejected rather than misinterpreted.
 The layout and fixed-frame decision is recorded in
-[ADR 0021](../decisions/0021-hot-reload-boundary-crate.md); the contract, measurements and
+[ADR 0022](../decisions/0022-hot-reload-boundary-crate.md); the contract, measurements and
 remaining platform limits are in [spec 0004](../specs/0004-hot-reload.md).
 
 ## State preservation

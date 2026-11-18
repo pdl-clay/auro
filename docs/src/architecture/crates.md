@@ -20,7 +20,7 @@ Eleven crates are materialized now; the rest arrive with the phase that needs th
 | `auro-services` | library | platform services: autostart, notifications, keychain, global shortcuts, tray, deep links (specs 0017-0022) | Phase 2, in tree |
 | `auro-bundle` | library | platform packaging via `tauri-bundler` (spec 0010) | Phase 2, in tree |
 | `auro-sign` | library | Ed25519 keys, signatures, SHA-256 (spec 0011) | Phase 2, in tree |
-| `auro-update` | library | signed manifests, check/download/stage runtime, Linux AppImage apply (specs 0012-0014) | Phase 2, in tree |
+| `auro-update` | library | signed manifests, stage/delta/rollout runtime, platform apply and journal-driven restart/rollback (specs 0012-0014, 0025-0032) | Phase 2, in tree |
 
 ## Dependency rules
 
