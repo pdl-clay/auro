@@ -201,7 +201,9 @@ and left the previous values on screen.
   536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, min 372, max 1071;
   patch-to-render 2-17 ms), same process/window. A first cold run measured median 515 (N=12,
   431-715). The runner is noisy and the median is slightly above target; five of twelve warm edits
-  were under 500. Local hardware, signing and hardened-runtime behaviour remain open.
+  were under 500. A second run with twelve warm-up edits measured a 748.5 ms median (N=12,
+  611-1114), worse on the same shared runner; the six-warmup series remains the recorded method.
+  Local hardware, signing and hardened-runtime behaviour remain open.
 
 The < 500 ms reference case is met on Linux (median 368 ms), not on Windows (median 813 ms), and
 is at the boundary on a shared macOS runner (median 509.5 ms). It is reported per platform, never

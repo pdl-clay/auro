@@ -315,9 +315,12 @@ then twelve measured edits. Save-to-render was
 536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, min 372, max 1071;
 patch-to-render 2-17 ms), with the app process and window kept. A first cold run without warm-up
 measured median 515 ms (N=12, 431-715). The shared runner is noisy and the median is slightly above
-500 ms; five of the twelve warm edits were under it. No local Apple hardware, hardened-runtime
-build, signing or interactive Aqua session was exercised. macOS is measured but not GA, and CI
-also builds/tests the feature and the generated scaffold on `macos-latest`.
+500 ms; five of the twelve warm edits were under it. A second run with twelve warm-up edits
+measured median 748.5 ms (N=12, 611-1114), worse than the six-warmup run on the same shared runner;
+the noise is the runner, not a warm-up effect, so the six-warmup series remains the recorded method
+and the workflow was reverted. No local Apple hardware, hardened-runtime build, signing or
+interactive Aqua session was exercised. macOS is measured but not GA, and CI also builds/tests the
+feature and the generated scaffold on `macos-latest`.
 
 **Boundary crate split (2026-11-18, integrated).** The first integrated scaffold kept the boundary
 and the GPUI view in the same bin crate. Every patch then recompiled and relinked the view code and
