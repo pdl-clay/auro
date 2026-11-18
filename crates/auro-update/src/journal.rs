@@ -615,10 +615,14 @@ impl ApplyJournal {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty());
         if let Some(parent) = parent {
+            #[cfg(test)]
+            eprintln!("save: create_parent({:?})", parent);
             create_parent(parent)?;
         }
         trust::validate_parent(&self.path)?;
         let directory = parent.unwrap_or_else(|| Path::new("."));
+        #[cfg(test)]
+        eprintln!("save: NamedTempFile::new_in({:?})", directory);
         let mut temporary = NamedTempFile::new_in(directory)?;
         serde_json::to_writer_pretty(temporary.as_file_mut(), &self.data)?;
         temporary.as_file_mut().sync_all()?;
