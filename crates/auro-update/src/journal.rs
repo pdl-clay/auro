@@ -38,6 +38,10 @@ pub enum ApplyKind {
     AppImage,
     /// Windows MSI/NSIS installer execution.
     WindowsInstaller,
+    /// Debian package installation.
+    DebPackage,
+    /// RPM package installation.
+    RpmPackage,
     /// macOS `.app` bundle replacement.
     MacApp,
 }
@@ -619,6 +623,20 @@ fn apply_kind(
                 })
             }
             #[cfg(not(target_os = "windows"))]
+            {
+                Err(UpdateError::UnsupportedApply { kind })
+            }
+        }
+        ApplyKind::DebPackage | ApplyKind::RpmPackage => {
+            #[cfg(target_os = "linux")]
+            {
+                crate::LinuxPackageInstaller::new().install(staged)?;
+                Ok(ApplyOutcome {
+                    backup: None,
+                    restart_required: false,
+                })
+            }
+            #[cfg(not(target_os = "linux"))]
             {
                 Err(UpdateError::UnsupportedApply { kind })
             }

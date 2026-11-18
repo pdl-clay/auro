@@ -59,6 +59,7 @@
 - [0024 - Alpha release](specs/0024-alpha-release.md)
 - [0025 - Windows and macOS apply](specs/0025-platform-apply.md)
 - [0026 - Update journal and restart helper](specs/0026-update-journal.md)
+- [0027 - Linux package apply](specs/0027-linux-packages.md)
 
 # Reference
 

@@ -184,6 +184,12 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::{WindowsInstallOutcome, WindowsInstaller, WindowsInstallerKind};
 
+#[cfg(any(target_os = "linux", test))]
+mod linux_package;
+
+#[cfg(target_os = "linux")]
+pub use linux_package::{LinuxPackageInstaller, LinuxPackageKind};
+
 #[cfg(any(target_os = "macos", test))]
 mod macos;
 

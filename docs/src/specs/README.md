@@ -63,3 +63,4 @@ Every spec carries:
 | [0024](0024-alpha-release.md) | Alpha release: version, publish order, facade features, scaffold | 2 | Draft (alpha candidate; publication pending) |
 | [0025](0025-platform-apply.md) | Windows installer execution and macOS `.app` replacement | 2 | Implemented (.dmg and elevation pending) |
 | [0026](0026-update-journal.md) | Update journal and restart helper | 2 | Implemented (helper applies and relaunches) |
+| [0027](0027-linux-packages.md) | Linux `.deb`/`.rpm` package apply | 2 | Implemented (elevation/rollback pending) |

@@ -49,7 +49,9 @@ pub mod update {
     };
 
     #[cfg(target_os = "linux")]
-    pub use auro_update::{AppImageInstaller, InstallReceipt};
+    pub use auro_update::{
+        AppImageInstaller, InstallReceipt, LinuxPackageInstaller, LinuxPackageKind,
+    };
 
     #[cfg(target_os = "windows")]
     pub use auro_update::{WindowsInstallOutcome, WindowsInstaller, WindowsInstallerKind};

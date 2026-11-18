@@ -41,6 +41,10 @@ installable `auro-cli` yet.
   installers or relaunches an already-applied update. The helper re-verifies the manifest and
   artifact with the app-provided public key, records `Failed` or `RebootRequired` diagnostics, retains the
   backup and relaunches with the helper variable removed (specs 0026, ADR 0015).
+- `auro-update`: `LinuxPackageInstaller` runs a staged `.deb` through `/usr/bin/dpkg -i` or a
+  `.rpm` through `/usr/bin/rpm -U` using the shell-free runner and helper journal
+  (`ApplyKind::DebPackage`/`RpmPackage`). Elevation and rollback remain package-manager policy
+  (spec 0027).
 - `auro-perms`: deny-by-default capability `Policy` with `fs`/`net`/`shell`/`clipboard`/
   `notification`/`keychain` grants, compiled glob scopes for the scoped capabilities, typed
   `Denied` errors, and `auro::perms` re-exports (spec 0016).

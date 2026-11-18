@@ -126,7 +126,7 @@ The snippet is an intended call shape, not code that exists as an app.
 |---|---|
 | Windows MSI/NSIS apply and privilege handling | [Windows and macOS apply](0025-platform-apply.md) / Windows UX |
 | macOS `.dmg`/`.pkg` replacement and notarization | macOS updater spec |
-| `.deb`/`.rpm` package-manager updates | Linux package updater spec |
+| `.deb`/`.rpm` package-manager updates | [Linux package apply](0027-linux-packages.md) |
 | Restart/helper protocol and crash-safe receipt | [Update journal and restart helper](0026-update-journal.md) |
 | Preserving xattrs, SELinux labels and ownership | Platform apply hardening |
 | Rollout, deltas and downgrade policy | Updater rollout spec |

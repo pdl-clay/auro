@@ -9,7 +9,7 @@ hand off after it exits, and relaunch the replacement. This spec fixes that hand
 ## Scope
 
 - `auro-update::ApplyJournal`: a durable, atomically written JSON record for one apply attempt.
-- `ApplyKind`: `None`, `AppImage`, `WindowsInstaller`, `MacApp`.
+- `ApplyKind`: `None`, `AppImage`, `WindowsInstaller`, `MacApp`, `DebPackage`, `RpmPackage`.
 - States: `Prepared`, `Applied`, `RebootRequired`, `Failed`, `RolledBack`, `Restarted`.
 - Helper-side platform apply for a prepared journal, using the installers from specs 0014/0025.
 - `Relaunch`: executable, arguments and working directory for the replacement process.
