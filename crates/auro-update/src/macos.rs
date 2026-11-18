@@ -303,7 +303,12 @@ mod tests {
         assert_eq!(installer.target(), target);
 
         let receipt = installer.install(&staged).expect("install");
-        assert_eq!(receipt.target(), target);
+        // macOS tempdirs live under /var, a symlink to /private/var; the receipt records the
+        // canonical target, so compare against the canonical form.
+        assert_eq!(
+            receipt.target(),
+            target.canonicalize().expect("canonical target")
+        );
         assert_eq!(
             fs::read(target.join("Contents/Info.plist")).expect("new plist"),
             b"new plist"

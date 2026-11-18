@@ -832,17 +832,21 @@ mod tests {
 
     #[cfg(unix)]
     fn relaunch() -> Relaunch {
+        // `/bin/true` is not on macOS; `/bin/sh -c 'exit 0'` is on both.
         Relaunch {
-            program: PathBuf::from("/bin/true"),
-            args: Vec::new(),
+            program: PathBuf::from("/bin/sh"),
+            args: vec!["-c".to_owned(), "exit 0".to_owned()],
             cwd: std::env::current_dir().expect("cwd"),
         }
     }
 
     #[cfg(windows)]
     fn relaunch() -> Relaunch {
+        // The helper checks `program.is_file()`, so a bare `cmd.exe` is not enough.
         Relaunch {
-            program: PathBuf::from("cmd.exe"),
+            program: std::env::var_os("COMSPEC")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(r"C:\Windows\System32\cmd.exe")),
             args: vec!["/C".to_owned(), "exit 0".to_owned()],
             cwd: std::env::current_dir().expect("cwd"),
         }

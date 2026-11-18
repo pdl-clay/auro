@@ -45,6 +45,7 @@ pub struct Counter {
     state: Arc<Mutex<CounterState>>,
     autosave: Option<Autosave>,
     last_data: Option<ViewData>,
+    last_revision: u64,
 }
 
 impl Default for Counter {
@@ -76,6 +77,7 @@ impl Default for Counter {
             state,
             autosave,
             last_data: None,
+            last_revision: 0,
         }
     }
 }
@@ -84,10 +86,19 @@ impl Render for Counter {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.state.lock().expect("state lock").count;
         let data = current_view_data();
-        if self.last_data != Some(data) {
-            // Visible proof that the patched boundary ran (the dev loop echoes stderr).
-            eprintln!("auro: view data -> {} accent={:#x}", data.title, data.accent);
+        #[cfg(feature = "hot-reload")]
+        let revision = auro::hot::revision();
+        #[cfg(not(feature = "hot-reload"))]
+        let revision = 0;
+        if self.last_data != Some(data) || self.last_revision != revision {
+            // Visible proof of what the boundary returned after the latest patch. A layout edit
+            // outside `view_data` prints the same data: the boundary is the reloadable unit.
+            eprintln!(
+                "auro: view data -> {} accent={:#x} revision={revision}",
+                data.title, data.accent
+            );
             self.last_data = Some(data);
+            self.last_revision = revision;
         }
         div()
             .flex()
