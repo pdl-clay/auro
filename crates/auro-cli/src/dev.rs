@@ -173,6 +173,22 @@ fn watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The first changed file outside the reloadable crate, relative to the app.
+fn outside_boundary_change(
+    paths: &[PathBuf],
+    dir: &Path,
+    boundary_root: &Path,
+    has_boundary: bool,
+) -> Option<String> {
+    if !has_boundary {
+        return None;
+    }
+    paths
+        .iter()
+        .find(|path| !path.starts_with(boundary_root))
+        .map(|path| path.strip_prefix(dir).unwrap_or(path).display().to_string())
+}
+
 /// Hot mode also watches the generated layout's crate sources.
 ///
 /// A project scaffolded before the four-crate layout, or one whose `[dev] watch` was not updated,
@@ -264,14 +280,19 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
         });
     }
 
-    let (saves, saved) = mpsc::channel::<Instant>();
+    // The generated layout's only reloadable crate. A save outside it compiles host code that the
+    // running view never calls, so the loop must not label that outcome as a reload.
+    let boundary_root = dir.join("data").join("src");
+    let has_boundary = boundary_root.is_dir();
+    let (saves, saved) = mpsc::channel::<(Instant, Vec<PathBuf>)>();
     // One save is one burst of watcher events. Timestamp in the callback so the measurement starts
     // when the save is observed, not when the loop next polls the channel.
     let last_save = Arc::new(Mutex::new(None::<Instant>));
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        if let Ok(event) = &event
-            && matches!(event.kind, notify::EventKind::Access(_))
-        {
+        let Ok(event) = event else {
+            return;
+        };
+        if matches!(event.kind, notify::EventKind::Access(_)) {
             return;
         }
         let now = Instant::now();
@@ -280,7 +301,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
             return;
         }
         *last = Some(now);
-        let _ = saves.send(now);
+        let _ = saves.send((now, event.paths.clone()));
     })
     .map_err(|error| AuroError::Message(format!("cannot start the file watcher: {error}")))?;
     for path in hot_watch_paths(dir, config) {
@@ -297,6 +318,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
     let mut patched_at: Option<Instant> = None;
     let mut patch_took: Option<u128> = None;
     let mut build_failed = false;
+    let mut outside_boundary: Option<String> = None;
     // A pid change is a devserver relaunch, not a hot reload. The app's snapshot report after it
     // must be labelled as a restart (spec 0004, D4).
     let mut known_pid: Option<u32> = None;
@@ -304,16 +326,22 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
 
     loop {
         let mut newest_save = None;
-        while let Ok(when) = saved.try_recv() {
-            newest_save = Some(when);
+        while let Ok(save) = saved.try_recv() {
+            newest_save = Some(save);
         }
-        if let Some(when) = newest_save {
+        if let Some((when, paths)) = newest_save {
             // A queued save means the edit happened after the previous build started; the newest
             // one is the edit this measurement belongs to.
             saved_at = Some(when);
             patched_at = None;
             patch_took = None;
             build_failed = false;
+            outside_boundary = outside_boundary_change(&paths, dir, &boundary_root, has_boundary);
+            if let Some(path) = &outside_boundary {
+                println!(
+                    "auro: change in {path} is outside the hot boundary; the running view keeps its code"
+                );
+            }
         }
         match received.recv_timeout(Duration::from_millis(50)) {
             Ok(DxEvent::Line(line)) => {
@@ -360,6 +388,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     saved_at = None;
                     patched_at = None;
                     patch_took = None;
+                    outside_boundary = None;
                 }
 
                 if let Some(reason) = trace_text(&plain, "auro:trace hot_patch_failed ") {
@@ -369,29 +398,37 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     saved_at = None;
                     patched_at = None;
                     patch_took = None;
+                    outside_boundary = None;
                 }
 
                 if trace_u64(&plain, "auro:trace hot_render ").is_some() {
                     if let Some(saved) = saved_at {
-                        let save_to_render = saved.elapsed();
-                        println!(
-                            "{}",
-                            hot_trace_line(
-                                patched_at.map(|patched| patched.duration_since(saved)),
-                                patched_at.map(|patched| patched.elapsed()),
-                                save_to_render,
-                                patch_took,
-                            )
-                        );
-                        println!(
-                            "auro: reloaded in {} ms (window kept)",
-                            save_to_render.as_millis()
-                        );
+                        if let Some(path) = &outside_boundary {
+                            println!(
+                                "auro: patch compiled, running UI unchanged (change outside the hot boundary: {path})"
+                            );
+                        } else {
+                            let save_to_render = saved.elapsed();
+                            println!(
+                                "{}",
+                                hot_trace_line(
+                                    patched_at.map(|patched| patched.duration_since(saved)),
+                                    patched_at.map(|patched| patched.elapsed()),
+                                    save_to_render,
+                                    patch_took,
+                                )
+                            );
+                            println!(
+                                "auro: reloaded in {} ms (window kept)",
+                                save_to_render.as_millis()
+                            );
+                        }
                     }
                     saved_at = None;
                     patched_at = None;
                     patch_took = None;
                     build_failed = false;
+                    outside_boundary = None;
                 }
 
                 if saved_at.is_some() && !build_failed && build_failed_line(&plain) {
@@ -971,6 +1008,39 @@ mod tests {
         assert!(value["save_to_patch_ms"].is_null());
         assert!(value["patch_to_render_ms"].is_null());
         assert!(value["patch_took_ms"].is_null());
+    }
+
+    #[test]
+    fn classifies_saves_outside_the_boundary() {
+        let dir = Path::new("/app");
+        let boundary = Path::new("/app/data/src");
+        assert_eq!(
+            outside_boundary_change(
+                &[PathBuf::from("/app/data/src/lib.rs")],
+                dir,
+                boundary,
+                true
+            ),
+            None
+        );
+        assert_eq!(
+            outside_boundary_change(&[PathBuf::from("/app/ui/src/lib.rs")], dir, boundary, true),
+            Some("ui/src/lib.rs".to_owned())
+        );
+        assert_eq!(
+            outside_boundary_change(
+                &[PathBuf::from("/app/types/src/lib.rs")],
+                dir,
+                boundary,
+                true
+            ),
+            Some("types/src/lib.rs".to_owned())
+        );
+        // A project without the generated data crate keeps the old behaviour.
+        assert_eq!(
+            outside_boundary_change(&[PathBuf::from("/app/ui/src/lib.rs")], dir, boundary, false),
+            None
+        );
     }
 
     #[test]

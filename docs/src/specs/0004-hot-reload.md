@@ -294,9 +294,13 @@ reloadable unit, as on Linux.
 873/1872/1735/1229/1168/961/820/2359/921 ms save-to-render (N=9, **median 1168**, min 820, max
 2359; `patch_took` 686-2196, patch-to-render 3-13 ms) with the same pid, window and state. That is
 ~15% below the earlier single-crate median (1375 ms) but still above 500 ms. The guarded `HotData`
-template was also built and applied in the same guest (`patch_took` 650 ms for the first patch,
-same window); it is not a separate N-series. Responsibility for the remaining Windows gap is in the
-MSVC compile/link of the boundary and bin, not the repaint.
+template then ran through `auro dev` in the same guest: 851/765/768/880/813/897/816/752/768 ms
+(N=9, **median 813**, min 752, max 897; patch-to-render 2-16 ms), same pid/window, patch DLL
+14,848 bytes. Adding Defender exclusions for the app and repo did not change the conclusion: four
+steady patches measured 719-735 ms (one 1293 ms outlier). `incremental = true` measured a 1966 ms
+first patch and 830/848/799/819 ms steady (N=4), also no improvement. Responsibility for the
+remaining Windows gap is in the MSVC compile/link of the boundary and bin, not the repaint or the
+incremental session.
 
 **macOS (2026-11-18): no live run.** There is no Apple host here, so no save-to-render number
 exists. The loop, preflight, `auro doctor` and diagnostics are platform-neutral, `subsecond`
@@ -591,7 +595,9 @@ and is deliberately not a dependency of `data`. Editing `ui`, `types`, the bin, 
 dev profile is host code: `dx` may still compile a patch, but the running view is not replaced. The
 `types::HotData` schema check rejects a frame built against a changed data layout. The dev loop
 prints the patch it observed; the scaffold prints the boundary value per revision, so a
-no-visible-change patch is distinguishable. A change to a non-tip crate or the dev profile makes
+no-visible-change patch is distinguishable. A save outside `data/src` is labelled at save time
+(`auro: change in ui/src/lib.rs is outside the hot boundary; the running view keeps its code`) and a
+patch that follows it is reported as `patch compiled, running UI unchanged`, never as `reloaded`. A change to a non-tip crate or the dev profile makes
 `dx` rebuild and relaunch the app, which restores the snapshot and is labelled as a restart, not a
 reload. A patch that cannot be generated makes `dx` start a full rebuild; the dev loop prints
 `hot patch failed, dev server is rebuilding the app`. Build errors keep the previous UI live.

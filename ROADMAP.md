@@ -159,8 +159,8 @@ the web. This is *the* bet of the project.
   1-26 ms, same pid/window/state; a plain-struct variant measured median 288 ms. The patch library
   is ~12 KB instead of the fat binary. A failed apply is caught and reported while the previous code
   keeps running, and a changed `HotData` schema is rejected by the old host. A Windows re-test with
-  the simple boundary measured median 1168 ms (N=9, 820-2359), still above target; macOS
-  unmeasured. The target is met on Linux for this documented warm case, not platform-wide.
+  the guarded template measured median 813 ms (N=9, 752-897; a plain-boundary series was 1168),
+  still above target; macOS unmeasured. The target is met on Linux for this documented warm case, not platform-wide.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 
