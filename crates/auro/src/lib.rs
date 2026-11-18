@@ -41,9 +41,10 @@ pub mod windows;
 /// Enable the `updater` feature to use this module.
 pub mod update {
     pub use auro_update::{
-        ApplyJournal, ApplyState, FORMAT_VERSION, InstallerRunner, JOURNAL_FORMAT_VERSION,
-        Manifest, PublicKey, RESTART_HELPER_ENV, Relaunch, StagedUpdate, SystemInstallerRunner,
-        UpdateDecision, UpdateError, Updater, current_platform, run_restart_helper,
+        ApplyJournal, ApplyKind, ApplyPlan, ApplyState, FORMAT_VERSION, InstallerRunner,
+        JOURNAL_FORMAT_VERSION, Manifest, PublicKey, RESTART_HELPER_ENV, Relaunch, StagedUpdate,
+        SystemInstallerRunner, UpdateDecision, UpdateError, Updater, current_platform,
+        run_restart_helper,
     };
 
     #[cfg(target_os = "linux")]

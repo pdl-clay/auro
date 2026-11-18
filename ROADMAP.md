@@ -279,8 +279,8 @@ cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.
 the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
-notarization, `.dmg`/`.pkg` and package-manager updater apply, elevation and helper-side apply,
-deltas/rollout, single-instance activation, AccessKit/IME, and the product exit remain.
+notarization, `.dmg`/`.pkg` and package-manager updater apply, elevation, deltas/rollout,
+single-instance activation, AccessKit/IME, and the product exit remain.
 
 **Signing/update foundations (2026-11-18):** `auro-sign` provides Ed25519 keys/signatures and
 SHA-256 hashes; `[bundle.macos]`/`[bundle.windows]` map signing inputs to the bundler; `auro-update`
@@ -290,10 +290,10 @@ content-addressed artifact atomically. On Linux, `AppImageInstaller` replaces an
 mode-0755 atomic rename, retains a hard-link/copy backup, and returns a receipt that can roll back
 or discard it. On Windows, `WindowsInstaller` runs staged MSI/NSIS installers silently and maps
 `3010` to a restart request; on macOS, `MacAppInstaller` swaps a `.app` from a staged `.app.zip`
-and returns a rollback receipt. `ApplyJournal` and the self-helper restart handoff record what was
-applied, wait for the old process to exit through a lock, and relaunch the replacement without a
-shell or a second binary. Platform signing still needs certificates/credentials; `.dmg`, `.pkg`,
-package-manager apply, elevation, helper-side apply, deltas and staged rollout are not implemented.
+and returns a rollback receipt. `ApplyJournal` and the self-helper handoff record, verify and apply what was staged, wait for the
+old process to exit through a lock, and relaunch the replacement without a shell or a second
+binary. Platform signing still needs certificates/credentials; `.dmg`, `.pkg`,
+package-manager apply, elevation, deltas and staged rollout are not implemented.
 
 **Platform services (2026-11-17):** `AppInstance` and `App::single_instance()` acquire a per-user
 advisory file lock after config load and refuse a secondary process before GPUI starts
@@ -313,8 +313,8 @@ accessibility pass remains blocked upstream.
 **Phase 2 technical status (2026-11-18):** bundling; signed manifests, staging and Linux AppImage
 apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
 `auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
-package-manager updater apply, macOS `.dmg`/`.pkg`, elevation and helper-side apply,
-deltas/staged rollout, single-instance activation, and AccessKit/IME. The exit criterion also needs
+package-manager updater apply, macOS `.dmg`/`.pkg`, elevation, deltas/staged rollout,
+single-instance activation, and AccessKit/IME. The exit criterion also needs
 three real apps and published benchmarks; it is not met by the workspace alone.
 
 **Alpha candidate (2026-11-17):** the workspace and internal requirements are

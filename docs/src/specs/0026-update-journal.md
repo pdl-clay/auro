@@ -1,7 +1,7 @@
 # 0026 - Update journal and restart helper
 
-**Status:** Implemented (2026-11-18; journal and relaunch helper; the helper does not apply the
-artifact, request elevation or recover an interrupted journal)
+**Status:** Implemented (2026-11-18; journal, helper-side platform apply and relaunch; recovery,
+elevation and helper-side package-manager/.dmg apply are not implemented)
 
 Spec 0025 stops after the platform apply. A running app still needs to record what it installed,
 hand off after it exits, and relaunch the replacement. This spec fixes that handoff.
@@ -9,7 +9,9 @@ hand off after it exits, and relaunch the replacement. This spec fixes that hand
 ## Scope
 
 - `auro-update::ApplyJournal`: a durable, atomically written JSON record for one apply attempt.
-- States: `Prepared`, `Applied`, `Failed`, `RolledBack`, `Restarted`.
+- `ApplyKind`: `None`, `AppImage`, `WindowsInstaller`, `MacApp`.
+- States: `Prepared`, `Applied`, `RebootRequired`, `Failed`, `RolledBack`, `Restarted`.
+- Helper-side platform apply for a prepared journal, using the installers from specs 0014/0025.
 - `Relaunch`: executable, arguments and working directory for the replacement process.
 - `ApplyJournal::spawn_helper`: locks the exit handoff and starts the same executable in helper
   mode.
@@ -19,8 +21,7 @@ hand off after it exits, and relaunch the replacement. This spec fixes that hand
 
 ## Out of scope
 
-- Applying the artifact inside the helper. The app applies synchronously first and marks the
-  journal `Applied`; the helper only relaunches.
+- `.dmg`/`.pkg`, `.deb`/`.rpm` and package-manager helper apply.
 - Elevation, UAC, `sudo` or a privileged helper.
 - A separate helper binary, service, launchd job or Windows scheduled task.
 - State snapshots across the restart; that contract belongs to spec 0004.
@@ -32,9 +33,11 @@ hand off after it exits, and relaunch the replacement. This spec fixes that hand
 
 ### D1 - The journal is the durable source of truth
 
-The journal is a small JSON file written with a sibling temporary file, `sync_all`, and an atomic
-rename. It stores the format version, release version, artifact path, optional target and backup,
-state, diagnostic message, relaunch command and lock path.
+The journal is a small JSON file (format version 2) written with a sibling temporary file,
+`sync_all`, and an atomic rename. It stores the format version, release version, artifact path,
+optional target and backup, state, diagnostic message, relaunch command and lock path. The reader
+checks `format` before decoding the full schema, so an older journal is a typed `JournalFormat`
+rather than a missing-field JSON error.
 
 Every state transition is written through with a sibling temporary file, `sync_all` and rename;
 parent-directory sync is not performed. The journal has no implicit default state on load: a
@@ -65,19 +68,26 @@ path as it exists after apply; the new build must honor the same environment/jou
 and a discovery problem before the handoff is proven. *Rejected:* a shell loop or `cmd /C` waiting
 for a PID. It builds commands from paths and behaves differently per platform.
 
-### D3 - The helper only relaunches
+### D3 - The helper applies a prepared plan, then relaunches
 
-The platform apply stays in the app process (specs 0014/0025), so the same code that verified the
-artifact also performs the platform action. The helper does not duplicate installer policy,
-elevation or rollback; it launches the replacement only after the app has marked the journal
-`Applied`.
+A `Prepared` journal may carry an `ApplyKind`, the staged manifest and the app-provided public key.
+The helper verifies the manifest signature, artifact size and SHA-256, then requires the manifest
+version to equal the journal version and the manifest platform to equal this host. This catches
+corruption, staging/mixup and wrong-release errors; it is not a defense against a fully forged
+journal, because the key and manifest travel in the same local, user-writable file., records a retained backup for AppImage/macOS, marks the journal
+`Applied`, and only then relaunches. An `Applied` journal with `ApplyKind::None` keeps the
+synchronous-apply behavior: the helper just relaunches. A Windows installer that returns
+`3010`/`1641` leaves the journal `RebootRequired` and does not relaunch the old binary as if the
+update were complete.
 
-If the apply fails, the app writes `Failed` and must not call `spawn_helper`. If the journal is not
-`Applied` when the helper runs, the helper refuses to launch anything. Failed helper attempts write
-the diagnostic into the journal before returning, because the helper's stdio is detached.
+If apply fails, the helper marks the journal `Failed` with the diagnostic, leaves the journal for
+inspection and does not relaunch. If the journal is neither `Prepared` with an apply kind nor
+`Applied`, the helper refuses to launch anything. Because the helper's stdio is detached, it also
+records any later relaunch/lock failure into the journal before returning.
 
-*Rejected:* moving apply into the helper in this slice. It would need a serialized platform apply
-plan, a key/verification policy and an elevation contract before it could be safe.
+*Rejected:* a second platform-apply implementation inside the helper. The helper reuses the same
+`AppImageInstaller`, `WindowsInstaller` and `MacAppInstaller` code. *Rejected:* automatic elevation.
+It is still a separate privilege/contract problem.
 
 ### D4 - The helper removes its own trigger and detaches
 
@@ -95,12 +105,38 @@ policy's job.
 ```rust
 pub const RESTART_HELPER_ENV: &str = "AURO_UPDATE_RESTART_HELPER";
 
+pub enum ApplyKind {
+    None,
+    AppImage,
+    WindowsInstaller,
+    MacApp,
+}
+
 pub enum ApplyState {
     Prepared,
     Applied,
+    RebootRequired,
     Failed,
     RolledBack,
     Restarted,
+}
+
+pub struct ApplyPlan {
+    pub kind: ApplyKind,
+    pub artifact: PathBuf,
+    pub target: Option<PathBuf>,
+    pub manifest: Manifest,
+    pub public_key: PublicKey,
+}
+
+impl ApplyPlan {
+    pub fn new(
+        kind: ApplyKind,
+        artifact: impl Into<PathBuf>,
+        target: Option<PathBuf>,
+        manifest: Manifest,
+        public_key: PublicKey,
+    ) -> Self;
 }
 
 pub struct Relaunch {
@@ -123,6 +159,12 @@ impl ApplyJournal {
         target: Option<PathBuf>,
         relaunch: Relaunch,
     ) -> Result<Self, UpdateError>;
+    pub fn create_for_apply(
+        path: impl Into<PathBuf>,
+        version: impl Into<String>,
+        plan: ApplyPlan,
+        relaunch: Relaunch,
+    ) -> Result<Self, UpdateError>;
     pub fn load(path: impl Into<PathBuf>) -> Result<Self, UpdateError>;
     pub fn path(&self) -> &Path;
     pub fn state(&self) -> ApplyState;
@@ -131,6 +173,7 @@ impl ApplyJournal {
     pub fn mark_applied(&mut self) -> Result<(), UpdateError>;
     pub fn mark_failed(&mut self, message: impl Into<String>) -> Result<(), UpdateError>;
     pub fn mark_rolled_back(&mut self) -> Result<(), UpdateError>;
+    pub fn mark_reboot_required(&mut self) -> Result<(), UpdateError>;
     pub fn mark_restarted(&mut self) -> Result<(), UpdateError>;
     pub fn record_message(&mut self, message: impl Into<String>) -> Result<(), UpdateError>;
     pub fn spawn_helper(&self) -> Result<(), UpdateError>;
@@ -141,23 +184,28 @@ pub fn run_restart_helper(path: &Path) -> Result<(), UpdateError>;
 ```
 
 Errors added to `UpdateError`: `JournalMissing`, `JournalFormat`, `JournalNotApplied`,
-`JournalLockPath`, `RelaunchMissing`, `RestartLock` and `RestartTimeout`.
+`JournalLockPath`, `RelaunchMissing`, `ApplyKindMissing`, `ManifestMissing`,
+`ApplyTargetMissing`, `UnsupportedApply`, `VerificationKeyMissing`, `JournalVersionMismatch`,
+`JournalPlatformMismatch`, `RestartLock` and `RestartTimeout`.
 
 Usage:
 
 ```rust,ignore
-let mut journal = auro::update::ApplyJournal::create(
+let journal = auro::update::ApplyJournal::create_for_apply(
     state_dir.join("apply.json"),
     manifest.version.clone(),
-    staged.path().to_path_buf(),
-    Some(target.clone()),
+    auro::update::ApplyPlan::new(
+        auro::update::ApplyKind::AppImage,
+        staged.path().to_path_buf(),
+        Some(target.clone()),
+        manifest.clone(),
+        updater.public_key(),
+    ),
     auro::update::Relaunch::current()?,
 )?;
-let receipt = installer.install(&staged)?;
-journal.set_backup(receipt.backup())?;
-journal.mark_applied()?;
 journal.spawn_helper()?;
 cx.quit();
+// The helper applies the staged artifact and relaunches after this process exits.
 ```
 
 The snippet is an intended call shape, not an app that exists yet. The app must hold the journal
@@ -174,12 +222,19 @@ until `spawn_helper` returns; the lock is retained by the helper module.
    `AURO_UPDATE_RESTART_HELPER` (`spawns_a_helper_with_the_journal_path`).
 4. `run_restart_helper` launches the configured command, marks `Restarted`, and leaves the journal
    readable (`helper_relaunches_and_marks_the_journal`); on Linux it honors `$APPIMAGE`
-   (`uses_the_appimage_path_for_relaunch`).
+   (`uses_the_appimage_path_for_relaunch`). A prepared AppImage plan is verified and applied before
+   relaunch, with its backup retained (`helper_applies_an_appimage_before_relaunch`); a tampered
+   artifact is rejected (`helper_rejects_a_tampered_staged_artifact`), a version/platform mismatch
+   is rejected before apply (`helper_rejects_a_manifest_version_mismatch`,
+   `helper_rejects_a_manifest_platform_mismatch`), an unsupported kind marks `Failed`
+   (`helper_marks_an_unsupported_apply_failed`), and a reboot request is recorded
+   (`records_reboot_state`).
 5. The helper refuses an unapplied journal and a state flipped while waiting
    (`helper_rejects_an_unapplied_journal`, `helper_refuses_a_state_flipped_while_waiting`).
 6. A missing relaunch executable is rejected and recorded (`helper_records_a_launch_failure`).
-7. A missing, malformed or non-sibling-lock journal is typed (`rejects_a_missing_or_unknown_journal`,
-   `rejects_malformed_json`, `rejects_a_non_sibling_lock_path`).
+7. A missing, malformed, old-format or non-sibling-lock journal is typed
+   (`rejects_a_missing_or_unknown_journal`, `rejects_malformed_json`,
+   `reports_an_old_format_before_schema_fields`, `rejects_a_non_sibling_lock_path`).
 8. `App::try_run` enters helper mode from `RESTART_HELPER_ENV` before config/GPUI (compile-time
    façade check).
 9. `cargo fmt --all --check`,
@@ -191,7 +246,7 @@ until `spawn_helper` returns; the lock is retained by the helper module.
 
 | Question | Where it settles |
 |---|---|
-| Applying inside the helper and crash recovery | Apply/restart follow-up |
+| Journal recovery after a crash | Apply/restart follow-up |
 | Elevation and an OS service/scheduled task | Platform update UX/spec |
 | Journal/backup cleanup policy | Operations follow-up |
 | Persistent download resume | Updater resume spec |

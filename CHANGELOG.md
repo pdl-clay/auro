@@ -31,13 +31,16 @@ installable `auro-cli` yet.
 - `auro-update`: Linux `AppImageInstaller` replaces a staged AppImage atomically, sets mode `0755`,
   and retains a hard-link (or copy) backup. `InstallReceipt` can roll the previous file back or
   discard the backup after the new version is accepted. Windows/macOS apply is in spec 0025;
-  package-manager apply, restart orchestration, deltas and staged rollout are not implemented
-  (spec 0014, ADR 0013).
+  package-manager apply, elevation, deltas and staged rollout are not implemented (spec 0014,
+  ADR 0013).
 - `auro-update`: `ApplyJournal` records one apply attempt atomically (`Prepared`, `Applied`,
-  `Failed`, `RolledBack`, `Restarted`), with artifact/target/backup and relaunch command. The
+  `RebootRequired`, `Failed`, `RolledBack`, `Restarted`), with artifact/target/backup and relaunch
+  command. The
   restart helper re-executes the app with `AURO_UPDATE_RESTART_HELPER`, waits on a lock until the old
-  process exits, then relaunches with that variable removed. The helper only relaunches; platform
-  apply stays synchronous (specs 0026, ADR 0015).
+  process exits, then applies a prepared `AppImage`/MSI-NSIS/`.app` plan through the platform
+  installers or relaunches an already-applied update. The helper re-verifies the manifest and
+  artifact with the app-provided public key, records `Failed` or `RebootRequired` diagnostics, retains the
+  backup and relaunches with the helper variable removed (specs 0026, ADR 0015).
 - `auro-perms`: deny-by-default capability `Policy` with `fs`/`net`/`shell`/`clipboard`/
   `notification`/`keychain` grants, compiled glob scopes for the scoped capabilities, typed
   `Denied` errors, and `auro::perms` re-exports (spec 0016).

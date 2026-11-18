@@ -41,6 +41,10 @@ impl StagedUpdate {
         StagedUpdate { manifest, path }
     }
 
+    pub(crate) fn from_parts(manifest: Manifest, path: PathBuf) -> Self {
+        Self::new(manifest, path)
+    }
+
     /// The signed manifest that describes this artifact.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
@@ -113,6 +117,11 @@ impl Updater {
     /// The platform key this updater accepts.
     pub fn platform(&self) -> &str {
         &self.platform
+    }
+
+    /// The pinned public key used to verify manifests and artifacts.
+    pub fn public_key(&self) -> PublicKey {
+        self.key
     }
 
     /// Verifies the manifest and classifies the offer. Does not touch the network.

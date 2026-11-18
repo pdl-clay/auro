@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 pub const FORMAT_VERSION: u32 = 1;
 
 /// The update journal format this build understands.
-pub const JOURNAL_FORMAT_VERSION: u32 = 1;
+pub const JOURNAL_FORMAT_VERSION: u32 = 2;
 
 /// Why a manifest or artifact failed verification.
 #[derive(Debug, thiserror::Error)]
@@ -140,11 +140,35 @@ pub enum UpdateError {
 
     #[error("relaunch executable `{}` is missing", .path.display())]
     RelaunchMissing { path: PathBuf },
+
+    #[error("journal has no apply kind for a prepared helper")]
+    ApplyKindMissing,
+
+    #[error("journal has no signed manifest for a prepared helper")]
+    ManifestMissing,
+
+    #[error("journal has no public key for a prepared helper")]
+    VerificationKeyMissing,
+
+    #[error("journal version `{journal}` does not match manifest version `{manifest}`")]
+    JournalVersionMismatch { journal: String, manifest: String },
+
+    #[error("journal manifest platform `{actual}` does not match this host `{expected}`")]
+    JournalPlatformMismatch { expected: String, actual: String },
+
+    #[error("apply target is missing for {kind:?}")]
+    ApplyTargetMissing { kind: crate::journal::ApplyKind },
+
+    #[error("apply kind {kind:?} is not supported on this host")]
+    UnsupportedApply { kind: crate::journal::ApplyKind },
 }
 
 mod journal;
 
-pub use journal::{ApplyJournal, ApplyState, RESTART_HELPER_ENV, Relaunch, run_restart_helper};
+pub use journal::{
+    ApplyJournal, ApplyKind, ApplyPlan, ApplyState, RESTART_HELPER_ENV, Relaunch,
+    run_restart_helper,
+};
 
 mod installer;
 

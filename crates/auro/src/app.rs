@@ -223,7 +223,7 @@ impl App {
     ///
     /// With the `updater` feature, setting `AURO_UPDATE_RESTART_HELPER` makes this run the restart
     /// helper instead of loading config or starting GPUI. The helper waits for the previous process,
-    /// relaunches it and returns.
+    /// applies a prepared update when present, relaunches and returns.
     pub fn try_run(self) -> Result<(), AuroError> {
         #[cfg(feature = "updater")]
         if let Some(path) =
