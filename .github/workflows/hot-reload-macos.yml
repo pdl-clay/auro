@@ -68,8 +68,8 @@ jobs:
             kill -INT "$devpid" 2>/dev/null || true
             exit 1
           fi
-          # Six edits warm the linker/caches; the next twelve are the measured set.
-          for i in $(seq 1 18); do
+          # Twelve edits warm the linker/caches; the next twelve are the measured set.
+          for i in $(seq 1 24); do
             perl -pi -e "s/title: \"[^\"]*\"/title: \"Mac$i\"/" data/src/lib.rs
             sleep 5
           done
