@@ -20,5 +20,11 @@ test-support = ["gpui/test-support"]
 auro-core.workspace = true
 gpui.workspace = true
 
+# GPUI 0.2.2 pulls xattr 0.2.3, which references libc::ENOATTR. libc 0.2.190 removed
+# that constant on Linux; pin the last working release so the published crate's
+# dependency graph verifies without the workspace's local [patch.crates-io] xattr.
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.189"
+
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
