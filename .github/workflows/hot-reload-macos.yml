@@ -64,7 +64,8 @@ jobs:
             kill -INT "$devpid" 2>/dev/null || true
             exit 1
           fi
-          for i in $(seq 1 12); do
+          # Six edits warm the linker/caches; the next twelve are the measured set.
+          for i in $(seq 1 18); do
             perl -pi -e "s/title: \"[^\"]*\"/title: \"Mac$i\"/" data/src/lib.rs
             sleep 5
           done
@@ -72,7 +73,8 @@ jobs:
           kill -INT "$devpid" 2>/dev/null || true
           wait "$devpid" 2>/dev/null || true
           cp hot.log "$RUNNER_TEMP/hot-macos.log"
-          grep '^{"event":"hot_reload"' hot.log | tee measurements.jsonl
+          grep '^{"event":"hot_reload"' hot.log | tee all-measurements.jsonl
+          tail -n 12 all-measurements.jsonl > measurements.jsonl
           python3 - <<'PY'
           import json, statistics, sys
           rows = [json.loads(line) for line in open("measurements.jsonl")]
@@ -93,5 +95,6 @@ jobs:
           path: |
             ${{ runner.temp }}/hot-macos.log
             ${{ github.workspace }}/target/hot-macos/hot.log
+            ${{ github.workspace }}/target/hot-macos/all-measurements.jsonl
             ${{ github.workspace }}/target/hot-macos/measurements.jsonl
           if-no-files-found: ignore
