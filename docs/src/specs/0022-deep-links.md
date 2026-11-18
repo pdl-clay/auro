@@ -113,7 +113,8 @@ for link in links.drain() {
 3. Empty or malformed schemes are rejected before registration
    (`rejects_an_empty_or_bad_scheme`).
 4. Cloned `AppLinks` handles share one FIFO (`clones_share_the_same_queue`); `App::deep_links`
-   enqueues initial arguments and forwarded `InstanceMessage` arguments.
+   stores that shared handle behind the `services` feature and the run path feeds initial and
+   forwarded `InstanceMessage` arguments.
 5. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
 6. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,

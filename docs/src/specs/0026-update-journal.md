@@ -200,7 +200,8 @@ pub fn run_restart_helper(path: &Path) -> Result<(), UpdateError>;
 Errors added to `UpdateError`: `JournalMissing`, `JournalFormat`, `JournalNotApplied`,
 `JournalLockPath`, `RelaunchMissing`, `ApplyKindMissing`, `ManifestMissing`,
 `ApplyTargetMissing`, `UnsupportedApply`, `VerificationKeyMissing`, `JournalVersionMismatch`,
-`JournalPlatformMismatch`, `JournalBackupPath`, `RestartLock` and `RestartTimeout`.
+`JournalPlatformMismatch`, `JournalBackupPath`, `JournalBackupTargetMissing`, `RestartLock` and
+`RestartTimeout`.
 
 Usage:
 
@@ -248,7 +249,7 @@ until `spawn_helper` returns; the lock is retained by the helper module.
 6. `reconcile` classifies prepared/applied/current/failed states; `finalize` removes a sibling
    backup, journal and lock, while refusing an unrelated backup
    (`classifies_recovery_actions`, `finalizes_backup_journal_and_lock`,
-   `refuses_to_finalize_an_unrelated_backup`).
+   `refuses_to_finalize_an_unrelated_backup`, `refuses_to_finalize_a_backup_without_a_target`).
 7. A missing relaunch executable is rejected and recorded (`helper_records_a_launch_failure`).
 8. A missing, malformed, old-format or non-sibling-lock journal is typed
    (`rejects_a_missing_or_unknown_journal`, `rejects_malformed_json`,

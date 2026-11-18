@@ -443,9 +443,12 @@ impl ApplyJournal {
     /// beside the target it replaced; other paths are rejected. Missing files are ignored.
     pub fn finalize(self) -> Result<(), UpdateError> {
         if let Some(backup) = self.data.backup.as_deref() {
-            if let Some(target) = self.data.target.as_deref()
-                && backup.parent() != target.parent()
-            {
+            let Some(target) = self.data.target.as_deref() else {
+                return Err(UpdateError::JournalBackupTargetMissing {
+                    backup: backup.to_path_buf(),
+                });
+            };
+            if backup == target || backup.parent() != target.parent() {
                 return Err(UpdateError::JournalBackupPath {
                     backup: backup.to_path_buf(),
                     target: target.to_path_buf(),
@@ -908,6 +911,12 @@ mod tests {
             journal.reconcile("1.2.3").expect("prepared"),
             Recovery::Prepared
         );
+        journal.data.kind = ApplyKind::AppImage;
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("retry"),
+            Recovery::RetryApply
+        );
+        journal.data.kind = ApplyKind::None;
         journal.mark_applied().expect("applied");
         assert_eq!(
             journal.reconcile("1.2.3").expect("complete"),
@@ -917,11 +926,25 @@ mod tests {
             journal.reconcile("1.0.0").expect("relaunch"),
             Recovery::Relaunch
         );
+        journal.mark_reboot_required().expect("reboot");
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("reboot"),
+            Recovery::AwaitReboot
+        );
+        journal.mark_rolled_back().expect("rollback");
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("rollback"),
+            Recovery::RolledBack
+        );
         journal.mark_failed("broken").expect("failed");
         assert_eq!(
             journal.reconcile("1.2.3").expect("failed"),
             Recovery::Failed
         );
+        assert!(matches!(
+            journal.reconcile("not-a-version"),
+            Err(UpdateError::InvalidVersion { .. })
+        ));
     }
 
     #[test]
@@ -937,6 +960,27 @@ mod tests {
         assert!(!backup.exists());
         assert!(!journal_path.exists());
         assert!(!temp.path().join("apply.lock").exists());
+    }
+
+    #[test]
+    fn refuses_to_finalize_a_backup_without_a_target() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = ApplyJournal::create(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            temp.path().join("artifact"),
+            None,
+            relaunch(),
+        )
+        .expect("journal");
+        let backup = temp.path().join("backup");
+        std::fs::write(&backup, b"old").expect("backup");
+        journal.set_backup(&backup).expect("set backup");
+        assert!(matches!(
+            journal.finalize(),
+            Err(UpdateError::JournalBackupTargetMissing { .. })
+        ));
+        assert!(backup.exists());
     }
 
     #[test]

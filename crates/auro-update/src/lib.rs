@@ -164,6 +164,9 @@ pub enum UpdateError {
 
     #[error("update backup `{}` is not beside target `{}`", .backup.display(), .target.display())]
     JournalBackupPath { backup: PathBuf, target: PathBuf },
+
+    #[error("update backup `{}` has no recorded target", .backup.display())]
+    JournalBackupTargetMissing { backup: PathBuf },
 }
 
 mod journal;
