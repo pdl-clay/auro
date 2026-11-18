@@ -139,7 +139,7 @@ impl LinuxPackageInstaller {
         let (program, args, held) = match self.elevation {
             LinuxElevation::None => {
                 let (program, args) = command_for(kind, path, operation);
-                (program, args, None)
+                (program, args, None::<std::fs::File>)
             }
             LinuxElevation::Pkexec => {
                 #[cfg(unix)]
