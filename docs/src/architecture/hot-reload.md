@@ -183,13 +183,15 @@ and left the previous values on screen.
   exclusions for the app and repo left four steady patches at 719-735 ms (one 1293 ms outlier);
   `incremental = true` measured 830/848/799/819 ms steady (N=4). The remaining gap is MSVC
   compile/link, not repaint or the incremental session. `dx serve` must run inside the interactive
-  session (a session-0 run fails before render with DirectX `0x887A0022`), and Defender exclusions
-  for the project/cargo/rustup directories cut patch time substantially. The data boundary is the
-  reloadable unit; Windows cannot patch element-returning code.
+  session (a session-0 run fails before render with DirectX `0x887A0022`). Defender exclusions for
+  the project/cargo/rustup directories are recommended, but in this run they left four steady
+  patches at 719-735 ms (one 1293 ms outlier), not enough to reach the target. The data boundary
+  is the reloadable unit; Windows cannot patch element-returning code.
 - **macOS:** no live run and no measured number; there is no Apple host here. The loop, doctor and
   diagnostics are shared, `subsecond` carries a Mach-O transport, and CI compiles and tests the
-  `hot-reload` feature on `macos-latest`. A hardened-runtime build would reject the unsigned patch
-  dylib; that, signing, and an interactive Aqua measurement are open.
+  `hot-reload` feature and a generated four-crate scaffold on `macos-latest`. A hardened-runtime
+  build would reject the unsigned patch dylib; that, signing, and an interactive Aqua measurement
+  are open.
 
 The < 500 ms reference case is met on Linux (median 368 ms) and not on Windows; macOS has no live
 run. It is reported per platform, never as a single global claim.
