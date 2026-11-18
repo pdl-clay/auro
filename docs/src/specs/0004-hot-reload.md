@@ -575,6 +575,18 @@ fix applied in 270 ms (simple frame). A `types::HotData::SCHEMA` change applied 
 rejected by the running view (`hot data rejected: ... different view-data schema`), left the
 previous values on screen and did not crash.
 
+**Measured run (2026-11-18, macOS 26 arm64 GitHub runner, guarded four-crate scaffold):** the
+manual `Hot reload macOS benchmark` workflow installed the prebuilt dx 0.7.10, ran `auro dev`
+with `AURO_HOT_RELOAD=1`/`AURO_DEV_TRACE=1`, applied six warm-up edits, then twelve measured edits
+to `data/src/lib.rs`. `save_to_render_ms` was
+536/520/444/625/1071/598/481/507/439/512/462/372 (N=12, **median 509.5**, min 372, max 1071);
+`patch_to_render_ms` 2-17; the app process and window stayed. The first cold run without warm-up
+measured 715/699/517/513/467/655/571/439/445/698/508/431 (N=12, median 515, min 431, max 715).
+`macos-26-arm64` is a shared GitHub runner, so the spread and the 1071 ms outlier are environment
+noise, not a controlled hardware benchmark; no local Apple hardware, signing or hardened-runtime
+build was exercised. Five of the twelve warm edits were under 500 ms, so macOS is recorded as at
+the target boundary, not as met.
+
 Target (from ADR 0008 / roadmap): **< 500 ms save-to-visible** for a view-only change on a warm
 incremental build, with state preserved. This is a target, not a guarantee, until recorded under D6.
 The integrated scaffold uses a warm dependency cache and a one-file ThinLink rebuild with
@@ -756,9 +768,11 @@ patch-generation failure keeping app on previous code, and warm view-only save-t
 previous UI) is demonstrated on Linux and Windows; item 3's apply-failure path is contained by
 `apply_patch` error/panic handling (unit-tested selection, manual rejection of an incompatible frame
 observed) and item 5's forced fallback restart was not exercised in hot mode. Item 6 is demonstrated
-on Linux with the guarded scaffold: N=12, median 368 ms, min 325, max 394, patch-to-render 1-26 ms,
-recorded with machine and method in D6. Item 7 is partially demonstrated (same window, pid and host
-state across patches, graceful exit, Ctrl-C cleanup) for boundary-only edits. Item 1 still has no
+on Linux (N=12, median 368 ms, min 325, max 394, patch-to-render 1-26 ms), Windows (N=9, median
+813 ms, 752-897, patch-to-render 2-16 ms) and macOS (N=12 after warm-up, median 509.5 ms, 372-1071,
+patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is partially
+demonstrated (same window, pid and host state across patches on Linux, Windows and macOS; graceful
+exit and Ctrl-C cleanup on Linux and Windows) for boundary-only edits. Item 1 still has no
 headless fixture; item 4 rests on the crate boundary (`ui` does not depend on `data`, only
 `hot`-wrapped calls read the jump table); item 8 is the repository gates. The Linux median is now
 under 500 ms for the documented warm case, macOS is at the boundary on a shared CI runner and
