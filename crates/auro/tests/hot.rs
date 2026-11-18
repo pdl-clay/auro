@@ -24,3 +24,26 @@ fn hot_boundary_is_repeatable() {
     let second = auro::hot::hot(answer);
     assert_eq!(first, second);
 }
+
+#[test]
+fn a_missing_patch_library_is_an_error_not_a_panic() {
+    let table = subsecond::JumpTable {
+        lib: std::env::temp_dir().join("auro-no-such-patch.so"),
+        map: Default::default(),
+        aslr_reference: 0,
+        new_base_address: 0,
+        ifunc_count: 0,
+    };
+    let applied = std::panic::catch_unwind(|| unsafe { subsecond::apply_patch(table) });
+    assert!(
+        matches!(applied, Ok(Err(_))),
+        "a missing patch must return an error so the listener survives"
+    );
+}
+
+#[test]
+fn frame_boundary_can_report_after_validation() {
+    let value = auro::hot::hot_frame(answer);
+    assert_eq!(value, 42);
+    auro::hot::rendered();
+}

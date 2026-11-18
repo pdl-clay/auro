@@ -173,6 +173,62 @@ fn watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Source and manifest files hot mode reacts to. Swap/lock files are ignored.
+fn hot_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    paths
+        .into_iter()
+        .filter(|path| {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            if name.starts_with(".#") || name.ends_with('~') || name.ends_with(".swp") {
+                return false;
+            }
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("rs") || extension.eq_ignore_ascii_case("toml")
+                })
+        })
+        .collect()
+}
+
+/// The first changed file outside the reloadable crate, relative to the app.
+fn outside_boundary_change(
+    paths: &[PathBuf],
+    dir: &Path,
+    boundary_root: &Path,
+    has_boundary: bool,
+) -> Option<String> {
+    if !has_boundary {
+        return None;
+    }
+    paths
+        .iter()
+        .find(|path| !path.starts_with(boundary_root))
+        .map(|path| path.strip_prefix(dir).unwrap_or(path).display().to_string())
+}
+
+/// Hot mode also watches the generated layout's crate sources.
+///
+/// A project scaffolded before the four-crate layout, or one whose `[dev] watch` was not updated,
+/// would otherwise hot-patch without a save timestamp and lose the D6 measurement.
+fn hot_watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
+    let mut paths = watch_paths(dir, config);
+    let mut add = |path: PathBuf| {
+        if path.exists() && !paths.contains(&path) {
+            paths.push(path);
+        }
+    };
+    for member in ["ui", "data", "types"] {
+        add(dir.join(member).join("src"));
+        add(dir.join(member).join("Cargo.toml"));
+    }
+    add(dir.join("Cargo.toml"));
+    paths
+}
+
 /// Runs the hot-patch devserver. `dx` owns the app process; this loop forwards its output,
 /// timestamps saves from our own watcher, and reports how long each patch took.
 fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroError> {
@@ -197,69 +253,43 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
         )));
     }
 
-    let mut command = Command::new(&dx);
-    command
-        .current_dir(dir)
-        .arg("serve")
-        .arg("--hot-patch")
-        .arg("--interactive")
-        .arg("false")
-        .arg("--platform")
-        .arg("desktop")
-        .arg("--features")
-        .arg("hot-reload")
-        .env("AURO_HOT_RELOAD", "1")
-        .env(TRACE_ENV, "1")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some(patch) = patch {
-        command.env(auro_core::config::OVERRIDES_ENV, patch);
-    }
-    let mut child = command.spawn().map_err(|error| {
-        AuroError::Message(format!(
-            "cannot start {} ({error}); install dioxus-cli 0.7.10 or set AURO_DX",
-            dx.display()
-        ))
-    })?;
-
     let (events, received) = mpsc::channel::<DxEvent>();
-    if let Some(stdout) = child.stdout.take() {
-        let events = events.clone();
-        std::thread::spawn(move || forward(stdout, events));
-    }
-    if let Some(stderr) = child.stderr.take() {
-        let events = events.clone();
-        std::thread::spawn(move || forward(stderr, events));
-    }
-
+    let child = spawn_devserver(&dx, dir, patch, &events)?;
     let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
     let app_pid: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
     install_ctrl_c_hot(Arc::clone(&slot), Arc::clone(&app_pid))?;
-    {
-        let slot = Arc::clone(&slot);
-        let events = events.clone();
-        std::thread::spawn(move || {
-            loop {
-                if let Some(status) = child_exited(&slot) {
-                    let _ = events.send(DxEvent::Exited(status));
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        });
-    }
 
-    let (saves, saved) = mpsc::channel::<()>();
+    // The generated layout's only reloadable crate. A save outside it compiles host code that the
+    // running view never calls, so the loop must not label that outcome as a reload.
+    let boundary_root = dir.join("data").join("src");
+    let has_boundary = boundary_root.is_dir();
+    let (saves, saved) = mpsc::channel::<(Instant, Vec<PathBuf>)>();
+    // One save is one burst of watcher events. Timestamp in the callback so the measurement starts
+    // when the save is observed, not when the loop next polls the channel.
+    let last_save = Arc::new(Mutex::new(None::<Instant>));
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        if let Ok(event) = &event
-            && matches!(event.kind, notify::EventKind::Access(_))
-        {
+        let Ok(event) = event else {
+            return;
+        };
+        if matches!(event.kind, notify::EventKind::Access(_)) {
             return;
         }
-        let _ = saves.send(());
+        let paths = hot_paths(event.paths);
+        if paths.is_empty() {
+            // Editors create swap files and lock files next to the source; a restart on those
+            // would interrupt the session without a code change.
+            return;
+        }
+        let now = Instant::now();
+        let mut last = last_save.lock().expect("save clock");
+        if last.is_some_and(|last| now.duration_since(last) < Duration::from_millis(150)) {
+            return;
+        }
+        *last = Some(now);
+        let _ = saves.send((now, paths));
     })
     .map_err(|error| AuroError::Message(format!("cannot start the file watcher: {error}")))?;
-    for path in watch_paths(dir, config) {
+    for path in hot_watch_paths(dir, config) {
         watcher
             .watch(&path, RecursiveMode::Recursive)
             .map_err(|error| {
@@ -277,15 +307,38 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
     // must be labelled as a restart (spec 0004, D4).
     let mut known_pid: Option<u32> = None;
     let mut relaunches = 0u32;
+    // A host-code change restarts the process; a failed rebuild has no previous UI to keep.
+    let mut host_rebuild = false;
 
     loop {
-        if saved.try_recv().is_ok() {
-            // Coalesce a burst: the newest save is the one the patch name refers to.
-            while saved.try_recv().is_ok() {}
-            saved_at = Some(Instant::now());
+        let mut newest_save = None;
+        while let Ok(save) = saved.try_recv() {
+            newest_save = Some(save);
+        }
+        if let Some((when, paths)) = newest_save {
+            // A queued save means the edit happened after the previous build started; the newest
+            // one is the edit this measurement belongs to.
+            saved_at = Some(when);
             patched_at = None;
             patch_took = None;
             build_failed = false;
+            let outside_boundary =
+                outside_boundary_change(&paths, dir, &boundary_root, has_boundary);
+            if let Some(path) = outside_boundary {
+                // A patch cannot replace host code: the running view and the bin were compiled
+                // against the old crates. Restart the devserver and app, which restores the
+                // snapshot, instead of applying a patch that cannot take effect.
+                println!(
+                    "auro: change in {path} is outside the hot boundary; restarting the app (state preserved)"
+                );
+                restart_devserver(&dx, dir, patch, &slot, &app_pid, &events)?;
+                host_rebuild = true;
+                saved_at = None;
+                patched_at = None;
+                patch_took = None;
+                build_failed = false;
+                continue;
+            }
         }
         match received.recv_timeout(Duration::from_millis(50)) {
             Ok(DxEvent::Line(line)) => {
@@ -301,23 +354,47 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                         println!("auro: app relaunched by the devserver");
                     }
                     known_pid = Some(pid);
+                    host_rebuild = false;
                     *app_pid.lock().expect("app pid lock") = Some(pid);
                 }
 
                 if let Some(took) = patch_took_ms(&line) {
-                    patched_at = Some(Instant::now());
-                    patch_took = Some(took);
-                    match saved_at {
-                        Some(saved) => println!(
+                    // A devserver line that arrives before our watcher saw the save, or after the
+                    // app already reported the patch, cannot be attributed to this measurement.
+                    if let Some(saved) = saved_at {
+                        if patched_at.is_none() {
+                            patched_at = Some(Instant::now());
+                            patch_took = Some(took);
+                        }
+                        println!(
                             "auro: hot patch applied ({took} ms, {} ms after the save)",
                             saved.elapsed().as_millis()
-                        ),
-                        None => println!("auro: hot patch applied ({took} ms)"),
+                        );
+                    } else {
+                        println!("auro: hot patch applied ({took} ms)");
                     }
                 }
 
                 if trace_u64(&plain, "auro:trace hot_patch ").is_some() {
                     patched_at.get_or_insert_with(Instant::now);
+                }
+
+                if let Some(reason) = trace_text(&plain, "auro:trace hot_data_rejected ") {
+                    // The code applied but the view refused its data (for example a schema change
+                    // that needs a restart). Do not present that as a reload.
+                    println!("auro: reload rejected by the view: {reason}; previous UI kept");
+                    saved_at = None;
+                    patched_at = None;
+                    patch_took = None;
+                }
+
+                if let Some(reason) = trace_text(&plain, "auro:trace hot_patch_failed ") {
+                    // The app keeps its previous jump table; dx heads for a full rebuild. There is
+                    // no render to measure, so this save must not produce a timing line later.
+                    println!("auro: patch rejected by the app: {reason}");
+                    saved_at = None;
+                    patched_at = None;
+                    patch_took = None;
                 }
 
                 if trace_u64(&plain, "auro:trace hot_render ").is_some() {
@@ -343,6 +420,16 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     build_failed = false;
                 }
 
+                if host_rebuild && plain.contains("Build completed successfully") {
+                    host_rebuild = false;
+                }
+                if host_rebuild && build_failed_line(&plain) {
+                    host_rebuild = false;
+                    println!(
+                        "auro: host rebuild failed; no app is running until the next successful build"
+                    );
+                }
+
                 if saved_at.is_some() && !build_failed && build_failed_line(&plain) {
                     build_failed = true;
                     println!("auro: build failed, previous UI still running");
@@ -366,20 +453,93 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     return Ok(());
                 }
             }
-            Ok(DxEvent::Exited(status)) => {
-                stop(&slot);
-                if status.success() {
-                    println!("auro: dev server exited");
-                    return Ok(());
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(status) = child_exited(&slot) {
+                    stop(&slot);
+                    let pid = *app_pid.lock().expect("app pid lock");
+                    if let Some(pid) = pid {
+                        kill_process(pid);
+                        *app_pid.lock().expect("app pid lock") = None;
+                    }
+                    if status.success() {
+                        println!("auro: dev server exited");
+                        return Ok(());
+                    }
+                    return Err(AuroError::Message(format!(
+                        "dev server exited with {status}"
+                    )));
                 }
-                return Err(AuroError::Message(format!(
-                    "dev server exited with {status}"
-                )));
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
         }
     }
+}
+
+/// Starts `dx serve --hot-patch` with stdout/stderr forwarded into `events`.
+fn spawn_devserver(
+    dx: &Path,
+    dir: &Path,
+    patch: Option<&str>,
+    events: &mpsc::Sender<DxEvent>,
+) -> Result<Child, AuroError> {
+    let mut command = Command::new(dx);
+    command
+        .current_dir(dir)
+        .arg("serve")
+        .arg("--hot-patch")
+        .arg("--interactive")
+        .arg("false")
+        .arg("--platform")
+        .arg("desktop")
+        .arg("--features")
+        .arg("hot-reload")
+        .env("AURO_HOT_RELOAD", "1")
+        .env(TRACE_ENV, "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(patch) = patch {
+        command.env(auro_core::config::OVERRIDES_ENV, patch);
+    }
+    let mut child = command.spawn().map_err(|error| {
+        AuroError::Message(format!(
+            "cannot start {} ({error}); install dioxus-cli 0.7.10 or set AURO_DX",
+            dx.display()
+        ))
+    })?;
+
+    if let Some(stdout) = child.stdout.take() {
+        let events = events.clone();
+        std::thread::spawn(move || forward(stdout, events));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let events = events.clone();
+        std::thread::spawn(move || forward(stderr, events));
+    }
+    Ok(child)
+}
+
+/// Restarts the devserver and its app for a host-code change.
+///
+/// A patch cannot replace `ui`, `types`, the bin, a dependency or the profile: the running view was
+/// compiled against the old code. The honest path is a process restart, which restores the snapshot
+/// and is labelled as a restart, never as a hot reload.
+fn restart_devserver(
+    dx: &Path,
+    dir: &Path,
+    patch: Option<&str>,
+    slot: &Arc<Mutex<Option<Child>>>,
+    app_pid: &Arc<Mutex<Option<u32>>>,
+    events: &mpsc::Sender<DxEvent>,
+) -> Result<(), AuroError> {
+    stop(slot);
+    let pid = *app_pid.lock().expect("app pid lock");
+    if let Some(pid) = pid {
+        kill_process(pid);
+    }
+    *app_pid.lock().expect("app pid lock") = None;
+    let child = spawn_devserver(dx, dir, patch, events)?;
+    *slot.lock().expect("dev slot poisoned") = Some(child);
+    Ok(())
 }
 
 /// Refuses a devserver whose patch protocol is not the one `subsecond` 0.7.10 speaks.
@@ -426,7 +586,6 @@ fn build_failed_line(line: &str) -> bool {
 /// Output the devserver produced.
 enum DxEvent {
     Line(String),
-    Exited(ExitStatus),
 }
 
 fn forward(stream: impl std::io::Read, events: mpsc::Sender<DxEvent>) {
@@ -457,6 +616,13 @@ fn patch_took_ms(line: &str) -> Option<u128> {
 fn trace_u64(line: &str, marker: &str) -> Option<u64> {
     let (_, rest) = line.split_once(marker)?;
     rest.split_whitespace().next()?.parse().ok()
+}
+
+/// The message after a trace marker, e.g. the reason in `auro:trace hot_patch_failed <reason>`.
+fn trace_text<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
+    let (_, rest) = line.split_once(marker)?;
+    let rest = rest.trim();
+    (!rest.is_empty()).then_some(rest)
 }
 
 /// One machine-readable line per applied patch (spec 0004, D6).
@@ -913,6 +1079,79 @@ mod tests {
         assert!(value["save_to_patch_ms"].is_null());
         assert!(value["patch_to_render_ms"].is_null());
         assert!(value["patch_took_ms"].is_null());
+    }
+
+    #[test]
+    fn ignores_editor_temporary_files() {
+        let paths = hot_paths(vec![
+            PathBuf::from("/app/data/src/lib.rs"),
+            PathBuf::from("/app/ui/src/lib.rs.swp"),
+            PathBuf::from("/app/ui/src/.#lib.rs"),
+            PathBuf::from("/app/ui/Cargo.toml"),
+        ]);
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("/app/data/src/lib.rs"),
+                PathBuf::from("/app/ui/Cargo.toml"),
+            ]
+        );
+        assert!(hot_paths(vec![PathBuf::from("/app/Auro.toml.lock")]).is_empty());
+    }
+
+    #[test]
+    fn classifies_saves_outside_the_boundary() {
+        let dir = Path::new("/app");
+        let boundary = Path::new("/app/data/src");
+        assert_eq!(
+            outside_boundary_change(
+                &[PathBuf::from("/app/data/src/lib.rs")],
+                dir,
+                boundary,
+                true
+            ),
+            None
+        );
+        assert_eq!(
+            outside_boundary_change(&[PathBuf::from("/app/ui/src/lib.rs")], dir, boundary, true),
+            Some("ui/src/lib.rs".to_owned())
+        );
+        assert_eq!(
+            outside_boundary_change(
+                &[PathBuf::from("/app/types/src/lib.rs")],
+                dir,
+                boundary,
+                true
+            ),
+            Some("types/src/lib.rs".to_owned())
+        );
+        // A project without the generated data crate keeps the old behaviour.
+        assert_eq!(
+            outside_boundary_change(&[PathBuf::from("/app/ui/src/lib.rs")], dir, boundary, false),
+            None
+        );
+    }
+
+    #[test]
+    fn reads_the_reason_a_patch_was_rejected() {
+        assert_eq!(
+            trace_text(
+                "  2.1s ERROR auro:trace hot_patch_failed Failed to load library: file too short",
+                "auro:trace hot_patch_failed "
+            ),
+            Some("Failed to load library: file too short")
+        );
+        assert_eq!(
+            trace_text(
+                "auro:trace hot_patch_failed",
+                "auro:trace hot_patch_failed "
+            ),
+            None
+        );
+        assert_eq!(
+            trace_text("auro:trace hot_patch 3", "auro:trace hot_patch_failed "),
+            None
+        );
     }
 
     #[test]

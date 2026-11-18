@@ -95,8 +95,13 @@ Linux x86_64/Wayland in minimal cases (~271-450 ms save-to-first-new-render, hos
 with documented constraints (tip-crate-only boundary; outside-boundary/init-captured work not
 retroactive; tip-crate statics reset on patch; `thread_local!` in a patched path can fail patch
 generation while the app stays on previous code; tooling/layout/snapshot integration and
-representative Auro-scaffold D6 measurement pending). `auro dev` remains relaunch by default; a
-state-preserving process restart is the documented fallback and is never presented as hot reload.
+representative Auro-scaffold D6 measurement pending). Integrated opt-in hot mode now exists
+(`hot-reload` feature + `[dev] hot = true`): the generated app is a four-crate workspace whose
+`ui` crate does not depend on the boundary crate, so a boundary edit recompiles the boundary and
+the thin bin; Linux measured median 368 ms save-to-render (N=12), Windows remains above 500 ms
+(813 ms, N=9), and a shared `macos-26-arm64` runner measured 509.5 ms (N=12 after warm-up). `auro
+dev` still relaunches by default; a state-preserving process restart is the documented fallback and
+is never presented as hot reload.
 
 ## Key Directories
 

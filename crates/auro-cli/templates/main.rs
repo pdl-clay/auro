@@ -1,8 +1,3 @@
-mod services;
-mod views;
-
-use auro::prelude::*;
-
 fn main() {
-    App::new().root::<views::Counter>("main").run();
+    {{crate}}_ui::run({{crate}}_data::view_data);
 }

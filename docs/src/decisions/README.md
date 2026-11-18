@@ -63,3 +63,4 @@ ADR keeps the conclusion.
 | [0019](0019-macos-package-elevation.md) | macOS package elevation uses an explicit AppleScript prompt | Accepted |
 | [0020](0020-macos-notarization.md) | Notarization uses a keychain profile through notarytool | Accepted |
 | [0021](0021-opt-in-package-rollback.md) | Opt-in rollback after a failed package apply | Accepted |
+| [0022](0022-hot-reload-boundary-crate.md) | Hot reload boundary is a separate crate with a fixed frame | Accepted |

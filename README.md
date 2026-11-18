@@ -25,7 +25,8 @@ Phase 2 is in progress; nothing is published on crates.io and there is no releas
 build and try the framework from a checkout (see [CONTRIBUTING.md](CONTRIBUTING.md)). The Phase 2
 slices in tree cover bundling, signed updates with platform apply paths and platform services;
 macOS notarization submission and local verification are release tooling, not a tested end-user
-flow.
+flow. Hot reload is measured, not GA: the opt-in four-crate scaffold is under the 500 ms target on
+Linux, above it on Windows, and above it on a shared macOS runner.
 
 | Phase | Codename | State |
 |---|---|---|
@@ -129,15 +130,19 @@ call. Type errors are compile errors.
 
 ## Performance we are building to
 
-| Metric | Target at 1.0 |
-|---|---|
-| Cold start | < 80 ms |
-| Idle RAM | < 40 MB |
-| Hello-world binary | < 6 MB (stripped) |
-| Edit to see | < 500 ms |
-| Platforms | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland & X11) |
+| Metric | Target at 1.0 | Measured (2026-11-18) |
+|---|---|---|
+| Cold start | < 80 ms | 154.9 ms median, first-frame request (Linux) |
+| Idle RAM | < 40 MB | 105.3 MB (Linux) |
+| Hello-world binary | < 6 MB (stripped) | 15.6 MB (Linux) |
+| Edit to see | < 500 ms | 368 ms median, opt-in hot mode, N=12 (Linux); 813 ms (Windows); 509.5-837.0 ms (shared macOS CI runner) |
+| Platforms | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland & X11) | Linux runtime verified locally; macOS and Windows build and test in CI |
 
-Measured in CI. A regression fails the build.
+These are alpha measurements, not a 1.0 baseline, and the CI regression gate is not implemented
+yet: the harness exists and the method is documented in the
+[performance budget](docs/src/reference/performance-budget.md). The edit-to-see result is the
+opt-in hot-reload path with the four-crate scaffold; hot reload is measured, not GA. Per-platform
+status is in the [support matrix](docs/src/reference/platform-support.md).
 
 ## Roadmap
 

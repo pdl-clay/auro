@@ -1,6 +1,6 @@
 # 0004 - Hot reload
 
-**Status:** Draft - opt-in hot mode integrated (data-only boundary; Linux and Windows measured, macOS unmeasured); `auro dev` still relaunches by default
+**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows 813 ms, macOS 509.5-837 ms across two shared CI runs); `auro dev` still relaunches by default
 
 Spec 0001 closed Phase 0 with a relaunch loop and recorded ~60 s save-to-visible on the development
 machine (relink dominates). This spec defines the contract that must replace that loop for UI work:
@@ -242,8 +242,8 @@ on every successful reload.
 **Hot mode integrated (2026-11-18, experimental, opt-in).** `[dev] hot = true` makes `auro dev` run
 `dx serve --hot-patch --interactive false --platform desktop --features hot-reload` with
 `AURO_HOT_RELOAD=1` and `AURO_DEV_TRACE=1`; scaffolded apps expose a data-only boundary
-(`view_data() -> ViewData` wrapped by `auro::hot::hot`) and define the `desktop-dev` profile the
-devserver builds (`debug=0`, `incremental=false`). `auro dev` refuses to start unless `dx` is
+(`view_data() -> HotData` wrapped by `auro::hot::hot_frame`/`rendered`) and define the
+`desktop-dev` profile the devserver builds (`debug=0`, `incremental=false`). `auro dev` refuses to start unless `dx` is
 0.7.x-compatible and the app declares the `hot-reload` feature; `auro doctor` reports the same
 inputs.
 
@@ -252,9 +252,11 @@ frame it had already drawn, so the patched boundary only ran on the next interac
 same failure previously seen on Windows ("patch applied, boundary never observed"). `auro::hot`
 now bumps a revision in the subsecond handler, prints `auro:trace hot_patch <n>`, and `App::try_run`
 polls it on the main thread every 16 ms and notifies each open root view, so the next frame runs the
-patched boundary. The first boundary call after a patch prints `auro:trace hot_render <n>`, which
-gives the dev loop an observable "new UI produced" event instead of trusting the devserver's
-"Hot-patching" line.
+patched boundary. The first accepted boundary call after a patch prints
+`auro:trace hot_render <n>`, which gives the dev loop an observable "new UI produced" event instead
+of trusting the devserver's "Hot-patching" line. A boundary whose data is rejected by the view
+prints `auro:trace hot_data_rejected <reason>` instead, so the dev loop does not count it as a
+reload.
 
 The reloadable unit is the boundary's returned value. Element/layout code in `Render` is host-stable
 and is not reached through the jump table, so editing it does not change the running UI (and does not
@@ -287,12 +289,73 @@ closing the window ended the loop with exit 0 and the task exited 0. Windows is 
 because MSVC compile/link dominates the patch, not the repaint. The data boundary remains the only
 reloadable unit, as on Linux.
 
-**macOS (2026-11-18): no live run.** There is no Apple host here, so no save-to-render number
-exists. The loop, preflight, `auro doctor` and diagnostics are platform-neutral, `subsecond`
-supports the Mach-O patch transport, and CI builds and runs the `hot-reload` feature tests on
-`macos-latest`; a real measurement needs an interactive Aqua session. A hardened-runtime build
-would refuse the unsigned patch dylib, so hot-reload dev builds must not enable the hardened
-runtime; this is unverified and recorded as an open item, not as support.
+**Windows re-test, four-crate scaffold (2026-11-18, WinBoat guest, simple data boundary):** a fresh
+`auro new` app with `ui`/`data`/`types`/bin and a plain `ViewData` boundary applied nine patches in
+873/1872/1735/1229/1168/961/820/2359/921 ms save-to-render (N=9, **median 1168**, min 820, max
+2359; `patch_took` 686-2196, patch-to-render 3-13 ms) with the same pid, window and state. That is
+~15% below the earlier single-crate median (1375 ms) but still above 500 ms. The guarded `HotData`
+template then ran through `auro dev` in the same guest: 851/765/768/880/813/897/816/752/768 ms
+(N=9, **median 813**, min 752, max 897; patch-to-render 2-16 ms), same pid/window, patch DLL
+14,848 bytes. Adding Defender exclusions for the app and repo did not change the conclusion: four
+steady patches measured 719-735 ms (one 1293 ms outlier). `incremental = true` measured a 1966 ms
+first patch and 830/848/799/819 ms steady (N=4), also no improvement. `codegen-units = 1` measured
+810/748/769/738/719 ms (N=5, median 748). Responsibility for the remaining Windows gap is in the
+MSVC compile/link of the boundary and bin, not the repaint, the incremental session or codegen-unit
+count. `rust-lld` linked a plain `cargo build` successfully, but `dx serve --hot-patch` refused
+with `Missing linker args for fat link of 'auro_hot_template2'. The tip crate likely did not run
+through linker interception for this build`; dx 0.7.10's fat-link interception requires the default
+linker, so lld is not a usable lever for the Windows patch path. Adding `/OPT:REF` and `/OPT:ICF`
+to the MSVC link measured 765/817/848/767 ms save-to-render (N=4, median 767; patch_took
+641-727 ms), no improvement over the 748 ms codegen-units series. The host-code restart path was
+also exercised on Windows with the latest CLI: a `ui/src/lib.rs` save stopped dx and the app,
+rebuilt in 5.91 s, launched a new pid and restored the snapshot; a following `data` edit
+hot-patched in 910 ms (11 ms patch-to-render).
+
+**macOS measurement (2026-11-18, GitHub macOS 26 arm64 runner).** There is no local Apple host,
+but the manual `Hot reload macOS benchmark` workflow ran the guarded four-crate scaffold with the
+prebuilt dx 0.7.10 on `macos-latest` (`macos-26-arm64`): `auro dev`, six warm-up boundary edits,
+then twelve measured edits. Save-to-render was
+536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, min 372, max 1071;
+patch-to-render 2-17 ms), with the app process and window kept. A first cold run without warm-up
+measured median 515 ms (N=12, 431-715). A second six-warmup run, with a seeded snapshot and a
+host-restart check appended, measured median 837.0 ms (N=12, 583-2096); the restart passed:
+`outside the hot boundary; restarting`, `restarted (state restored)` and a new app pid. A third run
+with twelve warm-up edits measured median 748.5 ms (N=12, 611-1114), so extra warm-up does not fix
+the variance. The two six-warmup runs span 509.5-837 ms on the shared runner; that is not stable
+enough to claim the target met. No local Apple hardware, hardened-runtime build, signing or
+interactive Aqua session was exercised. macOS is measured but not GA, and CI also builds/tests the
+feature and the generated scaffold on `macos-latest`.
+
+**Boundary crate split (2026-11-18, integrated).** The first integrated scaffold kept the boundary
+and the GPUI view in the same bin crate. Every patch then recompiled and relinked the view code and
+`dx` produced a patch library containing GPUI; the measured Linux median was 521 ms and the patch
+artifact was the size of the app. The scaffold now generates four workspace crates:
+
+| Crate | Contents | Depends on |
+|---|---|---|
+| `types` | the decoded `ViewData` and the fixed `HotData` frame | nothing |
+| `data` | the hot boundary `view_data() -> HotData` | `types` |
+| `ui` | `Render`, window code, the element tree, snapshot/autosave | `auro`, `types`, `serde` |
+| the bin | `main` wiring `ui::run(data::view_data)` | `ui`, `data` |
+
+`ui` deliberately does not depend on `data`: `dx` recompiles the changed crate and its dependents,
+so editing the boundary recompiles `data` and the thin bin, not GPUI or the view. The patch library
+is ~12 KB instead of the size of the fat binary (the loader keeps each applied library mapped, so
+this also bounds long-session growth), apply and load are cheap, and the steady-state
+save-to-render distribution on the same Linux reference machine was 325-394 ms (N=12, median 368)
+with `patch_took` 268-325 ms and patch-to-render 1-26 ms; the same setup with a plain struct
+boundary and no fixed-frame check measured median 288 ms (N=12). The process id, window and host
+state continued across patches. A scaffold test asserts the crate edges (no `ui -> data`, no
+`data -> auro`) so the fast path cannot be lost by an innocuous dependency addition.
+
+**Apply-failure containment (2026-11-18).** `auro::hot` owns the devserver connection instead of
+delegating to `dioxus_devtools::connect_subsecond`, which unwraps a failed apply and kills the
+listener. A patch that cannot be loaded (missing sentinel, bad relocation, truncated file, loader
+panic) is caught, reported as `auro:trace hot_patch_failed <reason>` and as
+`auro: patch rejected by the app: <reason>`, and the previous jump table keeps running. The
+websocket stays open, so the next edit can still apply. A committed patch wakes the main thread
+through a `tokio::sync::watch` channel rather than a 16 ms poll; the measured patch-to-render
+latency dropped to 1-26 ms and an idle app no longer wakes twice a frame.
 
 
 ### D2 - Host-stable and reloadable code have an explicit boundary
@@ -313,6 +376,15 @@ invalidation contract so replaced code is never invoked after a reload completes
 *Rejected:* implicit, arbitrary mutation of live memory without a snapshot/restore and
 teardown/rollback contract. *Rejected:* storing entity handles or view callbacks in process-global
 state that cannot be invalidated on reload.
+
+**Implemented layout (2026-11-18, [ADR 0022](../decisions/0022-hot-reload-boundary-crate.md)).**
+The boundary is a crate edge, not a convention: `ui` owns the
+host-stable `Render`/window/element code and must not depend on `data`; `data` owns the reloadable
+boundary and depends only on `types`. The bin wires the function pointer
+(`ui::run(data::view_data)`), so a patch replaces code in `data` without recompiling the view. The
+scaffold test checks both edges. `types::HotData` is the fixed, `#[repr(C)]` frame exchanged with
+the running host; `ViewData` can change inside it. A schema mismatch is rejected by the host and
+reported, and the old values stay on screen instead of being reinterpreted under a new layout.
 
 ### D3 - State survives as a versioned, opt-in snapshot
 
@@ -369,14 +441,18 @@ state-preserving restart.
 | Outcome | Condition | Host behaviour | User-visible label |
 |---|---|---|---|
 | Hot-reloaded | Reloadable build/patch succeeds, compatibility checks pass, apply and restore complete (with or without per-entry resets) | Keep window and host state; present updated UI; repaint | “reloaded” with duration and any reset warnings |
-| Build failed | Build/patch compilation fails | Keep previous UI active and interactive; do not apply a partial reload | compiler/build diagnostics; “previous UI still running” |
+| Build failed | A boundary build/patch compilation fails | Keep previous UI active and interactive; do not apply a partial reload | compiler/build diagnostics; “previous UI still running” |
+| Host restart, rebuild failed | A host-code save restarted the devserver/app and its rebuild fails | No app runs; keep the devserver for the next save; do not apply a partial reload | “host rebuild failed; no app is running until the next successful build” |
 | Reload failed, recovered | Build/patch succeeds but compatibility/apply/restore fails and previous UI remains valid or can be safely rolled back | Keep or restore previous UI as applicable; do not present as reloaded | explicit failure reason |
-| State-preserving restart (fallback) | Reload cannot be completed safely, or a configured/required restart change occurred | Persist snapshot to a host-controlled location, restart app/host session, restore on boot | “restarted (state restored)” or “restarted (state reset: \<reason\>)” - never “hot reloaded” |
+| State-preserving restart (fallback) | Reload cannot be completed safely, or a configured/required restart change occurred | Restart app/host session; restore the last snapshot the app wrote to its host-controlled store. State changed since that write is reset and reported. | “restarted (state restored)” or “restarted (state reset: \<reason\>)” - never “hot reloaded” |
 | Hard failure | Restart/restore impossible | Exit non-zero with diagnostic | error |
 
-A failed build must never apply broken code or leave the session without a usable previous UI.
-Reloadable tasks/callbacks that can outlive a reload must be cancellable or invalidated before
-replaced code can run; the host must not invoke replaced code after a failed or completed reload.
+A failed build must never apply broken code. A boundary build failure keeps the previous UI active.
+A host-code save restarts the process before its rebuild, so a failed host rebuild has no previous
+process to keep; it is reported, the devserver stays alive for the next save, and the next
+successful save starts a new app. Reloadable tasks/callbacks that can outlive a reload must be
+cancellable or invalidated before replaced code can run; the host must not invoke replaced code
+after a failed or completed reload.
 
 *Rejected:* applying partial/broken reloads. *Rejected:* leaving tasks running against replaced code.
 *Rejected:* presenting a restart as hot reload.
@@ -384,7 +460,9 @@ replaced code can run; the host must not invoke replaced code after a failed or 
 **Implemented (2026-11-16, relaunch mode).** The dev loop reads the app's snapshot report from its
 stderr and prints the label for the relaunch that follows a save: `auro: restarted (state restored)`
 or `auro: restarted (state reset: <reason>)`. The first launch prints no label because nothing
-restarted. A failed rebuild prints the tail of the compiler output and keeps the previous UI running.
+restarted. A failed boundary rebuild prints the tail of the compiler output and keeps the previous
+UI running. A failed host rebuild is reported as `host rebuild failed; no app is running until the
+next successful build`; the old process was stopped for the restart.
 On Windows the app runs from `target/auro-dev/<stem>-<pid>-<n>.exe`: a running image cannot be
 relinked, and a staging failure is reported while the previous UI stays up. Verified on niri/Wayland
 and on Windows 11 (WinBoat), both with a hand-written snapshot: restore and version-mismatch reset
@@ -393,14 +471,42 @@ each produced the matching label, initial start produced none, and the two relau
 
 **Implemented (2026-11-18, hot mode).** `auro dev` labels the hot outcomes separately: an applied
 patch prints `hot patch applied (<took> ms, <elapsed> ms after the save)` and, when the boundary
-renders, `reloaded in <n> ms (window kept)` plus the JSON trace; a failed build prints
+renders, `reloaded in <n> ms (window kept)` plus the JSON trace; a failed boundary build prints
 `build failed, previous UI still running` and applies nothing; `Failed to hot-patch app` prints
-`hot patch failed, dev server is rebuilding the app`. A relaunch is detected by a changed app pid
-(`auro:trace pid`) and only then is the snapshot report labelled `restarted (state restored)` or
+`hot patch failed, dev server is rebuilding the app`. A host-code save prints `outside the hot
+boundary; restarting the app (state preserved)` and a failed host rebuild prints `host rebuild
+failed; no app is running until the next successful build`. A relaunch is detected by a changed app
+pid (`auro:trace pid`) and only then is the snapshot report labelled `restarted (state restored)` or
 `restarted (state reset: <reason>)`; the first launch is not labelled. A graceful app exit ends the
 loop with exit 0, and Ctrl-C kills the devserver and the app process (verified on Linux; the Windows
-run was ended by closing its window, which also exited 0). The `< 500 ms` target is not
-yet met by the Linux median (see D6); the label never claims it is.
+run was ended by closing its window, which also exited 0). The `< 500 ms` target is met by the Linux
+median (368 ms) for the documented warm case; Windows exceeds it and macOS is above it on a shared
+CI runner (see D6). The label never claims a target it did not measure.
+
+**Rejected patches (2026-11-18).** A patch the app cannot load prints
+`auro: patch rejected by the app: <reason>`; the previous UI stays live and no timing line is
+emitted. A frame the view refuses (schema or bounds check) prints
+`auro: reload rejected by the view: <reason>; previous UI kept` and is never presented as a
+successful reload; the view reports that frame as rejected rather than rendered
+(`hot_frame`/`rendered`), so no `hot_render` or timing line is produced. Observed on Linux: a
+`SCHEMA` bump produced `hot_data_rejected` and left the previous values, no reload line; reverting
+`SCHEMA` then applied in 959 ms in the same process, so the listener and jump table survived the
+rejection. A patched boundary that panics is caught by the generated view, reported as
+`hot data rejected: the patched boundary panicked`, and leaves the previous values and process
+alive; removing the panic applied in 327 ms in the same process.
+
+**Host-code fallback (2026-11-18).** A save in `ui/src/lib.rs` was classified outside the hot
+boundary, the devserver and app were restarted (build 3.14 s), the app printed `state restored` from
+the existing snapshot, and the dev loop printed `restarted (state restored)`; the new process
+rendered the edited button and a following `data` edit hot-patched in 978 ms with a 5 ms
+patch-to-render. Editor swap files beside the source produced no restart. A host rebuild with a
+syntax error stopped the old app before the build, printed `auro: host rebuild failed; no app is
+running until the next successful build`, and the fixed save rebuilt in 2.79 s and restored the
+snapshot. The same host restart was verified on Windows: a `ui/src/lib.rs` save rebuilt in 5.91 s,
+launched a new pid, restored the snapshot and the next `data` edit patched in 910 ms. macOS CI
+also passed the restart check (`restarted (state restored)`, new pid) after a seeded snapshot. This is the
+state-preserving restart path required by D4/D7, not a reload; unlike a boundary build error, a
+failed host rebuild has no previous process to keep.
 
 ### D5 - Compatibility is enforced, not assumed
 
@@ -416,6 +522,14 @@ must be explicit and diagnosable.
 
 *Rejected:* promising stable cross-version reload compatibility in 0.x. *Rejected:* silent
 best-effort apply on mismatch.
+
+**Implemented guard (2026-11-18).** The generated boundary returns `types::HotData`, a fixed
+`#[repr(C)]` frame (240 data bytes) with a schema number, title length and accent. The running host
+checks the schema and bounds before decoding any field, so a patch compiled against a changed
+`ViewData` cannot make the old host read a different layout. `types` documents the rule: change
+`ViewData` and its encoder, bump `HotData::SCHEMA`; do not change `HotData`'s shape. The raw typed
+`auro::hot::hot` boundary remains available for advanced cases and carries the documented layout
+agreement; the scaffold uses the guarded frame.
 
 ### D6 - Measurability
 
@@ -479,6 +593,34 @@ of the template reloaded its boundary in 580 ms (revision 1, same pid), which ve
 manifest/profile as well as the demo fixture. Windows numbers are in D1/platform notes; macOS is
 unmeasured, so the target stays a target.
 
+**Measured run (2026-11-18, four-crate scaffold, niri/Wayland, x86_64, 12 CPUs, rustc 1.99.1,
+gpui 0.2.2, dx/subsecond/dioxus-devtools 0.7.10, `desktop-dev` `debug=0`, `incremental=false`,
+warm dependency cache, boundary edits in `data/src/lib.rs`):** `save_to_render_ms`
+393/371/385/370/366/339/357/370/394/350/325/366 (N=12, **median 368**, min 325, max 394);
+`patch_to_render_ms` 1-26; `patch_took_ms` 268-325. The same layout with a plain struct boundary
+(no fixed-frame guard) measured 306/271/292/252/270/247/313/264/387/357/309/283 (N=12, median
+287.5, min 247, max 387), isolating ~80 ms for the guarded frame. Both series ran while an
+unrelated workspace test build kept the host at load average ~16; the numbers are therefore
+conservative for this machine. The first patch after launch can be slower (1698 ms on the guarded
+scaffold) because `dx` compiles the changed boundary crate and its tip for the first time; the
+target case is a warm edit, and the first patch is reported separately in the raw log. The same pid,
+window and host state continued across all patches. A type error kept the previous UI live and the
+fix applied in 270 ms (simple frame). A `types::HotData::SCHEMA` change applied as a patch was
+rejected by the running view (`hot data rejected: ... different view-data schema`), left the
+previous values on screen and did not crash.
+
+**Measured run (2026-11-18, macOS 26 arm64 GitHub runner, guarded four-crate scaffold):** the
+manual `Hot reload macOS benchmark` workflow installed the prebuilt dx 0.7.10, ran `auro dev`
+with `AURO_HOT_RELOAD=1`/`AURO_DEV_TRACE=1`, applied six warm-up edits, then twelve measured edits
+to `data/src/lib.rs`. `save_to_render_ms` was
+536/520/444/625/1071/598/481/507/439/512/462/372 (N=12, **median 509.5**, min 372, max 1071);
+`patch_to_render_ms` 2-17; the app process and window stayed. The first cold run without warm-up
+measured 715/699/517/513/467/655/571/439/445/698/508/431 (N=12, median 515, min 431, max 715).
+`macos-26-arm64` is a shared GitHub runner, so the spread and the 1071 ms outlier are environment
+noise, not a controlled hardware benchmark; no local Apple hardware, signing or hardened-runtime
+build was exercised. Five of the twelve warm edits were under 500 ms, so macOS is recorded as at
+the target boundary, not as met.
+
 Target (from ADR 0008 / roadmap): **< 500 ms save-to-visible** for a view-only change on a warm
 incremental build, with state preserved. This is a target, not a guarantee, until recorded under D6.
 The integrated scaffold uses a warm dependency cache and a one-file ThinLink rebuild with
@@ -502,13 +644,21 @@ The classification rules are part of the implementation contract and must be doc
 authors once implemented.
 
 **Hot mode rules (2026-11-18, implemented):** only code reached through `auro::hot::hot`/
-`hot_with` in the tip crate reloads in-process. Other tip-crate code (the `Render` impl, layout,
-element construction) is compiled into the patch but is not invoked through the jump table, so an
-edit there leaves the running UI unchanged; the scaffold prints the boundary value per revision and
-the dev loop still reports the patch it observed. A change to a non-tip crate or the dev profile makes
-`dx` rebuild and relaunch the app, which restores the snapshot and is labelled as a restart, not a
-reload. A patch that cannot be generated makes `dx` start a full rebuild; the dev loop prints
-`hot patch failed, dev server is rebuilding the app`. Build errors keep the previous UI live.
+`hot_with` reloads in-process. In the generated four-crate layout the reloadable unit is
+`data/src/lib.rs`; `ui` (the `Render` impl, layout, element construction) is outside the jump table
+and is deliberately not a dependency of `data`. Editing `ui`, `types`, the bin, a dependency or the
+dev profile is host code: a patch cannot replace the running view's code. A save outside
+`data/src` is labelled at save time (`auro: change in ui/src/lib.rs is outside the hot boundary;
+restarting the app (state preserved)`), the devserver and app are restarted, the snapshot is
+restored, and the outcome is labelled `restarted (state restored)` or
+`restarted (state reset: <reason>)`, never `reloaded`. Editor swap/lock files are ignored. The
+`types::HotData` schema check still rejects a frame built against a changed data layout if a patch
+races the restart. A change to a non-tip crate or the dev profile takes the same restart path.
+A patch that cannot be generated makes `dx` start a full rebuild; the dev loop prints
+`hot patch failed, dev server is rebuilding the app`. A build error in a boundary patch keeps the
+previous UI live. A host-code change restarts the process before its rebuild, so a failed host
+rebuild leaves no app until the next successful save; the dev loop reports
+`host rebuild failed; no app is running until the next successful build`.
 
 Staged delivery (aligns roadmap):
 
@@ -535,7 +685,7 @@ above and the keys/items listed here.
 |---|---|
 | `auro dev` | Default remains the documented relaunch loop until hot reload is declared stable for the selected project; hot reload is enabled by an explicit opt-in (flag and/or `[dev]` config key defined at implementation time and recorded in spec 0002/CLI docs). |
 | `auro dev` (hot-reload mode) | Starts/uses the dev host, watches configured paths, builds the reload unit(s), performs reload or fallback per D4, streams diagnostics, and emits timing events per D6. |
-| Exit/status | Ctrl-C stops host and child tasks cleanly (exit 0). Natural app exit in dev follows current contract. A failed build keeps the session alive with previous UI; a non-recoverable host/reload failure exits non-zero with a labelled reason. |
+| Exit/status | Ctrl-C stops host and child tasks cleanly (exit 0). Natural app exit in dev follows current contract. A failed boundary build keeps the session alive with previous UI; a failed host rebuild keeps the devserver alive without an app and reports it. A non-recoverable host/reload failure exits non-zero with a labelled reason. |
 | Diagnostics | Build failures, compatibility mismatches, apply/restore failures, snapshot resets, and fallbacks are reported with actionable labels distinguishing “reloaded”, “previous UI still running”, and “restarted (state restored/reset)”. |
 
 ### Configuration (`Auro.toml`, coordinated with spec 0002)
@@ -592,25 +742,35 @@ and build/mechanism requirements; `auro doctor` reports whether the current proj
 capable and why not. Migration/upgrade steps for existing Phase 0 scaffolds are documented in the
 implementing change.
 
-**Migration (2026-11-18).** An existing app becomes hot-reload capable by adding, in the app's
-`Cargo.toml`, `[features] hot-reload = ["auro/hot-reload"]`, the `[profile.desktop-dev]` block
-(`inherits = "dev"`, `debug = 0`, `incremental = false`), and a `Dioxus.toml` with
-`default_platform = "desktop"`; by moving the values that should reload into a plain-data boundary
-(`fn view_data() -> ViewData`) wrapped by `auro::hot::hot`, with the `Render` impl and element tree
-left outside it; and by setting `[dev] hot = true`. The app also needs `auro` built with the
-`hot-reload` feature (the `dx` command enables the app feature, which forwards to it). `auro doctor`
-prints which of the manifest feature, `dx`, and the config flag is missing.
+**Migration (2026-11-18).** An existing single-crate app becomes hot-reload capable in this shape:
+
+1. Split it into a workspace with a thin bin, `ui` (view, `Render`, element tree, snapshot/autosave;
+   depends on `auro` and `types`, never on `data`), `data` (the boundary; depends only on `types`),
+   and `types` (`ViewData` plus the fixed `HotData` frame). The generated app is the reference:
+   `cargo new` a scaffold and copy the manifests. `ui` must not depend on `data`; that edge is what
+   keeps GPUI out of the patch.
+2. Put the changing values in `data::view_data() -> HotData` and call `ui::run(data::view_data)`
+   from `main`. The view decodes the frame; the boundary never constructs GPUI types.
+3. Add `[features] hot-reload = ["<app>-ui/hot-reload"]` (the ui crate forwards to
+   `auro/hot-reload`), the `[profile.desktop-dev]` block (`inherits = "dev"`, `debug = 0`,
+   `incremental = false`), and a `Dioxus.toml` with `default_platform = "desktop"`.
+4. Set `[dev] hot = true` and include `src`, `ui/src`, `data/src`, `types/src` and `Auro.toml` in
+   `[dev] watch`. `auro doctor` prints which of the manifest feature, `dx`, and the config flag is
+   missing.
+
+A single-crate app can still run the relaunch loop unchanged; hot mode only claims the supported
+layout.
 
 ## Acceptance
 
 Checks are runnable by someone who did not write the implementation. Items that require a real
 display or platform-specific behaviour are marked; headless/CI-safe subsets are preferred where
-possible. Acceptance 1-5 define the contract a proven mechanism must satisfy; they are not met by the
-current relaunch loop. Prototype evidence (Option 1 consolidation, 2026-11-16, not integrated)
-demonstrated analogous contract properties in minimal GPUI 0.2.2 scenarios (host-state
-preservation across patches, build/syntax failure keeping previous UI alive, patch-generation
-failure keeping app on previous code, and warm view-only save-to-first-new-render ~271-450 ms,
-s1/s6) but does not satisfy these acceptance items for `auro dev`/Auro integration.
+possible. Acceptance 1-5 define the contract; the status paragraph after the list records what the
+integrated opt-in path demonstrates and what remains. Prototype evidence (Option 1 consolidation,
+2026-11-16, not integrated) demonstrated analogous properties in minimal GPUI 0.2.2 scenarios
+(host-state preservation across patches, build/syntax failure keeping previous UI alive,
+patch-generation failure keeping app on previous code, and warm view-only save-to-first-new-render
+~271-450 ms, s1/s6) before the feature was integrated.
 
 1. **Reload correctness (headless where feasible):** a host test harness mounts/runs a reloadable UI
    fixture, applies a state mutation, applies a newly built fixture with changed view output, and
@@ -635,17 +795,31 @@ s1/s6) but does not satisfy these acceptance items for `auro dev`/Auro integrati
    semantics remain correct (spec 0001 acceptance 3/4). Platform limitations are recorded, not hidden.
 8. **Documentation and gates:** `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-   `cargo test --workspace --locked`, and `mdbook build docs` pass. Spec 0001 open question, roadmap,
-   performance budget, changelog, and architecture notes are updated to reference this spec and the
-   measured status.
+   `cargo test --workspace --locked`, and `mdbook build docs` pass. CI also runs the
+   `hot-reload` feature tests and builds/tests a generated scaffold on Linux, macOS and Windows, so
+   template drift is caught on the platforms without a live hot-reload measurement. Spec 0001 open
+   question, roadmap, performance budget, changelog, and architecture notes are updated to refer to
+   this spec and the measured status.
 
-**Status (2026-11-18, integrated hot mode):** item 2 (build failure keeps the previous UI) and item 6
-(per-edit trace with machine, method and N recorded in D6) are demonstrated on Linux; item 7 is
-partially demonstrated (same window, graceful exit, Ctrl-C cleanup) for a boundary-only edit. Item 1
-has no headless fixture yet, item 3's patch-generation failure and item 5's forced fallback restart
-were not exercised in hot mode, item 4 rests on the boundary design (GPUI calls only the host-stable
-`Render`; only `hot`-wrapped calls read the jump table), and item 8 is the repository gates. The
-median on Linux is 521 ms, so the < 500 ms reference case is not met and experimental mode must not
+**Status (2026-11-18, integrated hot mode, four-crate scaffold):** item 2 (a boundary build failure
+keeps the previous UI) is demonstrated on Linux and Windows; a failed host rebuild is reported
+separately and leaves no app until the next successful save. Item 3's apply-failure path is contained by
+`apply_patch` error/panic handling (unit-tested selection, manual rejection of an incompatible frame
+observed). Item 5 is demonstrated: a save outside `data/src` restarts the devserver and app,
+restores the snapshot and is labelled `restarted (state restored)`. Item 6 is demonstrated
+on Linux (N=12, median 368 ms, min 325, max 394, patch-to-render 1-26 ms), Windows (N=9, median
+813 ms, 752-897, patch-to-render 2-16 ms) and macOS (two runs, N=12 after warm-up, medians 509.5 and
+837.0 ms, 372-2096,
+patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is partially
+demonstrated (same window, pid and host state across patches on Linux, Windows and macOS; host
+restart with state restored on Linux, Windows and macOS CI; graceful exit and Ctrl-C cleanup on
+Linux and Windows) for boundary-only edits. Item 1 has a headless
+fixture for mounting the view, changing the boundary output and keeping state
+(`crates/auro/tests/hot_fixture.rs`); it does not load a patch dylib, and the snapshot roundtrip is
+covered by the `auro-core` tests. Item 4 rests on the crate boundary (`ui` does not depend on `data`, only
+`hot`-wrapped calls read the jump table); item 8 is the repository gates. The Linux median is now
+under 500 ms for the documented warm case, macOS is above the target on a shared CI runner and
+Windows remains above it, so the target is not met platform-wide and experimental mode must not
 claim it.
 
 GA additionally requires: measured < 500 ms save-to-visible for the documented warm view-only case on
@@ -662,4 +836,5 @@ budget), published numbers, and a stable documented author contract for reloadab
 | How managed `State<T>` participates when its type is defined in reloadable code vs host-stable code | Implementation + follow-up ADR/spec if it changes state ownership rules (D5 of spec 0001) |
 | Debug/release mixing, optimization levels, and symbol/debug info required by the chosen mechanism | Implementation, per platform notes |
 | In-app surfacing of build/reload diagnostics (overlay/panel) vs terminal-only in experimental mode | `auro-ui`/dev UX follow-up; terminal reporting is the minimum |
-| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and patching an element-returning view in session 1 applied then overflowed the main thread's stack (`0xc000041d`); a leaf `HotFn` and a framework-free `ViewData` boundary hot-patched repeatedly with state preserved, so Windows hot reload is limited to framework-free boundaries. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. **Integrated re-test (2026-11-18):** the Windows scaffold applied boundary patches in the interactive session with the same pid and continuing state (median 1375 ms save-to-render, N=5 steady; see D1), kept the previous UI on a type error and exited 0 when the window closed. macOS has no live run; CI compiles/tests the feature and hardened-runtime signing of the patch dylib is open. |
+| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and patching an element-returning view in session 1 applied then overflowed the main thread's stack (`0xc000041d`); a leaf `HotFn` and a framework-free `ViewData` boundary hot-patched repeatedly with state preserved, so Windows hot reload is limited to framework-free boundaries. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. **Integrated re-test (2026-11-18):** the Windows scaffold applied boundary patches in the interactive session with the same pid and continuing state (median 1375 ms save-to-render, N=5 steady; see D1), kept the previous UI on a type error and exited 0 when the window closed. **macOS measurement (2026-11-18):** a manual GitHub `macos-26-arm64` workflow measured medians 509.5 and 837.0 ms on two six-warmup runs (N=12 each, 372-2096); a host restart with snapshot restore passed; local hardware and hardened-runtime signing remain open. |
+| Change classification for `types`/`ui`/bin edits in hot mode: `dx` still compiles a patch, the running host keeps its old code, and the schema guard rejects an incompatible data frame; a restart is the honest path | **Implemented (2026-11-18):** the dev loop classifies `.rs`/`.toml` saves, restarts the devserver and app for host-code changes, restores the snapshot, labels `restarted (state restored|reset)`, and ignores editor swap files. |

@@ -37,6 +37,7 @@
 - [0019 - macOS package elevation](decisions/0019-macos-package-elevation.md)
 - [0020 - macOS notarization](decisions/0020-macos-notarization.md)
 - [0021 - Opt-in rollback after a failed package apply](decisions/0021-opt-in-package-rollback.md)
+- [0022 - Hot reload boundary is a separate crate with a fixed frame](decisions/0022-hot-reload-boundary-crate.md)
 
 # Specifications
 

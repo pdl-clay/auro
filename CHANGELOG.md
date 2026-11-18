@@ -22,9 +22,46 @@ installable `auro-cli` yet.
   save-to-render on Linux (median 521 ms, N=11, `desktop-dev` `debug=0`, `incremental=false`,
   patch-to-render 8-24 ms) and 1237-1823 ms on Windows 11 (median 1375 ms, N=5 steady-state,
   patch-to-render 8-38 ms) with the same process and state continuing across patches; macOS has no
-  live measurement. The < 500 ms median target is not met.
+  live measurement. That scaffold did not meet the < 500 ms median target (the four-crate scaffold
+  below does on Linux).
+- `auro` hot reload: the generated app is now a four-crate workspace - `types` (fixed `HotData`
+  frame), `data` (the boundary), `ui` (view/render/window code) and a thin bin. `ui` does not depend
+  on `data`, so a boundary edit recompiles the boundary and the bin instead of the GPUI view; the
+  patch library is ~12 KB instead of the size of the fat binary (recorded in
+  [ADR 0022](docs/src/decisions/0022-hot-reload-boundary-crate.md)). On niri/Wayland the same reference
+  machine measured 325-394 ms save-to-render (N=12, median 368, patch-to-render 1-26 ms,
+  `desktop-dev` `debug=0`, `incremental=false`) with the same pid, window and state; a plain-struct
+  boundary measured median 288 ms, so the fixed-frame guard costs ~80 ms. Windows still exceeds
+  500 ms (813 ms, N=9); a shared `macos-26-arm64` runner measured 509.5 and 837.0 ms medians on two
+  six-warmup runs (N=12 each, 372-2096), and a host restart with snapshot restore passed. The target
+  is met on Linux for this documented warm case, not on Windows, and not stably on macOS CI; not
+  platform-wide.
+- `auro::hot` now owns the devserver connection: a patch that fails to load (error or loader panic)
+  is reported as `auro:trace hot_patch_failed <reason>` and `auro: patch rejected by the app:
+  <reason>`, the previous code keeps running, and the listener stays open for the next edit. A
+  committed patch wakes the main thread through a watch channel instead of a 16 ms poll, which
+  removes the poll from patch-to-render and stops an idle app waking twice a frame. Saves outside
+  `data/src` are host-code changes: `auro dev` restarts the devserver and app instead of applying a
+  patch that cannot take effect, restores the snapshot and labels the outcome `restarted (state
+  restored)` or `restarted (state reset: <reason>)`, never `reloaded`. A failed host rebuild stops
+  the old process before the build, so no app runs until the next successful save; the dev loop
+  says so. The restart path is verified on Linux, Windows and macOS CI. Editor swap/lock files are
+  ignored.
+- A headless hot fixture (`crates/auro/tests/hot_fixture.rs`, run by CI with the `hot-reload`
+  feature) mounts the view, swaps the boundary implementation, and asserts the new output is
+  rendered while opted-in state survives. It does not load a patch dylib; the snapshot roundtrip
+  stays covered by the `auro-core` tests.
+- Scaffolded hot boundaries return `types::HotData`, a fixed `#[repr(C)]` frame with a schema
+  number; the running host checks the schema and bounds before decoding. A patch built against a
+  changed `ViewData` layout is rejected with `auro: reload rejected by the view: ...; previous UI
+  kept` instead of being read under the old layout. `types` documents bumping `SCHEMA` and not
+  reshaping `HotData`. `auro::hot::hot_frame`/`rendered` let a view report a render only after it
+  accepts the frame, so a rejected frame produces no `hot_render` timing line. The generated view
+  also catches a panic in the patched boundary and keeps the previous values; removing the panic
+  applied in 327 ms in the same process.
 - `auro-cli dev` hot mode: requires dioxus-cli 0.7.x, preflights the app's `hot-reload` feature,
-  labels build failures (`previous UI still running`), detects devserver relaunches by app pid,
+  labels boundary build failures (`previous UI still running`) and host rebuild failures, detects
+  devserver relaunches by app pid,
   exits when the app window closes gracefully, and Ctrl-C ends the devserver and the app process
   (Ctrl-C verified on Linux; the Windows run was ended by closing its window). `auro doctor` reports
   whether hot reload is available, missing `dx`, or enabled.
