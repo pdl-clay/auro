@@ -189,6 +189,14 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
         );
     }
 
+    check_dx(&dx)?;
+    if !crate::project::declares_hot_feature(dir)? {
+        return Err(AuroError::Message(format!(
+            "hot mode needs a `hot-reload` feature in {}; add:\n\n[features]\nhot-reload = [\"auro/hot-reload\"]\n\n(projects scaffolded by this auro version include it)",
+            dir.join("Cargo.toml").display()
+        )));
+    }
+
     let mut command = Command::new(&dx);
     command
         .current_dir(dir)
@@ -201,6 +209,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
         .arg("--features")
         .arg("hot-reload")
         .env("AURO_HOT_RELOAD", "1")
+        .env(TRACE_ENV, "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(patch) = patch {
@@ -224,7 +233,8 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
     }
 
     let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
-    install_ctrl_c(Arc::clone(&slot))?;
+    let app_pid: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+    install_ctrl_c_hot(Arc::clone(&slot), Arc::clone(&app_pid))?;
     {
         let slot = Arc::clone(&slot);
         let events = events.clone();
@@ -257,18 +267,47 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
             })?;
     }
 
+    // One edit is one save-to-visible measurement: `saved_at` starts it, the first
+    // `auro:trace hot_render` after the patch ends it (spec 0004, D6).
     let mut saved_at: Option<Instant> = None;
+    let mut patched_at: Option<Instant> = None;
+    let mut patch_took: Option<u128> = None;
+    let mut build_failed = false;
+    // A pid change is a devserver relaunch, not a hot reload. The app's snapshot report after it
+    // must be labelled as a restart (spec 0004, D4).
+    let mut known_pid: Option<u32> = None;
+    let mut relaunches = 0u32;
+
     loop {
         if saved.try_recv().is_ok() {
             // Coalesce a burst: the newest save is the one the patch name refers to.
             while saved.try_recv().is_ok() {}
             saved_at = Some(Instant::now());
+            patched_at = None;
+            patch_took = None;
+            build_failed = false;
         }
         match received.recv_timeout(Duration::from_millis(50)) {
             Ok(DxEvent::Line(line)) => {
                 println!("{line}");
+                let plain = strip_ansi(&line);
+
+                if let Some(pid) = trace_u64(&plain, "auro:trace pid ") {
+                    let pid = pid as u32;
+                    if let Some(previous) = known_pid
+                        && previous != pid
+                    {
+                        relaunches += 1;
+                        println!("auro: app relaunched by the devserver");
+                    }
+                    known_pid = Some(pid);
+                    *app_pid.lock().expect("app pid lock") = Some(pid);
+                }
+
                 if let Some(took) = patch_took_ms(&line) {
-                    match saved_at.take() {
+                    patched_at = Some(Instant::now());
+                    patch_took = Some(took);
+                    match saved_at {
                         Some(saved) => println!(
                             "auro: hot patch applied ({took} ms, {} ms after the save)",
                             saved.elapsed().as_millis()
@@ -276,8 +315,55 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                         None => println!("auro: hot patch applied ({took} ms)"),
                     }
                 }
-                if let Some(label) = relaunch_label(&line) {
+
+                if trace_u64(&plain, "auro:trace hot_patch ").is_some() {
+                    patched_at.get_or_insert_with(Instant::now);
+                }
+
+                if trace_u64(&plain, "auro:trace hot_render ").is_some() {
+                    if let Some(saved) = saved_at {
+                        let save_to_render = saved.elapsed();
+                        println!(
+                            "{}",
+                            hot_trace_line(
+                                patched_at.map(|patched| patched.duration_since(saved)),
+                                patched_at.map(|patched| patched.elapsed()),
+                                save_to_render,
+                                patch_took,
+                            )
+                        );
+                        println!(
+                            "auro: reloaded in {} ms (window kept)",
+                            save_to_render.as_millis()
+                        );
+                    }
+                    saved_at = None;
+                    patched_at = None;
+                    patch_took = None;
+                    build_failed = false;
+                }
+
+                if saved_at.is_some() && !build_failed && build_failed_line(&plain) {
+                    build_failed = true;
+                    println!("auro: build failed, previous UI still running");
+                }
+
+                if plain.contains("Starting full rebuild") {
+                    println!("auro: hot patch failed, dev server is rebuilding the app");
+                }
+
+                // The app's own snapshot report only labels a relaunch. The first launch and an
+                // in-process patch have no restart to report.
+                if relaunches > 0
+                    && let Some(label) = relaunch_label(&plain)
+                {
                     println!("auro: {label}");
+                }
+
+                if plain.contains("exited gracefully") {
+                    stop(&slot);
+                    println!("auro: app exited");
+                    return Ok(());
                 }
             }
             Ok(DxEvent::Exited(status)) => {
@@ -294,6 +380,47 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
             Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
         }
     }
+}
+
+/// Refuses a devserver whose patch protocol is not the one `subsecond` 0.7.10 speaks.
+///
+/// `dx` versions move the jump-table format; a mismatch fails at apply time inside the app, which
+/// is much harder to diagnose than a startup error.
+fn check_dx(dx: &Path) -> Result<(), AuroError> {
+    let output = Command::new(dx)
+        .arg("--version")
+        .output()
+        .map_err(|error| {
+            AuroError::Message(format!(
+                "cannot run {} ({error}); install dioxus-cli 0.7.10 or set AURO_DX",
+                dx.display()
+            ))
+        })?;
+    let version = String::from_utf8_lossy(&output.stdout);
+    let version = version.lines().next().unwrap_or_default().trim();
+    if !dx_compatible(version) {
+        return Err(AuroError::Message(format!(
+            "{} reports `{version}`; hot reload requires dioxus 0.7.x (tested with 0.7.10)",
+            dx.display()
+        )));
+    }
+    Ok(())
+}
+
+/// `dioxus 0.7.10 (57d6794)` is compatible; other majors/minors are not.
+fn dx_compatible(version: &str) -> bool {
+    version
+        .strip_prefix("dioxus ")
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|number| number.split_once('.'))
+        .is_some_and(|(major, rest)| major == "0" && rest.starts_with("7."))
+}
+
+/// A line that says the build or patch failed. `dx` keeps the previous app running.
+fn build_failed_line(line: &str) -> bool {
+    line.contains("Build failed")
+        || line.contains("Failed to hot-patch app")
+        || line.contains("error[E")
 }
 
 /// Output the devserver produced.
@@ -324,6 +451,35 @@ fn patch_took_ms(line: &str) -> Option<u128> {
         .take_while(char::is_ascii_digit)
         .collect();
     digits.parse().ok()
+}
+
+/// `auro:trace hot_render 3` -> `3`, even when the devserver prefixes a timestamp.
+fn trace_u64(line: &str, marker: &str) -> Option<u64> {
+    let (_, rest) = line.split_once(marker)?;
+    rest.split_whitespace().next()?.parse().ok()
+}
+
+/// One machine-readable line per applied patch (spec 0004, D6).
+fn hot_trace_line(
+    save_to_patch: Option<Duration>,
+    patch_to_render: Option<Duration>,
+    save_to_render: Duration,
+    patch_took_ms: Option<u128>,
+) -> String {
+    let field = |value: Option<Duration>| {
+        value
+            .map(|duration| duration.as_millis().to_string())
+            .unwrap_or_else(|| "null".to_owned())
+    };
+    let took = patch_took_ms
+        .map(|took| took.to_string())
+        .unwrap_or_else(|| "null".to_owned());
+    format!(
+        "{{\"event\":\"hot_reload\",\"save_to_patch_ms\":{},\"patch_to_render_ms\":{},\"save_to_render_ms\":{},\"patch_took_ms\":{took}}}",
+        field(save_to_patch),
+        field(patch_to_render),
+        save_to_render.as_millis()
+    )
 }
 
 /// Removes ANSI control sequences so log parsing sees the text the terminal shows.
@@ -507,6 +663,46 @@ fn install_ctrl_c(slot: Arc<Mutex<Option<Child>>>) -> Result<(), AuroError> {
     .map_err(|error| AuroError::Message(format!("cannot install the Ctrl-C handler: {error}")))
 }
 
+/// Ctrl-C in hot mode must also end the app `dx` launched.
+///
+/// Killing the devserver leaves its child running: `dx` owns the app process, so `Child::kill` on
+/// the devserver alone orphans a window the user can no longer reload.
+fn install_ctrl_c_hot(
+    slot: Arc<Mutex<Option<Child>>>,
+    app_pid: Arc<Mutex<Option<u32>>>,
+) -> Result<(), AuroError> {
+    ctrlc::set_handler(move || {
+        stop(&slot);
+        if let Some(pid) = *app_pid.lock().expect("app pid lock") {
+            kill_process(pid);
+        }
+        std::process::exit(0);
+    })
+    .map_err(|error| AuroError::Message(format!("cannot install the Ctrl-C handler: {error}")))
+}
+
+/// Ends the process the devserver launched, ignoring an already-dead pid.
+fn kill_process(pid: u32) {
+    #[cfg(unix)]
+    let mut command = {
+        let mut command = Command::new("kill");
+        command.arg("-9").arg(pid.to_string());
+        command
+    };
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = Command::new("taskkill");
+        command.arg("/PID").arg(pid.to_string()).arg("/T").arg("/F");
+        command
+    };
+    #[cfg(not(any(unix, windows)))]
+    let mut command = {
+        let _ = pid;
+        return;
+    };
+    let _ = command.stdout(Stdio::null()).stderr(Stdio::null()).status();
+}
+
 /// `app.product-name=Demo` becomes `{"app":{"product-name":"Demo"}}`.
 fn overrides_json(overrides: &[String]) -> Result<Option<String>, AuroError> {
     if overrides.is_empty() {
@@ -671,5 +867,76 @@ mod tests {
         assert_eq!(value["save_to_build_ms"], 3456);
         assert_eq!(value["build_to_window_ms"], 865);
         assert_eq!(value["save_to_window_ms"], 4321);
+    }
+
+    #[test]
+    fn reads_app_trace_markers_through_devserver_prefixes() {
+        assert_eq!(
+            trace_u64(
+                "  1.2s ERROR auro:trace hot_render 3",
+                "auro:trace hot_render "
+            ),
+            Some(3)
+        );
+        assert_eq!(
+            trace_u64("auro:trace hot_patch 12", "auro:trace hot_patch "),
+            Some(12)
+        );
+        assert_eq!(
+            trace_u64(" 10s ERROR auro:trace pid 12345", "auro:trace pid "),
+            Some(12345)
+        );
+        assert_eq!(
+            trace_u64("auro: view data -> Reloaded", "auro:trace hot_render "),
+            None
+        );
+        assert_eq!(trace_u64("", "auro:trace pid "), None);
+    }
+
+    #[test]
+    fn emits_hot_reload_timing_with_null_when_a_stage_is_missing() {
+        let line = hot_trace_line(
+            Some(Duration::from_millis(300)),
+            Some(Duration::from_millis(4)),
+            Duration::from_millis(304),
+            Some(296),
+        );
+        let value: serde_json::Value = serde_json::from_str(&line).expect("valid json");
+        assert_eq!(value["event"], "hot_reload");
+        assert_eq!(value["save_to_patch_ms"], 300);
+        assert_eq!(value["patch_to_render_ms"], 4);
+        assert_eq!(value["save_to_render_ms"], 304);
+        assert_eq!(value["patch_took_ms"], 296);
+
+        let line = hot_trace_line(None, None, Duration::from_millis(900), None);
+        let value: serde_json::Value = serde_json::from_str(&line).expect("valid json");
+        assert!(value["save_to_patch_ms"].is_null());
+        assert!(value["patch_to_render_ms"].is_null());
+        assert!(value["patch_took_ms"].is_null());
+    }
+
+    #[test]
+    fn recognises_build_and_patch_failures() {
+        assert!(build_failed_line(
+            "12.1s ERROR Build failed: cargo failed with status 101"
+        ));
+        assert!(build_failed_line(
+            "error[E0425]: cannot find value `x` in this scope"
+        ));
+        assert!(build_failed_line("Failed to hot-patch app: patch error"));
+        assert!(!build_failed_line("Build completed successfully in 1.2s"));
+        assert!(!build_failed_line(
+            "auro: build failed, previous UI still running"
+        ));
+    }
+
+    #[test]
+    fn accepts_only_the_tested_devserver_line() {
+        assert!(dx_compatible("dioxus 0.7.10 (57d6794)"));
+        assert!(dx_compatible("dioxus 0.7.11"));
+        assert!(!dx_compatible("dioxus 0.8.0 (abc)"));
+        assert!(!dx_compatible("dioxus 0.6.3"));
+        assert!(!dx_compatible("0.7.10"));
+        assert!(!dx_compatible(""));
     }
 }

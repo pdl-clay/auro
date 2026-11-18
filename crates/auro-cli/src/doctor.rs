@@ -30,6 +30,7 @@ pub fn run(dir: &Path) -> Result<(), AuroError> {
 
     let config_path = dir.join(auro_core::config::CONFIG_FILE);
     let config = Config::load_from(&config_path)?;
+    println!("hot reload: {}", hot_status(&dir, &config));
     println!(
         "config: {} ok, {} window(s)",
         config_path.display(),
@@ -62,6 +63,36 @@ pub fn run(dir: &Path) -> Result<(), AuroError> {
     }
 
     Ok(())
+}
+
+/// Whether `[dev] hot = true` can work here: the manifest feature and the devserver it drives.
+fn hot_status(dir: &Path, config: &Config) -> String {
+    match crate::project::declares_hot_feature(dir) {
+        Ok(true) => {}
+        Ok(false) => {
+            return "not available: Cargo.toml has no `hot-reload` feature".to_owned();
+        }
+        Err(error) => return format!("unknown: {error}"),
+    }
+
+    let dx = std::env::var_os("AURO_DX")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("dx"));
+    let version = Command::new(&dx)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
+
+    match (version, config.dev.hot) {
+        (Some(version), true) => format!("enabled ({version})"),
+        (Some(version), false) => format!("available ({version}); set `[dev] hot = true`"),
+        (None, _) => format!(
+            "not available: {} is missing (install dioxus-cli 0.7.10 or set AURO_DX)",
+            dx.display()
+        ),
+    }
 }
 
 /// Keys this build accepts and the renderer cannot express yet.

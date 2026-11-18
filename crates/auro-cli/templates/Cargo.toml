@@ -12,5 +12,16 @@ serde = { version = "1", features = ["derive"] }
 [features]
 hot-reload = ["auro/hot-reload"]
 
+# `dx serve` builds this adhoc profile (the Dioxus CLI keeps it separate from `dev`). Hot reload
+# relinks the app crate on every save and DWARF dominates that link; `debug_assertions` stays on,
+# which is what subsecond requires. Keep debug info out of the hot path, use `[profile.dev]` when
+# you need a debugger.
+[profile.desktop-dev]
+inherits = "dev"
+debug = 0
+# ThinLink relinks the whole tip crate per patch; on the demo app its 1-file builds were
+# consistently faster without an incremental session (measured).
+incremental = false
+
 # Its own workspace: a parent manifest must never capture the generated app.
 [workspace]

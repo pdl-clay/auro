@@ -140,10 +140,18 @@ the web. This is *the* bet of the project.
   leaf `HotFn` patches twice without crashing, and that a `ViewData`-returning boundary hot-reloads
   UI values with state preserved (1324/1084 ms, 2/2, screenshot). So on Windows: framework-free hot
   boundaries work, element-returning view code does not. `auro dev` remains relaunch by default.
-- **Experimental hot mode (2026-11-16, opt-in):** `[dev] hot = true` drives `dx serve --hot-patch`
-  with a data-only hot boundary in the scaffold; on niri/Wayland one patch (3198 ms) reloaded the
-  boundary in the same window, while on Windows 11 the patch applied (4679 ms) but the patched
-  boundary was not observed running. `auro dev` still relaunches by default.
+- **Experimental hot mode (2026-11-18, opt-in):** `[dev] hot = true` drives `dx serve --hot-patch`
+  with a data-only boundary. `auro::hot` re-renders every open root when a patch commits (without
+  that, a patch stayed invisible until the next interaction), the dev loop emits one JSON timing
+  line per edit, and scaffolds build the `desktop-dev` profile with `debug=0`/`incremental=false`.
+  On niri/Wayland, boundary-only edits measured 473-572 ms save-to-render (median 521 ms, N=11,
+  patch-to-render 8-24 ms) with the same pid and host state across patches; a type error kept the
+  previous UI live and the fix reloaded in 634 ms. In the WinBoat Windows 11 guest (interactive
+  session, MSVC), the first patch measured 2806 ms and five steady-state patches
+  1823/1505/1375/1237/1282 ms (median 1375, patch-to-render 8-38 ms), also with the same pid and
+  continuing host state; the fix after a type error reloaded in 1696 ms and closing the window
+  exited 0. The <500 ms median target is not met on either platform. macOS is unmeasured (no Apple
+  host); CI compile/tests the feature there. `auro dev` still relaunches by default.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 
@@ -241,7 +249,7 @@ headless test asserts the title reaches the window.
 - Reference app: [`examples/log-viewer`](examples/log-viewer/README.md) — log viewer plus a
   settings window, using `gpui-component 0.5.1` at the app level. It is the phase's manual exit
   proof and is not built by the main CI matrix.
-- `auro dev`: watch + rebuild + relaunch. Experimental hot reload (mechanism under [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
+- `auro dev`: watch + rebuild + relaunch by default; opt-in hot mode (`[dev] hot = true`) with a data-only boundary, measured on Linux and Windows and unmeasured on macOS ([spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 - CLI: `new`, `dev`, `build`, `doctor`.
 
 **Progress (2026-11-17):** the toolkit seam ([spec 0005](docs/src/specs/0005-toolkit-seam.md)),

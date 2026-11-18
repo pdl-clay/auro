@@ -236,6 +236,11 @@ impl App {
         #[cfg(feature = "hot-reload")]
         crate::hot::install();
 
+        if std::env::var_os(TRACE_ENV).is_some() {
+            // Lets the dev loop tell a relaunch from the first launch (spec 0004, D4).
+            eprintln!("auro:trace pid {}", std::process::id());
+        }
+
         let config = Config::load(&std::env::current_dir()?)?;
         let instance_listener = if self.single_instance {
             let instance = AppInstance::acquire(&config.app.identifier)?;
@@ -292,6 +297,8 @@ impl App {
             // path; the registry fills in as windows open.
             observe_closes(cx, Rc::clone(&lifecycle), Rc::clone(&open_windows));
             open_all(cx, &config, setups, roots, lifecycle, open_windows);
+            #[cfg(feature = "hot-reload")]
+            crate::hot::watch(cx);
             cx.activate(true);
         });
 

@@ -13,6 +13,25 @@ installable `auro-cli` yet.
 
 ### Added
 
+- `auro` hot reload (experimental, `hot-reload` feature + `[dev] hot = true`): a committed patch now
+  bumps a revision, `auro::hot::revision()` exposes it, and the app notifies every open root view so
+  the next frame renders the patched boundary instead of the cached one (without this, a patch was
+  applied but only visible after the next user interaction). The first render of each revision emits
+  `auro:trace hot_render <n>`, and `auro dev` turns save/patch/render timestamps into
+  `{"event":"hot_reload",...}` (spec 0004, D6). Boundary-only edits then measured 473-572 ms
+  save-to-render on Linux (median 521 ms, N=11, `desktop-dev` `debug=0`, `incremental=false`,
+  patch-to-render 8-24 ms) and 1237-1823 ms on Windows 11 (median 1375 ms, N=5 steady-state,
+  patch-to-render 8-38 ms) with the same process and state continuing across patches; macOS has no
+  live measurement. The < 500 ms median target is not met.
+- `auro-cli dev` hot mode: requires dioxus-cli 0.7.x, preflights the app's `hot-reload` feature,
+  labels build failures (`previous UI still running`), detects devserver relaunches by app pid,
+  exits when the app window closes gracefully, and Ctrl-C ends the devserver and the app process
+  (Ctrl-C verified on Linux; the Windows run was ended by closing its window). `auro doctor` reports
+  whether hot reload is available, missing `dx`, or enabled.
+- Scaffolded apps build the `desktop-dev` profile with `debug = 0` and `incremental = false`:
+  ThinLink relinks the tip crate on every patch, and DWARF dominated that link (3.3 s → ~0.5 s in
+  the measured demo).
+
 - `auro-sign`: Ed25519 signing keys, detached signatures and SHA-256 file hashes; key files are
   0600 on Unix and debug output hides the seed.
 - `auro-update`: signed update manifest format v1 with canonical JSON payloads, artifact
@@ -119,8 +138,8 @@ installable `auro-cli` yet.
   `auro::hot::hot` when the feature is on) and log `auro: view data -> …` when it changes, so a
   reload is observable. Verified on niri/Wayland: one patch (3198 ms) changed
   `Clicked accent=0x1f2937` to `Clicks accent=0x7c2d12` in the same window. On Windows 11 the patch
-  applies (4679 ms, handler fires, loop survives) but the patched boundary did not run — no
-  `view data -> Clicks` line — so reload is not yet demonstrated there.
+  applied (4679 ms) but the patched boundary did not run; the missing repaint and the re-test are
+  recorded in the hot reload entry above.
 
 - `auro dev` emits one JSON trace line per save (`event`, `window`, `save_to_build_ms`,
   `build_to_window_ms`, `save_to_window_ms`); the app prints `auro:trace window_requested <label>`
