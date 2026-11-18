@@ -602,6 +602,19 @@ label = "main"
     }
 
     #[test]
+    fn notarize_profile_is_optional_but_not_empty() {
+        let text = format!("{MINIMAL}\n[bundle.macos]\nnotarize-profile = \"auro-release\"\n");
+        let config = parse(&text).expect("parses");
+        assert_eq!(
+            config.bundle.macos.notarize_profile.as_deref(),
+            Some("auro-release")
+        );
+
+        let text = format!("{MINIMAL}\n[bundle.macos]\nnotarize-profile = \"  \"\n");
+        assert!(matches!(parse(&text), Err(AuroError::Config { .. })));
+    }
+
+    #[test]
     fn rejects_unknown_keys() {
         let text = format!("{MINIMAL}\n[app.extra]\nnope = true\n");
         let error = parse(&text).expect_err("unknown key");
