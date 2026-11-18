@@ -74,7 +74,7 @@ jobs:
       # Feature-gated code is invisible to the workspace test above; this also proves the
       # subsecond/devtools dependency set builds on macOS and Windows (spec 0004).
       - name: Test hot-reload feature
-        run: cargo test -p auro --features hot-reload --locked --test hot
+        run: cargo test -p auro --features hot-reload --locked --test hot --test hot_fixture
       # The generated scaffold is a separate workspace with path dependencies on this checkout.
       # Compiling and testing it here catches template drift on every supported OS, including the
       # macOS/Windows legs that cannot run the interactive hot-reload measurement.

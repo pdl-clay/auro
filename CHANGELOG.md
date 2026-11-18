@@ -45,6 +45,10 @@ installable `auro-cli` yet.
   restored)` or `restarted (state reset: <reason>)`, never `reloaded`. A failed host rebuild stops
   the old process before the build, so no app runs until the next successful save; the dev loop
   says so. Editor swap/lock files are ignored.
+- A headless hot fixture (`crates/auro/tests/hot_fixture.rs`, run by CI with the `hot-reload`
+  feature) mounts the view, swaps the boundary implementation, and asserts the new output is
+  rendered while opted-in state survives. It does not load a patch dylib; the snapshot roundtrip
+  stays covered by the `auro-core` tests.
 - Scaffolded hot boundaries return `types::HotData`, a fixed `#[repr(C)]` frame with a schema
   number; the running host checks the schema and bounds before decoding. A patch built against a
   changed `ViewData` layout is rejected with `auro: reload rejected by the view: ...; previous UI

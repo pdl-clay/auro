@@ -801,8 +801,10 @@ on Linux (N=12, median 368 ms, min 325, max 394, patch-to-render 1-26 ms), Windo
 813 ms, 752-897, patch-to-render 2-16 ms) and macOS (N=12 after warm-up, median 509.5 ms, 372-1071,
 patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is partially
 demonstrated (same window, pid and host state across patches on Linux, Windows and macOS; graceful
-exit and Ctrl-C cleanup on Linux and Windows) for boundary-only edits. Item 1 still has no
-headless fixture; item 4 rests on the crate boundary (`ui` does not depend on `data`, only
+exit and Ctrl-C cleanup on Linux and Windows) for boundary-only edits. Item 1 has a headless
+fixture for mounting the view, changing the boundary output and keeping state
+(`crates/auro/tests/hot_fixture.rs`); it does not load a patch dylib, and the snapshot roundtrip is
+covered by the `auro-core` tests. Item 4 rests on the crate boundary (`ui` does not depend on `data`, only
 `hot`-wrapped calls read the jump table); item 8 is the repository gates. The Linux median is now
 under 500 ms for the documented warm case, macOS is at the boundary on a shared CI runner and
 Windows remains above it, so the target is not met platform-wide and experimental mode must not claim it.
