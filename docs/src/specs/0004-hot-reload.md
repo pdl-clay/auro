@@ -301,7 +301,10 @@ steady patches measured 719-735 ms (one 1293 ms outlier). `incremental = true` m
 first patch and 830/848/799/819 ms steady (N=4), also no improvement. `codegen-units = 1` measured
 810/748/769/738/719 ms (N=5, median 748). Responsibility for the remaining Windows gap is in the
 MSVC compile/link of the boundary and bin, not the repaint, the incremental session or codegen-unit
-count.
+count. `rust-lld` linked a plain `cargo build` successfully, but `dx serve --hot-patch` refused
+with `Missing linker args for fat link of 'auro_hot_template2'. The tip crate likely did not run
+through linker interception for this build`; dx 0.7.10's fat-link interception requires the default
+linker, so lld is not a usable lever for the Windows patch path.
 
 **macOS measurement (2026-11-18, GitHub macOS 26 arm64 runner).** There is no local Apple host,
 but the manual `Hot reload macOS benchmark` workflow ran the guarded four-crate scaffold with the

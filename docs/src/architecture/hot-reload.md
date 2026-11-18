@@ -190,8 +190,10 @@ and left the previous values on screen.
   the incremental session or codegen-unit count. `dx serve` must run inside the interactive
   session (a session-0 run fails before render with DirectX `0x887A0022`). Defender exclusions for
   the project/cargo/rustup directories are recommended, but in this run they left four steady
-  patches at 719-735 ms (one 1293 ms outlier), not enough to reach the target. The data boundary
-  is the reloadable unit; Windows cannot patch element-returning code.
+  patches at 719-735 ms (one 1293 ms outlier), not enough to reach the target. `rust-lld` linked a
+  plain cargo build but dx 0.7.10 rejected the hot patch with `Missing linker args for fat link`;
+  its fat-link interception requires the default linker, so lld is not a usable lever. The data
+  boundary is the reloadable unit; Windows cannot patch element-returning code.
 - **macOS:** no local Apple host, but a manual workflow (`Hot reload macOS benchmark`) measured the
   guarded scaffold on a shared `macos-26-arm64` runner with the prebuilt dx 0.7.10: six warm-up
   edits then twelve measured, save-to-render
