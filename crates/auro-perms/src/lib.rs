@@ -289,11 +289,16 @@ impl Policy {
     }
 }
 
-/// Whether `value` is an absolute path whose components are only a root/prefix and normal names.
+/// Whether `value` is a rooted path whose components are only normal names.
+///
+/// `Path::is_absolute` is false on Windows for a Unix-style `/var/...` value, which capability
+/// tests and cross-platform plugin manifests use. A leading separator is rooted (the current
+/// volume on Windows) and is accepted; a drive-relative `C:foo` is not.
 fn is_absolute_path_without_dots(value: &str) -> bool {
     use std::path::Path;
 
-    Path::new(value).is_absolute() && has_no_dot_components(value)
+    (Path::new(value).is_absolute() || value.starts_with(['/', '\\']))
+        && has_no_dot_components(value)
 }
 
 /// Whether a value has no `.` or `..` path components.
