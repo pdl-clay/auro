@@ -298,9 +298,10 @@ template then ran through `auro dev` in the same guest: 851/765/768/880/813/897/
 (N=9, **median 813**, min 752, max 897; patch-to-render 2-16 ms), same pid/window, patch DLL
 14,848 bytes. Adding Defender exclusions for the app and repo did not change the conclusion: four
 steady patches measured 719-735 ms (one 1293 ms outlier). `incremental = true` measured a 1966 ms
-first patch and 830/848/799/819 ms steady (N=4), also no improvement. Responsibility for the
-remaining Windows gap is in the MSVC compile/link of the boundary and bin, not the repaint or the
-incremental session.
+first patch and 830/848/799/819 ms steady (N=4), also no improvement. `codegen-units = 1` measured
+810/748/769/738/719 ms (N=5, median 748). Responsibility for the remaining Windows gap is in the
+MSVC compile/link of the boundary and bin, not the repaint, the incremental session or codegen-unit
+count.
 
 **macOS (2026-11-18): no live run.** There is no Apple host here, so no save-to-render number
 exists. The loop, preflight, `auro doctor` and diagnostics are platform-neutral, `subsecond`

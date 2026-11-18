@@ -181,8 +181,9 @@ and left the previous values on screen.
   measured 851/765/768/880/813/897/816/752/768 ms (N=9, **median 813**, min 752, max 897;
   patch-to-render 2-16 ms) through `auro dev`, same pid/window, patch DLL 14,848 bytes. Defender
   exclusions for the app and repo left four steady patches at 719-735 ms (one 1293 ms outlier);
-  `incremental = true` measured 830/848/799/819 ms steady (N=4). The remaining gap is MSVC
-  compile/link, not repaint or the incremental session. `dx serve` must run inside the interactive
+  `incremental = true` measured 830/848/799/819 ms steady (N=4); `codegen-units = 1` measured
+  810/748/769/738/719 ms (N=5, median 748). The remaining gap is MSVC compile/link, not repaint,
+  the incremental session or codegen-unit count. `dx serve` must run inside the interactive
   session (a session-0 run fails before render with DirectX `0x887A0022`). Defender exclusions for
   the project/cargo/rustup directories are recommended, but in this run they left four steady
   patches at 719-735 ms (one 1293 ms outlier), not enough to reach the target. The data boundary
