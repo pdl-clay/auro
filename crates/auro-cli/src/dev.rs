@@ -307,8 +307,10 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
     // must be labelled as a restart (spec 0004, D4).
     let mut known_pid: Option<u32> = None;
     let mut relaunches = 0u32;
-    // A host-code change restarts the process; a failed rebuild has no previous UI to keep.
+    // A host-code change restarts the devserver. The previous app stays visible until the
+    // replacement has launched; a failed rebuild must not leave the user without a window.
     let mut host_rebuild = false;
+    let mut pending_app: Option<u32> = None;
 
     loop {
         let mut newest_save = None;
@@ -331,7 +333,8 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                 println!(
                     "auro: change in {path} is outside the hot boundary; restarting the app (state preserved)"
                 );
-                restart_devserver(&dx, dir, patch, &slot, &app_pid, &events)?;
+                let previous_app = restart_devserver(&dx, dir, patch, &slot, &app_pid, &events)?;
+                pending_app = previous_app;
                 host_rebuild = true;
                 saved_at = None;
                 patched_at = None;
@@ -352,6 +355,13 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     {
                         relaunches += 1;
                         println!("auro: app relaunched by the devserver");
+                    }
+                    if let Some(previous) = pending_app.take()
+                        && previous != pid
+                    {
+                        // The replacement is running; now retire the old window. Keeping it until
+                        // this point means a failed build leaves the previous UI usable.
+                        kill_process(previous);
                     }
                     known_pid = Some(pid);
                     host_rebuild = false;
@@ -425,9 +435,13 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                 }
                 if host_rebuild && build_failed_line(&plain) {
                     host_rebuild = false;
-                    println!(
-                        "auro: host rebuild failed; no app is running until the next successful build"
-                    );
+                    if pending_app.is_some() {
+                        println!("auro: host rebuild failed; previous UI still running");
+                    } else {
+                        println!(
+                            "auro: host rebuild failed; no app is running until the next successful build"
+                        );
+                    }
                 }
 
                 if saved_at.is_some() && !build_failed && build_failed_line(&plain) {
@@ -456,10 +470,16 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if let Some(status) = child_exited(&slot) {
                     stop(&slot);
-                    let pid = *app_pid.lock().expect("app pid lock");
-                    if let Some(pid) = pid {
-                        kill_process(pid);
-                        *app_pid.lock().expect("app pid lock") = None;
+                    if pending_app.is_some() {
+                        // The old app was deliberately kept alive while the replacement was being
+                        // built; do not turn a devserver crash into a lost window.
+                        println!("auro: dev server exited; previous UI still running");
+                    } else {
+                        let pid = *app_pid.lock().expect("app pid lock");
+                        if let Some(pid) = pid {
+                            kill_process(pid);
+                            *app_pid.lock().expect("app pid lock") = None;
+                        }
                     }
                     if status.success() {
                         println!("auro: dev server exited");
@@ -530,16 +550,14 @@ fn restart_devserver(
     slot: &Arc<Mutex<Option<Child>>>,
     app_pid: &Arc<Mutex<Option<u32>>>,
     events: &mpsc::Sender<DxEvent>,
-) -> Result<(), AuroError> {
+) -> Result<Option<u32>, AuroError> {
     stop(slot);
-    let pid = *app_pid.lock().expect("app pid lock");
-    if let Some(pid) = pid {
-        kill_process(pid);
-    }
-    *app_pid.lock().expect("app pid lock") = None;
+    // Keep the previous app running while the replacement builds. Callers retire it when the new
+    // app reports its pid, or leave it in place if the build fails.
+    let previous = *app_pid.lock().expect("app pid lock");
     let child = spawn_devserver(dx, dir, patch, events)?;
     *slot.lock().expect("dev slot poisoned") = Some(child);
-    Ok(())
+    Ok(previous)
 }
 
 /// Refuses a devserver whose patch protocol is not the one `subsecond` 0.7.10 speaks.
@@ -1167,6 +1185,52 @@ mod tests {
         assert!(!build_failed_line(
             "auro: build failed, previous UI still running"
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn host_restart_keeps_the_previous_app_until_the_replacement_starts() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("auro-restart-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let fake_dx = dir.join("dx");
+        std::fs::write(&fake_dx, "#!/bin/sh\nsleep 30\n").expect("fake dx");
+        let mut permissions = std::fs::metadata(&fake_dx).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_dx, permissions).expect("chmod");
+
+        let old_dx = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 30")
+            .spawn()
+            .expect("old devserver");
+        let slot = Arc::new(Mutex::new(Some(old_dx)));
+        let mut app = Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("old app");
+        let app_id = app.id();
+        let app_pid = Arc::new(Mutex::new(Some(app_id)));
+        let (events, _received) = mpsc::channel();
+
+        let previous = restart_devserver(&fake_dx, &dir, None, &slot, &app_pid, &events)
+            .expect("restart spawns the replacement");
+        assert_eq!(previous, Some(app_id));
+        assert!(
+            app.try_wait().expect("app status").is_none(),
+            "the previous app must stay alive while the replacement builds"
+        );
+        assert_eq!(*app_pid.lock().expect("app pid"), Some(app_id));
+        assert!(
+            slot.lock().expect("dev slot").is_some(),
+            "the replacement devserver must be installed"
+        );
+
+        stop(&slot);
+        kill_process(app_id);
+        let _ = app.wait();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -43,10 +43,10 @@ installable `auro-cli` yet.
   removes the poll from patch-to-render and stops an idle app waking twice a frame. Saves outside
   `data/src` are host-code changes: `auro dev` restarts the devserver and app instead of applying a
   patch that cannot take effect, restores the snapshot and labels the outcome `restarted (state
-  restored)` or `restarted (state reset: <reason>)`, never `reloaded`. A failed host rebuild stops
-  the old process before the build, so no app runs until the next successful save; the dev loop
-  says so. The restart path is verified on Linux, Windows and macOS CI. Editor swap/lock files are
-  ignored.
+  restored)` or `restarted (state reset: <reason>)`, never `reloaded`. The previous app stays
+  visible while the replacement builds; a failed host rebuild keeps that UI running and is reported
+  as `host rebuild failed; previous UI still running`. The restart path is verified on Linux,
+  Windows and macOS CI. Editor swap/lock files are ignored.
 - A headless hot fixture (`crates/auro/tests/hot_fixture.rs`, run by CI with the `hot-reload`
   feature) mounts the view, swaps the boundary implementation, and asserts the new output is
   rendered while opted-in state survives. It does not load a patch dylib; the snapshot roundtrip

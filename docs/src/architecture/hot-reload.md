@@ -129,10 +129,10 @@ function-level hot-patching of the **tip crate**:
 - **Change classification.** A save under `data/src` is a hot boundary edit. A save in `ui`,
   `types`, the bin, a dependency, a manifest or the profile is labelled `outside the hot boundary`;
   `auro dev` restarts the devserver and app, restores the snapshot and labels the outcome
-  `restarted (state restored|reset)`, never as a reload. A failed host rebuild leaves no app until
-  the next successful save (the old process was stopped for the restart); boundary build errors
-  still keep the previous UI. This makes the documented reload unit visible and gives host-code
-  changes the documented fallback instead of a silent no-op.
+  `restarted (state restored|reset)`, never as a reload. The previous app stays visible while the
+  replacement builds; a failed host rebuild keeps that UI running and is reported, and boundary
+  build errors also keep the previous UI. This makes the documented reload unit visible and gives
+  host-code changes the documented fallback instead of a silent no-op.
 - **Boundary is the reloadable unit.** `view_data() -> HotData` returns plain data; element and
   layout code in `Render` is host-stable. Only functions reached through `hot`/`hot_with` consult
   the jump table, so a patch of `render` alone does not change the running UI; `auro dev` restarts
