@@ -1,6 +1,6 @@
 # 0004 - Hot reload
 
-**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows 813 ms, macOS 509.5-837 ms across two shared CI runs); `auro dev` still relaunches by default
+**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows 813 ms, macOS 509.5-956 ms across three shared CI runs); `auro dev` still relaunches by default
 
 Spec 0001 closed Phase 0 with a relaunch loop and recorded ~60 s save-to-visible on the development
 machine (relink dominates). This spec defines the contract that must replace that loop for UI work:
@@ -813,8 +813,8 @@ separately and leaves the previous app running until the next successful save. I
 observed). Item 5 is demonstrated: a save outside `data/src` restarts the devserver and app,
 restores the snapshot and is labelled `restarted (state restored)`. Item 6 is demonstrated
 on Linux (N=12, median 368 ms, p95 394, min 325, max 394, patch-to-render 1-26 ms), Windows (N=9, median
-813 ms, p95 897, 752-897, patch-to-render 2-16 ms) and macOS (two runs, N=12 after warm-up, medians 509.5 and
-837.0 ms, p95 1071/2096, 372-2096,
+813 ms, p95 897, 752-897, patch-to-render 2-16 ms) and macOS (two runs, N=12 after warm-up, medians 509.5, 837.0 and
+956.0 ms, p95 1071/2096/1563, 372-2096,
 patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is partially
 demonstrated (same window, pid and host state across patches on Linux, Windows and macOS; host
 restart with state restored on Linux, Windows and macOS CI; graceful exit and Ctrl-C cleanup on

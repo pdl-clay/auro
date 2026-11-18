@@ -204,10 +204,12 @@ and left the previous values on screen.
   536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, min 372, max 1071;
   patch-to-render 2-17 ms), same process/window. A first cold run measured median 515 (N=12,
   431-715). The runner is noisy and the median is slightly above target; five of twelve warm edits
-  were under 500. A second six-warmup run measured a 837.0 ms median (N=12, 583-2096) and passed the
-  host-restart check (`restarted (state restored)`, new pid). A twelve-warmup run measured 748.5 ms,
-  so extra warm-up does not remove the variance; the two six-warmup runs span 509.5-837 ms and the
-  target is not claimed met. Local hardware, signing and hardened-runtime behaviour remain open.
+  were under 500. A second six-warmup run measured a 837.0 ms median (N=12, p95 2096, 583-2096) and
+  passed the host-restart check. A third, with the previous app kept alive during the rebuild,
+  measured 956.0 ms (N=12, p95 1563, 775-1563) and also passed restart. A twelve-warmup run measured
+  748.5 ms, so extra warm-up does not remove the variance; the three six-warmup runs span
+  509.5-956.0 ms and the target is not claimed met. Local hardware, signing and hardened-runtime
+  behaviour remain open.
 
 The < 500 ms reference case is met on Linux (median 368 ms), not on Windows (median 813 ms), and
 is above the target on a shared macOS runner (509.5 ms median; a second run measured 837.0 ms). It
@@ -217,7 +219,7 @@ is reported per platform, never as a single global claim.
 |---|---|---|---|
 | Linux x86_64, niri/Wayland | Opt-in, verified | **368 ms** median, N=12 (p95 394, 325-394) | Four-crate scaffold, `desktop-dev`, boundary edits, same pid/window/state |
 | Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **813 ms** median, N=9 (p95 897, 752-897) | Guarded four-crate scaffold, `auro dev` trace, same pid/window; still above target (a plain-boundary series measured 1168 ms) |
-| macOS arm64 (`macos-26-arm64` runner) | Opt-in, measured in CI | **509.5 / 837.0 ms** medians, two runs, N=12 after 6 warm-up (p95 1071/2096) | Shared GitHub runner; host restart and snapshot restore verified; no local Apple hardware, signing or hardened-runtime test |
+| macOS arm64 (`macos-26-arm64` runner) | Opt-in, measured in CI | **509.5 / 837.0 / 956.0 ms** medians, three runs, N=12 after 6 warm-up (p95 1071/2096/1563) | Shared GitHub runner; host restart and snapshot restore verified; no local Apple hardware, signing or hardened-runtime test |
 
 The host-code restart path is verified on Linux, Windows and macOS CI. macOS local hardware,
 signing and hardened-runtime behaviour remain unverified.
