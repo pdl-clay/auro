@@ -7,17 +7,22 @@
 //! [`UpdateError::InstallerFailed`].
 
 use std::ffi::OsString;
+#[cfg(unix)]
 use std::fs::File;
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process;
 
 use crate::{InstallerRunner, StagedUpdate, SystemInstallerRunner, UpdateError};
 
+#[cfg(unix)]
 const PKEXEC: &str = "/usr/bin/pkexec";
 
 /// How a package-manager command obtains root.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub enum LinuxElevation {
     /// Run the package manager as the current user.
     #[default]
@@ -79,6 +84,7 @@ impl LinuxPackageInstaller {
     ///
     /// The helper passes the opened staged artifact through `/proc/<pid>/fd/<fd>` so the package
     /// manager does not reopen a path that can be replaced after verification.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn elevated(mut self) -> Self {
         self.elevation = LinuxElevation::Pkexec;
         self
@@ -136,19 +142,29 @@ impl LinuxPackageInstaller {
                 (program, args, None)
             }
             LinuxElevation::Pkexec => {
-                // Keep the descriptor open until the privileged child opens the `/proc` path.
-                // SECURITY: this avoids reopening a user-replaceable path after verification.
-                let artifact = File::open(path)?;
-                let descriptor = PathBuf::from(format!(
-                    "/proc/{}/fd/{}",
-                    process::id(),
-                    artifact.as_raw_fd()
-                ));
-                let (package, package_args) = command_for(kind, &descriptor, operation);
-                let mut args = Vec::with_capacity(package_args.len() + 1);
-                args.push(package.into_os_string());
-                args.extend(package_args);
-                (PathBuf::from(PKEXEC), args, Some(artifact))
+                #[cfg(unix)]
+                {
+                    // Keep the descriptor open until the privileged child opens the `/proc` path.
+                    // SECURITY: this avoids reopening a user-replaceable path after verification.
+                    let artifact = File::open(path)?;
+                    let descriptor = PathBuf::from(format!(
+                        "/proc/{}/fd/{}",
+                        process::id(),
+                        artifact.as_raw_fd()
+                    ));
+                    let (package, package_args) = command_for(kind, &descriptor, operation);
+                    let mut args = Vec::with_capacity(package_args.len() + 1);
+                    args.push(package.into_os_string());
+                    args.extend(package_args);
+                    (PathBuf::from(PKEXEC), args, Some(artifact))
+                }
+                #[cfg(not(unix))]
+                {
+                    return Err(UpdateError::UnsupportedInstaller {
+                        path: path.to_path_buf(),
+                        expected: "Unix pkexec",
+                    });
+                }
             }
         };
         let code = self.runner.run(&program, &args)?;
@@ -366,6 +382,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn elevated_rollback_uses_the_held_descriptor() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -391,6 +408,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn elevated_deb_runs_pkexec_dpkg_with_a_held_descriptor() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -416,6 +434,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn elevated_rpm_runs_pkexec_rpm() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -447,6 +466,16 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn explicit_none_elevation_runs_the_direct_installer() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let staged = staged(&temp, "deb");
+        let runner = MockRunner::with_code(0);
+        let installer = LinuxPackageInstaller::with_elevation(runner.clone(), LinuxElevation::None);
+        installer.install(&staged).expect("install");
+        assert_eq!(runner.calls()[0].0, PathBuf::from("/usr/bin/dpkg"));
     }
 
     #[test]
