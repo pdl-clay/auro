@@ -138,7 +138,7 @@ Unix tests in `crates/auro-update/src/journal.rs`:
 - `accepts_a_journal_in_a_private_symlinked_directory`
 - `refuses_to_create_a_journal_in_a_shared_directory`
 
-The existing journal/helper tests continue to pass (100 tests in `auro-update` on Linux). The
+The existing journal/helper tests continue to pass (101 tests in `auro-update` on Linux). The
 Windows job runs the same crate tests; the `windows-latest` CI log shows 76 `auro-update` tests
 passing, including `windows_rejects_a_junction_journal_directory`,
 `windows_rejects_a_permissive_journal_dacl` and `windows_rejects_a_symlinked_journal_file`. The
