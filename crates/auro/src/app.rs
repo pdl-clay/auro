@@ -231,6 +231,13 @@ impl App {
         self
     }
 
+    fn activation_label(&self) -> Option<&'static str> {
+        if !self.activate_on_second_instance {
+            return None;
+        }
+        self.roots.first().map(|(label, _)| *label)
+    }
+
     /// Runs the app, returning before the event loop starts if configuration is invalid or another
     /// instance holds the single-instance lock.
     ///
@@ -274,7 +281,7 @@ impl App {
         } else {
             None
         };
-        let activation_label = self.roots.first().map(|(label, _)| *label);
+        let activation_label = self.activation_label();
         let App {
             states,
             roots,
@@ -531,9 +538,12 @@ mod tests {
         let app = app.single_instance();
         assert!(app.single_instance);
 
-        let app = App::new().activate_on_second_instance();
+        let app = App::new().root::<Blank>("main");
+        assert_eq!(app.activation_label(), None);
+        let app = app.activate_on_second_instance();
         assert!(app.single_instance);
         assert!(app.activate_on_second_instance);
+        assert_eq!(app.activation_label(), Some("main"));
     }
 
     impl Render for Blank {

@@ -21,6 +21,9 @@ pub enum TrayError {
 
     #[error("tray icon error: {0}")]
     Icon(#[from] tray_icon::BadIcon),
+
+    #[error("invalid tray icon: {0}")]
+    InvalidIcon(&'static str),
 }
 
 /// Raw RGBA pixels for a tray icon.
@@ -34,6 +37,15 @@ pub struct TrayIcon {
 impl TrayIcon {
     /// Creates an icon from tightly packed RGBA pixels.
     pub fn from_rgba(rgba: Vec<u8>, width: u32, height: u32) -> Result<Self, TrayError> {
+        if width == 0 || height == 0 {
+            return Err(TrayError::InvalidIcon("dimensions must be non-zero"));
+        }
+        if !rgba.len().is_multiple_of(4) {
+            return Err(tray_icon::BadIcon::ByteCountNotDivisibleBy4 {
+                byte_count: rgba.len(),
+            }
+            .into());
+        }
         let width_x_height = usize::try_from(width)
             .ok()
             .and_then(|width| {
@@ -42,17 +54,16 @@ impl TrayIcon {
                     .and_then(|height| width.checked_mul(height))
             })
             .unwrap_or(usize::MAX);
-        let expected = width_x_height.saturating_mul(4);
-        if rgba.len() != expected {
+        let pixel_count = rgba.len() / 4;
+        if pixel_count != width_x_height {
             return Err(tray_icon::BadIcon::DimensionsVsPixelCount {
                 width,
                 height,
                 width_x_height,
-                pixel_count: rgba.len() / 4,
+                pixel_count,
             }
             .into());
         }
-        let _ = tray_icon::Icon::from_rgba(rgba.clone(), width, height)?;
         Ok(TrayIcon {
             rgba,
             width,
@@ -429,6 +440,8 @@ mod tests {
         tray.set_icon(None).expect("clear icon");
         assert_eq!(backend.state.lock().expect("backend").icon, None);
         assert!(TrayIcon::from_rgba(vec![0; 3], 1, 1).is_err());
+        assert!(TrayIcon::from_rgba(Vec::new(), 0, 0).is_err());
+        assert!(TrayIcon::from_rgba(vec![0; 4], u32::MAX, u32::MAX).is_err());
     }
 
     #[test]
