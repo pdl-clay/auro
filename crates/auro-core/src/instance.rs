@@ -7,6 +7,8 @@
 //! instance listens on a local socket; a secondary instance forwards its arguments and working
 //! directory before exiting.
 
+#[cfg(unix)]
+use std::fs;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -67,7 +69,7 @@ impl AppInstance {
             return Err(AuroError::instance("", "empty application identifier"));
         }
 
-        let path = lock_path(name);
+        let path = lock_path(name)?;
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true);
         #[cfg(unix)]
@@ -221,7 +223,7 @@ impl Drop for AppInstance {
 
 #[cfg(unix)]
 fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
-    let path = lock_dir().join(format!("auro-{}.sock", sanitized_name(name, 32)));
+    let path = lock_dir(name)?.join(format!("{}.sock", socket_label(name)));
     path.as_os_str()
         .to_fs_name::<GenericFilePath>()
         .map(Name::into_owned)
@@ -235,7 +237,7 @@ fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
 
 #[cfg(windows)]
 fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
-    let socket = format!("auro-{}", sanitized_name(name, 32));
+    let socket = socket_label(name);
     socket
         .as_str()
         .to_ns_name::<GenericNamespaced>()
@@ -246,6 +248,29 @@ fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
                 format!("cannot create the instance socket name: {error}"),
             )
         })
+}
+
+/// A short, filesystem-safe socket name that keeps long identifiers distinct.
+///
+/// The identifier is truncated to fit `sun_path`, so a stable hash of the full identifier is
+/// appended; two apps whose sanitised prefixes match cannot share a socket and steal each
+/// other's forwarded launches.
+fn socket_label(name: &str) -> String {
+    format!(
+        "auro-{}-{:016x}",
+        sanitized_name(name, 40),
+        stable_hash(name)
+    )
+}
+
+/// FNV-1a over the full identifier. This is a name-collision guard, not a security primitive.
+fn stable_hash(text: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in text.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 fn sanitized_name(name: &str, limit: usize) -> String {
@@ -267,18 +292,90 @@ fn sanitized_name(name: &str, limit: usize) -> String {
     }
 }
 
-fn lock_path(name: &str) -> PathBuf {
-    lock_dir().join(format!("auro-{}.lock", sanitized_name(name, 128)))
+fn lock_path(name: &str) -> Result<PathBuf, AuroError> {
+    Ok(lock_dir(name)?.join(format!("auro-{}.lock", sanitized_name(name, 128))))
 }
 
-fn lock_dir() -> PathBuf {
+/// The directory that holds the lock and socket.
+///
+/// `XDG_RUNTIME_DIR` is used only when it is a real directory owned by this user and not
+/// group/other-writable. Otherwise the process uses a private per-user directory under the
+/// temporary directory. On a shared `/tmp`, the predictable name alone is not enough: another
+/// local user can create a directory or socket before the app starts, so ownership and mode are
+/// checked and a private subdirectory is created with mode `0700`.
+fn lock_dir(name: &str) -> Result<PathBuf, AuroError> {
     if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
         let runtime = PathBuf::from(runtime);
-        if runtime.is_dir() {
-            return runtime;
+        if is_private_existing_dir(&runtime) {
+            return Ok(runtime);
+        }
+        tracing::warn!(
+            path = %runtime.display(),
+            "ignoring XDG_RUNTIME_DIR because it is not a private directory for this user"
+        );
+    }
+    private_temp_dir(name)
+}
+
+#[cfg(unix)]
+fn private_temp_dir(name: &str) -> Result<PathBuf, AuroError> {
+    let dir = std::env::temp_dir().join(format!("auro-{}", effective_uid()));
+    ensure_private_dir(&dir).map_err(|message| AuroError::instance(name, message))?;
+    Ok(dir)
+}
+
+/// The effective user id.
+///
+/// `geteuid` takes no arguments, has no preconditions and cannot fail.
+#[cfg(unix)]
+fn effective_uid() -> libc::uid_t {
+    // SAFETY: see the doc comment; the call reads the kernel's effective uid for this process.
+    unsafe { libc::geteuid() }
+}
+
+#[cfg(unix)]
+fn ensure_private_dir(dir: &Path) -> Result<(), String> {
+    use std::os::unix::fs::DirBuilderExt as _;
+
+    match fs::DirBuilder::new().mode(0o700).create(dir) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(format!(
+                "cannot create the private runtime directory `{}`: {error}",
+                dir.display()
+            ));
         }
     }
-    std::env::temp_dir()
+    if !is_private_existing_dir(dir) {
+        return Err(format!(
+            "`{}` is not a private directory owned by this user; refusing to place the instance lock there",
+            dir.display()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn private_temp_dir(_name: &str) -> Result<PathBuf, AuroError> {
+    Ok(std::env::temp_dir())
+}
+
+#[cfg(unix)]
+fn is_private_existing_dir(path: &Path) -> bool {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    metadata.is_dir()
+        && metadata.uid() == effective_uid()
+        && metadata.permissions().mode() & 0o077 == 0
+}
+
+#[cfg(not(unix))]
+fn is_private_existing_dir(path: &Path) -> bool {
+    path.is_dir()
 }
 
 #[cfg(test)]
@@ -358,8 +455,64 @@ mod tests {
 
     #[test]
     fn path_is_sanitised() {
-        let path = lock_path("../com.example/app");
+        let path = lock_path("../com.example/app").expect("lock dir");
         let file = path.file_name().and_then(|name| name.to_str()).unwrap();
         assert_eq!(file, "auro-..-com.example-app.lock");
+    }
+
+    #[test]
+    fn long_socket_labels_stay_distinct() {
+        let shared = "com.example.".to_owned() + &"a".repeat(80);
+        let other = "com.example.".to_owned() + &"b".repeat(80);
+        assert_ne!(socket_label(&shared), socket_label(&other));
+        assert!(socket_label(&shared).len() <= 64);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_runtime_directory_is_created_owner_only() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let dir = temp.path().join("runtime");
+        ensure_private_dir(&dir).expect("create private dir");
+        assert_eq!(
+            fs::metadata(&dir).expect("metadata").permissions().mode() & 0o077,
+            0
+        );
+
+        // A second call reuses the directory and is still valid.
+        ensure_private_dir(&dir).expect("reuse private dir");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_group_or_world_writable_runtime_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let dir = temp.path().join("shared");
+        fs::create_dir(&dir).expect("create");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("mode");
+        assert!(!is_private_existing_dir(&dir));
+        assert!(ensure_private_dir(&dir).is_err());
+
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).expect("mode");
+        assert!(!is_private_existing_dir(&dir));
+        assert!(ensure_private_dir(&dir).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_runtime_directory() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let real = temp.path().join("real");
+        fs::create_dir(&real).expect("create");
+        let link = temp.path().join("link");
+        symlink(&real, &link).expect("symlink");
+        assert!(!is_private_existing_dir(&link));
+        assert!(ensure_private_dir(&link).is_err());
     }
 }

@@ -9,6 +9,7 @@
 
 use std::fmt;
 use std::fs;
+use std::io::{Read as _, Write as _};
 use std::path::Path;
 
 use base64::Engine as _;
@@ -107,16 +108,26 @@ impl SigningKey {
     }
 
     /// Writes the key file with a fixed header and owner-only permissions where supported.
+    ///
+    /// The file is created with mode `0600` on Unix and the mode is re-applied to the open handle
+    /// before the seed is written, so an existing file cannot leave the secret world-readable
+    /// between the write and a later `chmod`.
     pub fn save_to(&self, path: &Path) -> Result<(), SignError> {
-        fs::write(
-            path,
-            format!("# Auro signing key v1\n{}\n", self.seed_base64()),
-        )?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(path)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+            file.set_permissions(fs::Permissions::from_mode(0o600))?;
         }
+        file.write_all(format!("# Auro signing key v1\n{}\n", self.seed_base64()).as_bytes())?;
+        file.sync_all()?;
         Ok(())
     }
 }
@@ -160,10 +171,25 @@ pub fn verify_file(key: &PublicKey, path: &Path, signature: &str) -> Result<(), 
     key.verify(&fs::read(path)?, signature)
 }
 
-/// The lowercase hex SHA-256 of a file.
+/// The lowercase hex SHA-256 of a file, read in bounded chunks.
+///
+/// Release artifacts can be hundreds of megabytes; hashing must not load the file into memory.
 pub fn sha256_file(path: &Path) -> Result<String, SignError> {
-    let bytes = fs::read(path)?;
-    Ok(hex(&Sha256::digest(bytes)))
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = match file.read(&mut buffer) {
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hex(&hasher.finalize()))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -204,6 +230,38 @@ mod tests {
             let mode = fs::metadata(&path).expect("metadata").permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_over_a_readable_key_file_restricts_it_before_writing() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("release.key");
+        fs::write(&path, b"old contents").expect("old file");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("mode");
+
+        let key = SigningKey::generate();
+        key.save_to(&path).expect("save");
+
+        let mode = fs::metadata(&path).expect("metadata").permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert_eq!(
+            SigningKey::load_from(&path).expect("load").public_key(),
+            key.public_key()
+        );
+    }
+
+    #[test]
+    fn hashes_a_file_that_spans_many_read_chunks() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("large-artifact");
+        let bytes: Vec<u8> = (0..(256 * 1024)).map(|index| index as u8).collect();
+        fs::write(&path, &bytes).expect("write");
+
+        let expected = hex(&Sha256::digest(&bytes));
+        assert_eq!(sha256_file(&path).expect("hash"), expected);
     }
 
     #[test]
