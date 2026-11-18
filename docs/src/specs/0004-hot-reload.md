@@ -811,8 +811,9 @@ on Linux (N=12, median 368 ms, min 325, max 394, patch-to-render 1-26 ms), Windo
 813 ms, 752-897, patch-to-render 2-16 ms) and macOS (two runs, N=12 after warm-up, medians 509.5 and
 837.0 ms, 372-2096,
 patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is partially
-demonstrated (same window, pid and host state across patches on Linux, Windows and macOS; graceful
-exit and Ctrl-C cleanup on Linux and Windows) for boundary-only edits. Item 1 has a headless
+demonstrated (same window, pid and host state across patches on Linux, Windows and macOS; host
+restart with state restored on Linux, Windows and macOS CI; graceful exit and Ctrl-C cleanup on
+Linux and Windows) for boundary-only edits. Item 1 has a headless
 fixture for mounting the view, changing the boundary output and keeping state
 (`crates/auro/tests/hot_fixture.rs`); it does not load a patch dylib, and the snapshot roundtrip is
 covered by the `auro-core` tests. Item 4 rests on the crate boundary (`ui` does not depend on `data`, only
