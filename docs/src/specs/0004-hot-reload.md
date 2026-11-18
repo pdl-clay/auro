@@ -1,6 +1,6 @@
 # 0004 - Hot reload
 
-**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows 813 ms, macOS 509.5-837 ms across two shared CI runs); `auro dev` still relaunches by default
+**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows 813 ms, macOS 509.5-956 ms across three shared CI runs); `auro dev` still relaunches by default
 
 Spec 0001 closed Phase 0 with a relaunch loop and recorded ~60 s save-to-visible on the development
 machine (relink dominates). This spec defines the contract that must replace that loop for UI work:
@@ -295,7 +295,7 @@ reloadable unit, as on Linux.
 2359; `patch_took` 686-2196, patch-to-render 3-13 ms) with the same pid, window and state. That is
 ~15% below the earlier single-crate median (1375 ms) but still above 500 ms. The guarded `HotData`
 template then ran through `auro dev` in the same guest: 851/765/768/880/813/897/816/752/768 ms
-(N=9, **median 813**, min 752, max 897; patch-to-render 2-16 ms), same pid/window, patch DLL
+(N=9, **median 813**, p95 897, min 752, max 897; patch-to-render 2-16 ms), same pid/window, patch DLL
 14,848 bytes. Adding Defender exclusions for the app and repo did not change the conclusion: four
 steady patches measured 719-735 ms (one 1293 ms outlier). `incremental = true` measured a 1966 ms
 first patch and 830/848/799/819 ms steady (N=4), also no improvement. `codegen-units = 1` measured
@@ -315,12 +315,12 @@ hot-patched in 910 ms (11 ms patch-to-render).
 but the manual `Hot reload macOS benchmark` workflow ran the guarded four-crate scaffold with the
 prebuilt dx 0.7.10 on `macos-latest` (`macos-26-arm64`): `auro dev`, six warm-up boundary edits,
 then twelve measured edits. Save-to-render was
-536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, min 372, max 1071;
+536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, p95 1071, min 372, max 1071;
 patch-to-render 2-17 ms), with the app process and window kept. A first cold run without warm-up
 measured median 515 ms (N=12, 431-715). A second six-warmup run, with a seeded snapshot and a
-host-restart check appended, measured median 837.0 ms (N=12, 583-2096); the restart passed:
+host-restart check appended, measured median 837.0 ms (N=12, p95 2096, 583-2096); the restart passed:
 `outside the hot boundary; restarting`, `restarted (state restored)` and a new app pid. A third run
-with twelve warm-up edits measured median 748.5 ms (N=12, 611-1114), so extra warm-up does not fix
+with twelve warm-up edits measured median 748.5 ms (N=12, p95 1114, 611-1114), so extra warm-up does not fix
 the variance. The two six-warmup runs span 509.5-837 ms on the shared runner; that is not stable
 enough to claim the target met. No local Apple hardware, hardened-runtime build, signing or
 interactive Aqua session was exercised. macOS is measured but not GA, and CI also builds/tests the
@@ -442,15 +442,15 @@ state-preserving restart.
 |---|---|---|---|
 | Hot-reloaded | Reloadable build/patch succeeds, compatibility checks pass, apply and restore complete (with or without per-entry resets) | Keep window and host state; present updated UI; repaint | “reloaded” with duration and any reset warnings |
 | Build failed | A boundary build/patch compilation fails | Keep previous UI active and interactive; do not apply a partial reload | compiler/build diagnostics; “previous UI still running” |
-| Host restart, rebuild failed | A host-code save restarted the devserver/app and its rebuild fails | No app runs; keep the devserver for the next save; do not apply a partial reload | “host rebuild failed; no app is running until the next successful build” |
+| Host restart, rebuild failed | A host-code save restarted the devserver and its rebuild fails | Keep the previous app running; keep the devserver for the next save; do not apply a partial reload | “host rebuild failed; previous UI still running” |
 | Reload failed, recovered | Build/patch succeeds but compatibility/apply/restore fails and previous UI remains valid or can be safely rolled back | Keep or restore previous UI as applicable; do not present as reloaded | explicit failure reason |
 | State-preserving restart (fallback) | Reload cannot be completed safely, or a configured/required restart change occurred | Restart app/host session; restore the last snapshot the app wrote to its host-controlled store. State changed since that write is reset and reported. | “restarted (state restored)” or “restarted (state reset: \<reason\>)” - never “hot reloaded” |
 | Hard failure | Restart/restore impossible | Exit non-zero with diagnostic | error |
 
 A failed build must never apply broken code. A boundary build failure keeps the previous UI active.
-A host-code save restarts the process before its rebuild, so a failed host rebuild has no previous
-process to keep; it is reported, the devserver stays alive for the next save, and the next
-successful save starts a new app. Reloadable tasks/callbacks that can outlive a reload must be
+A host-code save restarts the devserver while keeping the previous app visible; a failed host
+rebuild therefore keeps that app running, is reported, and the next successful save starts a new
+app before the old one is retired. Reloadable tasks/callbacks that can outlive a reload must be
 cancellable or invalidated before replaced code can run; the host must not invoke replaced code
 after a failed or completed reload.
 
@@ -461,8 +461,8 @@ after a failed or completed reload.
 stderr and prints the label for the relaunch that follows a save: `auro: restarted (state restored)`
 or `auro: restarted (state reset: <reason>)`. The first launch prints no label because nothing
 restarted. A failed boundary rebuild prints the tail of the compiler output and keeps the previous
-UI running. A failed host rebuild is reported as `host rebuild failed; no app is running until the
-next successful build`; the old process was stopped for the restart.
+UI running. A failed host rebuild is reported as `host rebuild failed; previous UI still running`;
+the old app stays visible until the replacement launches.
 On Windows the app runs from `target/auro-dev/<stem>-<pid>-<n>.exe`: a running image cannot be
 relinked, and a staging failure is reported while the previous UI stays up. Verified on niri/Wayland
 and on Windows 11 (WinBoat), both with a hand-written snapshot: restore and version-mismatch reset
@@ -475,7 +475,7 @@ renders, `reloaded in <n> ms (window kept)` plus the JSON trace; a failed bounda
 `build failed, previous UI still running` and applies nothing; `Failed to hot-patch app` prints
 `hot patch failed, dev server is rebuilding the app`. A host-code save prints `outside the hot
 boundary; restarting the app (state preserved)` and a failed host rebuild prints `host rebuild
-failed; no app is running until the next successful build`. A relaunch is detected by a changed app
+failed; previous UI still running`. A relaunch is detected by a changed app
 pid (`auro:trace pid`) and only then is the snapshot report labelled `restarted (state restored)` or
 `restarted (state reset: <reason>)`; the first launch is not labelled. A graceful app exit ends the
 loop with exit 0, and Ctrl-C kills the devserver and the app process (verified on Linux; the Windows
@@ -500,13 +500,15 @@ boundary, the devserver and app were restarted (build 3.14 s), the app printed `
 the existing snapshot, and the dev loop printed `restarted (state restored)`; the new process
 rendered the edited button and a following `data` edit hot-patched in 978 ms with a 5 ms
 patch-to-render. Editor swap files beside the source produced no restart. A host rebuild with a
-syntax error stopped the old app before the build, printed `auro: host rebuild failed; no app is
-running until the next successful build`, and the fixed save rebuilt in 2.79 s and restored the
-snapshot. The same host restart was verified on Windows: a `ui/src/lib.rs` save rebuilt in 5.91 s,
-launched a new pid, restored the snapshot and the next `data` edit patched in 910 ms. macOS CI
-also passed the restart check (`restarted (state restored)`, new pid) after a seeded snapshot. This is the
-state-preserving restart path required by D4/D7, not a reload; unlike a boundary build error, a
-failed host rebuild has no previous process to keep.
+syntax error kept the previous app alive (same pid) and printed `auro: host rebuild failed;
+previous UI still running`; the fixed save rebuilt in 3.15 s, launched a new pid and restored the
+snapshot. The same host restart succeeded on Windows: a `ui/src/lib.rs` save rebuilt in 5.91 s,
+launched a new pid, restored the snapshot and the next `data` edit patched in 910 ms. A Windows
+host rebuild with a syntax error kept the previous app (pid 11740) and printed `host rebuild failed;
+previous UI still running`. macOS CI also passed the restart check (`restarted (state restored)`,
+new pid) after a seeded snapshot. The old app remains interactive during the build; state changed
+there after the replacement has loaded its snapshot is not guaranteed to carry over. This is the
+state-preserving restart path required by D4/D7, not a reload.
 
 ### D5 - Compatibility is enforced, not assumed
 
@@ -541,7 +543,10 @@ with the measurement). Each recorded measurement states:
 - machine/OS, CPU class, storage class (if relevant), debug/release, warm/cold incremental state;
 - what changed (view-only, style/token, command signature, config, dependency) and file count;
 - whether the outcome was hot-reloaded, reset entries, or fallback restart;
-- median and spread over N >= 10 edits after warm-up (or an explained smaller N).
+- median, p95 and spread over N >= 10 edits after warm-up (or an explained smaller N). The current
+  trace separates watcher→devserver (`save_to_patch`), dx's reported patch work (`patch_took`,
+  compile+link+load as dx reports it), and apply→first render (`patch_to_render`). dx 0.7.10 does
+  not expose compile, link and loader-load separately; that finer split remains open.
 
 The host must emit machine-readable timing events in dev mode (log/trace or structured output)
 sufficient to compute this metric without manual stopwatch use. `AURO_DEV_TRACE` may be extended for
@@ -596,7 +601,7 @@ unmeasured, so the target stays a target.
 **Measured run (2026-11-18, four-crate scaffold, niri/Wayland, x86_64, 12 CPUs, rustc 1.99.1,
 gpui 0.2.2, dx/subsecond/dioxus-devtools 0.7.10, `desktop-dev` `debug=0`, `incremental=false`,
 warm dependency cache, boundary edits in `data/src/lib.rs`):** `save_to_render_ms`
-393/371/385/370/366/339/357/370/394/350/325/366 (N=12, **median 368**, min 325, max 394);
+393/371/385/370/366/339/357/370/394/350/325/366 (N=12, **median 368**, p95 394, min 325, max 394);
 `patch_to_render_ms` 1-26; `patch_took_ms` 268-325. The same layout with a plain struct boundary
 (no fixed-frame guard) measured 306/271/292/252/270/247/313/264/387/357/309/283 (N=12, median
 287.5, min 247, max 387), isolating ~80 ms for the guarded frame. Both series ran while an
@@ -656,9 +661,9 @@ restored, and the outcome is labelled `restarted (state restored)` or
 races the restart. A change to a non-tip crate or the dev profile takes the same restart path.
 A patch that cannot be generated makes `dx` start a full rebuild; the dev loop prints
 `hot patch failed, dev server is rebuilding the app`. A build error in a boundary patch keeps the
-previous UI live. A host-code change restarts the process before its rebuild, so a failed host
-rebuild leaves no app until the next successful save; the dev loop reports
-`host rebuild failed; no app is running until the next successful build`.
+previous UI live. A host-code change keeps the previous app visible while the replacement builds;
+a failed host rebuild leaves that UI running and the dev loop reports
+`host rebuild failed; previous UI still running`.
 
 Staged delivery (aligns roadmap):
 
@@ -685,7 +690,7 @@ above and the keys/items listed here.
 |---|---|
 | `auro dev` | Default remains the documented relaunch loop until hot reload is declared stable for the selected project; hot reload is enabled by an explicit opt-in (flag and/or `[dev]` config key defined at implementation time and recorded in spec 0002/CLI docs). |
 | `auro dev` (hot-reload mode) | Starts/uses the dev host, watches configured paths, builds the reload unit(s), performs reload or fallback per D4, streams diagnostics, and emits timing events per D6. |
-| Exit/status | Ctrl-C stops host and child tasks cleanly (exit 0). Natural app exit in dev follows current contract. A failed boundary build keeps the session alive with previous UI; a failed host rebuild keeps the devserver alive without an app and reports it. A non-recoverable host/reload failure exits non-zero with a labelled reason. |
+| Exit/status | Ctrl-C stops host and child tasks cleanly (exit 0). Natural app exit in dev follows current contract. A failed boundary build keeps the session alive with previous UI; a failed host rebuild keeps the previous app and the devserver alive and reports it. A non-recoverable host/reload failure exits non-zero with a labelled reason. |
 | Diagnostics | Build failures, compatibility mismatches, apply/restore failures, snapshot resets, and fallbacks are reported with actionable labels distinguishing “reloaded”, “previous UI still running”, and “restarted (state restored/reset)”. |
 
 ### Configuration (`Auro.toml`, coordinated with spec 0002)
@@ -788,7 +793,7 @@ patch-generation failure keeping app on previous code, and warm view-only save-t
    reported as “restarted (state restored/reset)”, never as “hot reloaded”.
 6. **Measurability:** in hot-reload mode the dev session emits timing/trace data sufficient to
    compute save-to-visible per D6; at least one measured run is recorded in this spec (or linked
-   artefact) with machine, method, N, median, and outcome class before experimental mode is described
+   artefact) with machine, method, N, median, p95, and outcome class before experimental mode is described
    as meeting any latency target.
 7. **CLI/dev integration (manual/platform where needed):** `auro dev` on a hot-reload-capable demo
    project performs a view-only reload without closing the window; Ctrl-C and natural window-close
@@ -803,13 +808,13 @@ patch-generation failure keeping app on previous code, and warm view-only save-t
 
 **Status (2026-11-18, integrated hot mode, four-crate scaffold):** item 2 (a boundary build failure
 keeps the previous UI) is demonstrated on Linux and Windows; a failed host rebuild is reported
-separately and leaves no app until the next successful save. Item 3's apply-failure path is contained by
+separately and leaves the previous app running until the next successful save. Item 3's apply-failure path is contained by
 `apply_patch` error/panic handling (unit-tested selection, manual rejection of an incompatible frame
 observed). Item 5 is demonstrated: a save outside `data/src` restarts the devserver and app,
 restores the snapshot and is labelled `restarted (state restored)`. Item 6 is demonstrated
-on Linux (N=12, median 368 ms, min 325, max 394, patch-to-render 1-26 ms), Windows (N=9, median
-813 ms, 752-897, patch-to-render 2-16 ms) and macOS (two runs, N=12 after warm-up, medians 509.5 and
-837.0 ms, 372-2096,
+on Linux (N=12, median 368 ms, p95 394, min 325, max 394, patch-to-render 1-26 ms), Windows (N=9, median
+813 ms, p95 897, 752-897, patch-to-render 2-16 ms) and macOS (two runs, N=12 after warm-up, medians 509.5, 837.0 and
+956.0 ms, p95 1071/2096/1563, 372-2096,
 patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is partially
 demonstrated (same window, pid and host state across patches on Linux, Windows and macOS; host
 restart with state restored on Linux, Windows and macOS CI; graceful exit and Ctrl-C cleanup on

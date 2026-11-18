@@ -135,7 +135,7 @@ call. Type errors are compile errors.
 | Cold start | < 80 ms | 154.9 ms median, first-frame request (Linux) |
 | Idle RAM | < 40 MB | 105.3 MB (Linux) |
 | Hello-world binary | < 6 MB (stripped) | 15.6 MB (Linux) |
-| Edit to see | < 500 ms | 368 ms median, opt-in hot mode, N=12 (Linux); 813 ms (Windows); 509.5-837.0 ms (shared macOS CI runner) |
+| Edit to see | < 500 ms | 368 ms median, p95 394 ms, opt-in hot mode, N=12 (Linux); 813 ms median, p95 897 ms (Windows); 509.5-956.0 ms medians, p95 up to 2096 ms, three six-warmup runs (shared macOS CI runner) |
 | Platforms | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland & X11) | Linux runtime verified locally; macOS and Windows build and test in CI |
 
 These are alpha measurements, not a 1.0 baseline, and the CI regression gate is not implemented

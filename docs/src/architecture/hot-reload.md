@@ -129,10 +129,10 @@ function-level hot-patching of the **tip crate**:
 - **Change classification.** A save under `data/src` is a hot boundary edit. A save in `ui`,
   `types`, the bin, a dependency, a manifest or the profile is labelled `outside the hot boundary`;
   `auro dev` restarts the devserver and app, restores the snapshot and labels the outcome
-  `restarted (state restored|reset)`, never as a reload. A failed host rebuild leaves no app until
-  the next successful save (the old process was stopped for the restart); boundary build errors
-  still keep the previous UI. This makes the documented reload unit visible and gives host-code
-  changes the documented fallback instead of a silent no-op.
+  `restarted (state restored|reset)`, never as a reload. The previous app stays visible while the
+  replacement builds; a failed host rebuild keeps that UI running and is reported, and boundary
+  build errors also keep the previous UI. This makes the documented reload unit visible and gives
+  host-code changes the documented fallback instead of a silent no-op.
 - **Boundary is the reloadable unit.** `view_data() -> HotData` returns plain data; element and
   layout code in `Render` is host-stable. Only functions reached through `hot`/`hot_with` consult
   the jump table, so a patch of `render` alone does not change the running UI; `auro dev` restarts
@@ -195,18 +195,21 @@ and left the previous values on screen.
   its fat-link interception requires the default linker, so lld is not a usable lever. `/OPT:REF`
   plus `/OPT:ICF` measured a 767 ms median save-to-render (N=4), no gain. A `ui/src/lib.rs` save
   restarted the devserver/app in 5.91 s with a new pid and restored snapshot; a following `data`
-  edit patched in 910 ms. The data boundary is the reloadable unit; Windows cannot patch
-  element-returning code.
+  edit patched in 910 ms, and a syntax error kept the previous app and printed `host rebuild
+  failed; previous UI still running`. The data boundary is the reloadable unit; Windows cannot
+  patch element-returning code.
 - **macOS:** no local Apple host, but a manual workflow (`Hot reload macOS benchmark`) measured the
   guarded scaffold on a shared `macos-26-arm64` runner with the prebuilt dx 0.7.10: six warm-up
   edits then twelve measured, save-to-render
   536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, min 372, max 1071;
   patch-to-render 2-17 ms), same process/window. A first cold run measured median 515 (N=12,
   431-715). The runner is noisy and the median is slightly above target; five of twelve warm edits
-  were under 500. A second six-warmup run measured a 837.0 ms median (N=12, 583-2096) and passed the
-  host-restart check (`restarted (state restored)`, new pid). A twelve-warmup run measured 748.5 ms,
-  so extra warm-up does not remove the variance; the two six-warmup runs span 509.5-837 ms and the
-  target is not claimed met. Local hardware, signing and hardened-runtime behaviour remain open.
+  were under 500. A second six-warmup run measured a 837.0 ms median (N=12, p95 2096, 583-2096) and
+  passed the host-restart check. A third, with the previous app kept alive during the rebuild,
+  measured 956.0 ms (N=12, p95 1563, 775-1563) and also passed restart. A twelve-warmup run measured
+  748.5 ms, so extra warm-up does not remove the variance; the three six-warmup runs span
+  509.5-956.0 ms and the target is not claimed met. Local hardware, signing and hardened-runtime
+  behaviour remain open.
 
 The < 500 ms reference case is met on Linux (median 368 ms), not on Windows (median 813 ms), and
 is above the target on a shared macOS runner (509.5 ms median; a second run measured 837.0 ms). It
@@ -214,9 +217,9 @@ is reported per platform, never as a single global claim.
 
 | Platform | Hot mode | Save-to-render (warm) | Evidence |
 |---|---|---|---|
-| Linux x86_64, niri/Wayland | Opt-in, verified | **368 ms** median, N=12 (325-394) | Four-crate scaffold, `desktop-dev`, boundary edits, same pid/window/state |
-| Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **813 ms** median, N=9 (752-897) | Guarded four-crate scaffold, `auro dev` trace, same pid/window; still above target (a plain-boundary series measured 1168 ms) |
-| macOS arm64 (`macos-26-arm64` runner) | Opt-in, measured in CI | **509.5 / 837.0 ms** medians, two runs, N=12 after 6 warm-up | Shared GitHub runner; host restart and snapshot restore verified; no local Apple hardware, signing or hardened-runtime test |
+| Linux x86_64, niri/Wayland | Opt-in, verified | **368 ms** median, N=12 (p95 394, 325-394) | Four-crate scaffold, `desktop-dev`, boundary edits, same pid/window/state |
+| Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **813 ms** median, N=9 (p95 897, 752-897) | Guarded four-crate scaffold, `auro dev` trace, same pid/window; still above target (a plain-boundary series measured 1168 ms) |
+| macOS arm64 (`macos-26-arm64` runner) | Opt-in, measured in CI | **509.5 / 837.0 / 956.0 ms** medians, three runs, N=12 after 6 warm-up (p95 1071/2096/1563) | Shared GitHub runner; host restart and snapshot restore verified; no local Apple hardware, signing or hardened-runtime test |
 
 The host-code restart path is verified on Linux, Windows and macOS CI. macOS local hardware,
 signing and hardened-runtime behaviour remain unverified.

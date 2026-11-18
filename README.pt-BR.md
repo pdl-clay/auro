@@ -136,7 +136,7 @@ chamada Rust. Erro de tipo é erro de compilação.
 | Cold start | < 80 ms | 154,9 ms mediana, requisição do primeiro frame (Linux) |
 | RAM idle | < 40 MB | 105,3 MB (Linux) |
 | Binário hello-world | < 6 MB (stripped) | 15,6 MB (Linux) |
-| Editar e ver | < 500 ms | 368 ms mediana, hot mode opt-in, N=12 (Linux); 813 ms (Windows); 509,5-837,0 ms (runner macOS compartilhado) |
+| Editar e ver | < 500 ms | 368 ms mediana, p95 394 ms, hot mode opt-in, N=12 (Linux); 813 ms mediana, p95 897 ms (Windows); 509,5-956,0 ms medianas, p95 até 2096 ms, três runs com seis warm-ups (runner macOS compartilhado) |
 | Plataformas | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland e X11) | Linux verificado em runtime local; macOS e Windows compilam e testam no CI |
 
 São medições alpha, não uma baseline 1.0, e o gate de regressão no CI ainda não existe: o harness
