@@ -440,6 +440,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "auro-ipc",
  "interprocess",
+ "libc",
  "semver",
  "serde",
  "serde_json",
