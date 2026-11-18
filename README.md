@@ -25,8 +25,11 @@ Phase 2 is in progress; nothing is published on crates.io and there is no releas
 build and try the framework from a checkout (see [CONTRIBUTING.md](CONTRIBUTING.md)). The Phase 2
 slices in tree cover bundling, signed updates with platform apply paths and platform services;
 macOS notarization submission and local verification are release tooling, not a tested end-user
-flow. Hot reload is measured, not GA: the opt-in four-crate scaffold is under the 500 ms target on
-Linux, above it on Windows, and above it on a shared macOS runner.
+flow. Hot reload is measured, not GA, and only for the opt-in four-crate scaffold's data boundary:
+on Linux, edits to `data/src` (the `view_data() -> HotData` boundary) are under the 500 ms target,
+above it on Windows, and above it on a shared macOS runner. Edits to `ui`/`Render`, layout code,
+`types`, dependencies or configuration rebuild the host and restart the process (state restored
+from a snapshot when compatible); they are not in-process view reloads.
 
 | Phase | Codename | State |
 |---|---|---|
@@ -135,14 +138,18 @@ call. Type errors are compile errors.
 | Cold start | < 80 ms | 154.9 ms median, first-frame request (Linux) |
 | Idle RAM | < 40 MB | 105.3 MB (Linux) |
 | Hello-world binary | < 6 MB (stripped) | 15.6 MB (Linux) |
-| Edit to see | < 500 ms | 368 ms median, p95 394 ms, opt-in hot mode, N=12 (Linux); 813 ms median, p95 897 ms (Windows); 509.5-956.0 ms medians, p95 up to 2096 ms, three six-warmup runs (shared macOS CI runner) |
+| Edit to see (boundary data only) | < 500 ms | 368 ms median, p95 394 ms for edits in `data/src` (`view_data() -> HotData`), opt-in hot mode, N=12 (Linux); 813 ms median, p95 897 ms (Windows); 509.5-956.0 ms medians, p95 up to 2096 ms, three six-warmup runs (shared macOS CI runner) |
 | Platforms | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland & X11) | Linux runtime verified locally; macOS and Windows build and test in CI |
 
 These are alpha measurements, not a 1.0 baseline, and the CI regression gate is not implemented
 yet: the harness exists and the method is documented in the
-[performance budget](docs/src/reference/performance-budget.md). The edit-to-see result is the
-opt-in hot-reload path with the four-crate scaffold; hot reload is measured, not GA. Per-platform
-status is in the [support matrix](docs/src/reference/platform-support.md).
+[performance budget](docs/src/reference/performance-budget.md). The edit-to-see result covers only
+the opt-in hot-reload path's data boundary with the four-crate scaffold; hot reload is measured,
+not GA. A change to `ui`/`Render`, layout, `types`, dependencies or configuration is host code:
+`auro dev` rebuilds and restarts the process, restores opted-in state from a snapshot when the
+version is compatible, and labels the result `restarted (state restored)` or `restarted (state
+reset: <reason>)`. It never reports that path as a reload. Per-platform status is in the
+[support matrix](docs/src/reference/platform-support.md).
 
 ## Roadmap
 
