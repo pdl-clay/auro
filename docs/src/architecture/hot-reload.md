@@ -210,6 +210,10 @@ as a single global claim.
 | Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **813 ms** median, N=9 (752-897) | Guarded four-crate scaffold, `auro dev` trace, same pid/window; still above target (a plain-boundary series measured 1168 ms) |
 | macOS arm64 (`macos-26-arm64` runner) | Opt-in, measured in CI | **509.5 ms** median, N=12 after 6 warm-up (372-1071) | Shared GitHub runner; first cold run 515 ms; no local Apple hardware, signing or hardened-runtime test |
 
+The host-code restart path is verified on Linux. The Windows and macOS rows cover boundary patches,
+build failure and recovery; the restart path has not been re-run on those hosts, so this PR does not
+claim it there.
+
 ## Mechanism and layout
 
 Per [ADR 0008](../decisions/0008-hot-reload-mechanism-revision.md), the mechanism keeps one GPUI
