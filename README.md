@@ -21,8 +21,10 @@ The frontend is Rust. There is no HTML, no CSS engine and no JavaScript in the a
 ## Status
 
 **Pre-alpha. Designing in public.** The workspace exists, Phase 0 and Phase 1 are complete, and
-Phase 2 is in progress; nothing is published on crates.io and there is no released CLI yet. You can
-build and try the framework from a checkout (see [CONTRIBUTING.md](CONTRIBUTING.md)). The Phase 2
+Phase 2 is in progress. `0.1.0-alpha.1` is the first published alpha on crates.io; there is no
+stable release or stable CLI yet. Install the alpha CLI with
+`cargo install auro-cli --version 0.1.0-alpha.1`, or build and try the framework from a checkout
+(see [CONTRIBUTING.md](CONTRIBUTING.md)). The Phase 2
 slices in tree cover bundling, signed updates with platform apply paths and platform services;
 macOS notarization submission and local verification are release tooling, not a tested end-user
 flow. Hot reload is measured, not GA, and only for the opt-in four-crate scaffold's data boundary:

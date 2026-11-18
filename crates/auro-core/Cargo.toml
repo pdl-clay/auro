@@ -10,7 +10,7 @@ homepage = "https://pdl-clay.github.io/auro/"
 keywords = ["gui", "desktop", "config", "state", "lifecycle"]
 categories = ["gui", "config"]
 authors.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [dependencies]
 auro-ipc.workspace = true

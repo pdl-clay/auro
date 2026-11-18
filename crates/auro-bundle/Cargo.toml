@@ -10,7 +10,7 @@ homepage = "https://pdl-clay.github.io/auro/"
 keywords = ["gui", "desktop", "bundler", "installer", "packaging"]
 categories = ["development-tools::build-utils", "gui"]
 authors.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [dependencies]
 auro-core.workspace = true

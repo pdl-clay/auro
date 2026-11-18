@@ -21,7 +21,7 @@ rust-version = "1.90"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/pdl-clay/auro"
 authors = ["The Auro Authors"]
-publish = false
+publish = ["crates-io"]
 
 [workspace.dependencies]
 auro = { path = "crates/auro", version = "0.1.0-alpha.1" }

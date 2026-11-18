@@ -10,7 +10,7 @@ homepage = "https://pdl-clay.github.io/auro/"
 keywords = ["permissions", "capabilities", "security", "plugins"]
 categories = ["development-tools"]
 authors.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [dependencies]
 globset = "0.4"

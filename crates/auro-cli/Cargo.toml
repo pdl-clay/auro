@@ -10,7 +10,7 @@ homepage = "https://pdl-clay.github.io/auro/"
 keywords = ["gui", "desktop", "cli", "scaffold", "dev"]
 categories = ["command-line-utilities", "development-tools"]
 authors.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [[bin]]
 name = "auro"

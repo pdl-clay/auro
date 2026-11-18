@@ -6,10 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0. Before 1.0, a
 breaking change bumps the minor version; the patch version is for compatible fixes.
 
-**No release has been tagged.** Nothing here is published on crates.io, and there is no
-installable `auro-cli` yet.
+**`0.1.0-alpha.1` is published on crates.io.** No stable release has been tagged.
 
 ## [Unreleased]
+
+## [0.1.0-alpha.1] - 2026-11-18
 
 ### Added
 
