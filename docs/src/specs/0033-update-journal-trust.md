@@ -1,7 +1,8 @@
 # 0033 - Update journal trust boundary
 
-**Status:** Implemented (2026-11-18; Unix runtime-tested, Windows compile-checked but not run;
-metadata freshness, rotation and revocation are proposed in [RFC 0001](../../../rfcs/0001-update-metadata-trust.md))
+**Status:** Implemented (2026-11-18; Unix tests pass locally, Windows tests pass on GitHub Actions
+`windows-latest`; metadata freshness, rotation and revocation are proposed in
+[RFC 0001](../../../rfcs/0001-update-metadata-trust.md))
 
 Spec 0026 introduced a durable journal and a restart helper. The helper re-verifies the signed
 manifest and artifact, but the journal itself names the verification key, staged artifact, platform
@@ -14,7 +15,7 @@ TUF-style repository metadata; that design needs the RFC first.
   helper.
 - The journal file, its parent directory, its ancestors (Unix) and the sibling lock file.
 - Unix ownership/mode/symlink checks and Windows reparse/owner/DACL checks.
-- A typed failure for an untrusted path, tested on Unix and compile-checked for Windows.
+- A typed failure for an untrusted path, tested on Unix and on Windows CI.
 
 ## Out of scope
 
@@ -76,10 +77,12 @@ missing DACL, an allowed object ACE or any other ACE type is refused rather than
 Creator-owner ACEs are allowed because the object's owner is checked separately and only the
 owner receives them.
 
-The Windows implementation is compiled for `x86_64-pc-windows-msvc` in this change, but it was not
-executed on a Windows host. Until the Windows tests run in CI or on a real host, the Windows row is
-**compile-verified, runtime-unverified**. The Windows path does not walk ancestors; a shared
-ancestor that can rename the private directory is a residual gap. See D4.
+The Windows tests in this change ran on GitHub Actions `windows-latest` and passed: a private
+journal directory is accepted, a junction directory is refused, a permissive `icacls` DACL is
+refused, and a symlinked journal is refused (the symlink test skips when the runner lacks the
+symlink privilege). This is Windows runtime evidence from CI, not from the Linux development host.
+The Windows path does not walk ancestors; a shared ancestor that can rename the private directory
+is a residual gap. See D4.
 
 ### D4 - Remaining limits are stated, not papered over
 
@@ -132,9 +135,11 @@ Unix tests in `crates/auro-update/src/journal.rs`:
 - `refuses_to_create_a_journal_in_a_shared_directory`
 
 The existing journal/helper tests continue to pass (100 tests in `auro-update` on Linux). The
-Windows module was checked with `cargo check --target x86_64-pc-windows-msvc`; the full crate
-cross-check is blocked on this host by `ring`'s C build requiring `lib.exe`, so this is a compile
-check of the module, not a Windows execution.
+Windows job runs the same crate tests; the `windows-latest` CI log shows 76 `auro-update` tests
+passing, including `windows_rejects_a_junction_journal_directory`,
+`windows_rejects_a_permissive_journal_dacl` and `windows_rejects_a_symlinked_journal_file`. The
+local Linux host cannot run the Windows code; the full-crate Windows cross-check is also blocked
+here by `ring`'s C build requiring `lib.exe`.
 
 `cargo fmt --all --check`, `cargo clippy -p auro-update --all-targets -- -D warnings`,
 `cargo test -p auro-update`, and `mdbook build docs` must pass.
@@ -143,7 +148,7 @@ check of the module, not a Windows execution.
 
 | Question | Where it settles |
 |---|---|
-| Windows runtime tests for a private directory, a junction/symlink and a permissive DACL | CI or a real Windows host |
 | Windows ancestor ACL policy | Follow-up; needs a concrete DACL model and tests |
+| Windows symlink privilege coverage on runners without developer mode | CI follow-up; the test skips rather than failing |
 | Staging-directory and installer-handoff TOCTOU | [RFC 0001](../../../rfcs/0001-update-metadata-trust.md) |
 | Metadata expiry, generation, key rotation, revocation and mirror policy | [RFC 0001](../../../rfcs/0001-update-metadata-trust.md) |

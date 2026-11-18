@@ -125,11 +125,11 @@ themselves, rejects the reparse attribute, and requires the owner and every writ
 belong to the current user, `SYSTEM`, `Administrators` or the creator-owner SIDs. A path that
 cannot be proven private is `UpdateError::JournalTrust`; there is no public bypass.
 
-The Windows implementation is compile-checked for `x86_64-pc-windows-msvc` but has not been run on
-a Windows host, and it does not walk ancestors; a shared ancestor that can rename the private
-directory remains a gap. The staging directory and verify-then-open handoff to an external
-installer remain open (RFC 0001). The helper never self-elevates; the elevation prompt and the
-package manager remain the user's decision (spec 0029).
+The Windows tests run on GitHub Actions `windows-latest` and pass (private directory, junction,
+permissive DACL and symlink), but the Windows path does not walk ancestors; a shared ancestor that
+can rename the private directory remains a gap. The staging directory and verify-then-open handoff
+to an external installer remain open (RFC 0001). The helper never self-elevates; the elevation
+prompt and the package manager remain the user's decision (spec 0029).
 
 ## Interfaces
 

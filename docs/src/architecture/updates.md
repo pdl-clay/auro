@@ -56,8 +56,8 @@ The journal is user-writable local state, but its path is a trust boundary: it n
 verification key, staged artifact, target and relaunch command, so a journal planted by another
 local user would choose what the helper runs. `ApplyJournal::load`, `save` and the helper lock open
 refuse a journal or lock in a directory another user can write: Unix checks owner, mode, symlinks
-and ancestors; Windows rejects reparse points and checks the owner/DACL (compile-verified,
-runtime-unverified). See [spec 0033](../specs/0033-update-journal-trust.md). The helper still
+and ancestors; Windows rejects reparse points and checks the owner/DACL; the Windows tests pass on
+GitHub Actions. See [spec 0033](../specs/0033-update-journal-trust.md). The helper still
 re-verifies the signed manifest and artifact; path trust does not replace signature verification.
 
 ## Rollback

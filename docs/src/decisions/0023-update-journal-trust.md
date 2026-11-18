@@ -26,18 +26,20 @@ the owner and DACL for write/delete/ACL grants to principals other than the curr
 Administrators and the creator-owner SIDs. A path that cannot be proven private is
 `UpdateError::JournalTrust`; there is no bypass in the public API.
 
-The library does not claim more than it proves: Windows is compile-verified but not yet
-runtime-verified, Windows ancestors are not walked, and a verify-then-open window remains for
-staged artifacts consumed by an external installer. [Spec 0033](../specs/0033-update-journal-trust.md)
-records the tests and limits; metadata freshness, rotation and revocation are not solved by this
-decision and are modelled in [RFC 0001](../../../rfcs/0001-update-metadata-trust.md).
+The library does not claim more than it proves: the Windows tests run on GitHub Actions
+`windows-latest` and pass, but Windows ancestors are not walked, and a verify-then-open window
+remains for staged artifacts consumed by an external installer.
+[Spec 0033](../specs/0033-update-journal-trust.md) records the tests and limits; metadata
+freshness, rotation and revocation are not solved by this decision and are modelled in
+[RFC 0001](../../../rfcs/0001-update-metadata-trust.md).
 
 ## Consequences
 
 - A shared or attacker-writable journal directory is a typed error instead of a silent risk.
 - Tests that use a private temporary directory still pass; the generated app's data directory is
   the intended location.
-- Windows CI needs a real execution test. The code is not "done" because it cross-compiles.
+- Windows CI now executes the journal tests (private directory, junction, permissive DACL and
+  symlink), so the Windows path is runtime-covered there; keep that leg green.
 - A Windows ancestor that can rename the private directory remains a known gap; the contract is a
   per-user data directory, not any path.
 - New directory components are created `0700` and files `0600` on Unix, so an umask of `000` does
