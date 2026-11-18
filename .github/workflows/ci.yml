@@ -83,6 +83,9 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/target
         run: |
+          # The rust-cache action restores target/, including a scaffold from a previous run.
+          # `auro new` refuses a non-empty destination, so clear it first.
+          rm -rf target/auro-scaffold-smoke
           cargo run -p auro-cli --locked -- new target/auro-scaffold-smoke
           cargo test --workspace --manifest-path target/auro-scaffold-smoke/Cargo.toml
 
