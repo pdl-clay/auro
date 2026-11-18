@@ -57,9 +57,10 @@ An unknown category or package format is `AuroError::Bundle`, not a bundler pani
 `auro bundle` loads and version-checks the config, rejects a config with
 `[bundle] active = false` (`AuroError::Bundle`; bundling is opt-out, not a silent no-op), runs
 `cargo build --release`, resolves the executable name (`package.default-run`, else `package.name`),
-then calls `auro_bundle::bundle(dir, &config, &binary)`. The bundler's project output directory is
-`<app>/target/release`, so artifacts land under `target/release/bundle/<format>/`. Every produced
-path is printed, one per line.
+then calls `auro_bundle::bundle_in(dir, &config, &binary, &target)`. The target root is
+`CARGO_TARGET_DIR` resolved like cargo (relative values under the invocation directory), or
+`<app>/target`; the bundler reads `<target>/release` and artifacts land under
+`<target>/release/bundle/<format>/`. Every produced path is printed, one per line.
 
 The app directory is canonicalised, so bundler paths are stable regardless of where the command is
 run.

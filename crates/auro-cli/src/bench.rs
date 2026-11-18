@@ -84,10 +84,7 @@ pub fn run(dir: &Path, runs: u32, idle_seconds: u64, json: bool) -> Result<(), A
 
 fn binary_path(dir: &Path) -> Result<std::path::PathBuf, AuroError> {
     let name = crate::project::binary_name(dir)?;
-    let target = std::env::var_os("CARGO_TARGET_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| dir.join("target"));
-    let mut binary = target.join("release").join(name);
+    let mut binary = crate::project::target_dir(dir)?.join("release").join(name);
     if cfg!(windows) && binary.extension().is_none() {
         binary.set_extension("exe");
     }

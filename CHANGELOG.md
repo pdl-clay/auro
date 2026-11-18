@@ -353,6 +353,9 @@ installable `auro-cli` yet.
 
 ### Fixed
 
+- `auro build`, `auro bundle` and `auro bench` resolve `CARGO_TARGET_DIR` the way cargo does and
+  pass an explicit `--target-dir`; `auro bundle` previously looked under `<app>/target/release` and
+  failed when the variable pointed elsewhere.
 - `auro bundle` now honors `[bundle] active = false` with a typed error instead of ignoring the key
   and producing installers anyway. `[bundle] icon` and `license-file` paths are validated as
   app-relative (absolute paths and `..` escape are rejected at config load, like `resources` and

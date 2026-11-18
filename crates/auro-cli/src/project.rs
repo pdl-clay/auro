@@ -81,7 +81,8 @@ pub fn bundle(dir: &Path) -> Result<(), AuroError> {
     build_release(&dir, &config)?;
 
     let binary = binary_name(&dir)?;
-    let artifacts = auro_bundle::bundle(&dir, &config, &binary)?;
+    let target = target_dir(&dir)?;
+    let artifacts = auro_bundle::bundle_in(&dir, &config, &binary, &target)?;
     if let Some(profile) = config.bundle.macos.notarize_profile.as_deref() {
         println!("notarizing macOS artifacts with profile `{profile}`");
         auro_bundle::MacNotarizer::new().notarize_artifacts(&artifacts, profile)?;
@@ -105,9 +106,12 @@ fn ensure_bundle_active(config: &Config) -> Result<(), AuroError> {
 }
 
 fn build_release(dir: &Path, _config: &Config) -> Result<(), AuroError> {
+    let target = target_dir(dir)?;
     let status = Command::new("cargo")
         .arg("build")
         .arg("--release")
+        .arg("--target-dir")
+        .arg(&target)
         .arg("--manifest-path")
         .arg(dir.join("Cargo.toml"))
         .status()?;
@@ -116,6 +120,33 @@ fn build_release(dir: &Path, _config: &Config) -> Result<(), AuroError> {
         return Err(AuroError::Message("cargo build failed".to_owned()));
     }
     Ok(())
+}
+
+/// The Cargo target directory, resolved the way cargo resolves `CARGO_TARGET_DIR`.
+///
+/// `auro build`/`auro bundle` pass an explicit `--target-dir` to cargo and hand the same path to
+/// the bundler, so a relative `CARGO_TARGET_DIR` cannot make the bundler look under
+/// `<app>/target` for a binary cargo wrote somewhere else.
+pub(crate) fn target_dir(dir: &Path) -> Result<PathBuf, AuroError> {
+    Ok(resolve_target_dir(
+        dir,
+        std::env::var_os("CARGO_TARGET_DIR"),
+        &std::env::current_dir()?,
+    ))
+}
+
+fn resolve_target_dir(dir: &Path, value: Option<std::ffi::OsString>, cwd: &Path) -> PathBuf {
+    match value {
+        Some(value) => {
+            let target = PathBuf::from(value);
+            if target.is_absolute() {
+                target
+            } else {
+                cwd.join(target)
+            }
+        }
+        None => dir.join("target"),
+    }
 }
 
 /// Windows `canonicalize` returns a `\\?\` verbatim path; WiX/NSIS tools reject it.
@@ -407,6 +438,24 @@ mod tests {
         )
         .expect("write");
         assert!(!declares_hot_feature(temp.path()).expect("reads"));
+    }
+
+    #[test]
+    fn resolves_the_cargo_target_directory() {
+        let app = Path::new("/app");
+        let cwd = Path::new("/work");
+        assert_eq!(
+            resolve_target_dir(app, None, cwd),
+            Path::new("/app").join("target")
+        );
+        assert_eq!(
+            resolve_target_dir(app, Some(std::ffi::OsString::from("/tmp/auro-target")), cwd),
+            PathBuf::from("/tmp/auro-target")
+        );
+        assert_eq!(
+            resolve_target_dir(app, Some(std::ffi::OsString::from("local-target")), cwd),
+            Path::new("/work").join("local-target")
+        );
     }
 
     #[test]

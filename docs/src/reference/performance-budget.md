@@ -25,7 +25,8 @@ Precision matters more than the number, because a budget you cannot reproduce is
 
 ## Process harness
 
-`auro bench --dir <app>` builds the release binary, spawns it `--runs` times with
+`auro bench --dir <app>` builds the release binary (honoring `CARGO_TARGET_DIR` the way cargo
+does), spawns it `--runs` times with
 `AURO_STARTUP_TRACE=1`, measures spawn-to-`auro:startup` (first-frame request), samples RSS after
 `--idle-seconds`, and reports the release binary size. Every sample is retained: the text report
 prints min, median, p95 and max for startup and RSS, and `--json` emits the same summary plus the
