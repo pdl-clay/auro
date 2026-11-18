@@ -32,9 +32,10 @@ installable `auro-cli` yet.
   machine measured 325-394 ms save-to-render (N=12, median 368, patch-to-render 1-26 ms,
   `desktop-dev` `debug=0`, `incremental=false`) with the same pid, window and state; a plain-struct
   boundary measured median 288 ms, so the fixed-frame guard costs ~80 ms. Windows still exceeds
-  500 ms (813 ms, N=9); a shared `macos-26-arm64` runner measured 509.5 ms (N=12 after warm-up,
-  372-1071; first cold run 515). The target is met on Linux for this documented warm case, at the
-  boundary on macOS CI, and not on Windows; not platform-wide.
+  500 ms (813 ms, N=9); a shared `macos-26-arm64` runner measured 509.5 and 837.0 ms medians on two
+  six-warmup runs (N=12 each, 372-2096), and a host restart with snapshot restore passed. The target
+  is met on Linux for this documented warm case, not on Windows, and not stably on macOS CI; not
+  platform-wide.
 - `auro::hot` now owns the devserver connection: a patch that fails to load (error or loader panic)
   is reported as `auro:trace hot_patch_failed <reason>` and `auro: patch rejected by the app:
   <reason>`, the previous code keeps running, and the listener stays open for the next edit. A
@@ -44,7 +45,8 @@ installable `auro-cli` yet.
   patch that cannot take effect, restores the snapshot and labels the outcome `restarted (state
   restored)` or `restarted (state reset: <reason>)`, never `reloaded`. A failed host rebuild stops
   the old process before the build, so no app runs until the next successful save; the dev loop
-  says so. The restart path is verified on Linux and Windows. Editor swap/lock files are ignored.
+  says so. The restart path is verified on Linux, Windows and macOS CI. Editor swap/lock files are
+  ignored.
 - A headless hot fixture (`crates/auro/tests/hot_fixture.rs`, run by CI with the `hot-reload`
   feature) mounts the view, swaps the boundary implementation, and asserts the new output is
   rendered while opted-in state survives. It does not load a patch dylib; the snapshot roundtrip

@@ -1,6 +1,6 @@
 # 0004 - Hot reload
 
-**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows 813 ms, macOS 509.5 ms on a shared CI runner); `auro dev` still relaunches by default
+**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows 813 ms, macOS 509.5-837 ms across two shared CI runs); `auro dev` still relaunches by default
 
 Spec 0001 closed Phase 0 with a relaunch loop and recorded ~60 s save-to-visible on the development
 machine (relink dominates). This spec defines the contract that must replace that loop for UI work:
@@ -317,11 +317,12 @@ prebuilt dx 0.7.10 on `macos-latest` (`macos-26-arm64`): `auro dev`, six warm-up
 then twelve measured edits. Save-to-render was
 536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, min 372, max 1071;
 patch-to-render 2-17 ms), with the app process and window kept. A first cold run without warm-up
-measured median 515 ms (N=12, 431-715). The shared runner is noisy and the median is slightly above
-500 ms; five of the twelve warm edits were under it. A second run with twelve warm-up edits
-measured median 748.5 ms (N=12, 611-1114), worse than the six-warmup run on the same shared runner;
-the noise is the runner, not a warm-up effect, so the six-warmup series remains the recorded method
-and the workflow was reverted. No local Apple hardware, hardened-runtime build, signing or
+measured median 515 ms (N=12, 431-715). A second six-warmup run, with a seeded snapshot and a
+host-restart check appended, measured median 837.0 ms (N=12, 583-2096); the restart passed:
+`outside the hot boundary; restarting`, `restarted (state restored)` and a new app pid. A third run
+with twelve warm-up edits measured median 748.5 ms (N=12, 611-1114), so extra warm-up does not fix
+the variance. The two six-warmup runs span 509.5-837 ms on the shared runner; that is not stable
+enough to claim the target met. No local Apple hardware, hardened-runtime build, signing or
 interactive Aqua session was exercised. macOS is measured but not GA, and CI also builds/tests the
 feature and the generated scaffold on `macos-latest`.
 
@@ -502,7 +503,8 @@ patch-to-render. Editor swap files beside the source produced no restart. A host
 syntax error stopped the old app before the build, printed `auro: host rebuild failed; no app is
 running until the next successful build`, and the fixed save rebuilt in 2.79 s and restored the
 snapshot. The same host restart was verified on Windows: a `ui/src/lib.rs` save rebuilt in 5.91 s,
-launched a new pid, restored the snapshot and the next `data` edit patched in 910 ms. This is the
+launched a new pid, restored the snapshot and the next `data` edit patched in 910 ms. macOS CI
+also passed the restart check (`restarted (state restored)`, new pid) after a seeded snapshot. This is the
 state-preserving restart path required by D4/D7, not a reload; unlike a boundary build error, a
 failed host rebuild has no previous process to keep.
 
@@ -806,7 +808,8 @@ separately and leaves no app until the next successful save. Item 3's apply-fail
 observed). Item 5 is demonstrated: a save outside `data/src` restarts the devserver and app,
 restores the snapshot and is labelled `restarted (state restored)`. Item 6 is demonstrated
 on Linux (N=12, median 368 ms, min 325, max 394, patch-to-render 1-26 ms), Windows (N=9, median
-813 ms, 752-897, patch-to-render 2-16 ms) and macOS (N=12 after warm-up, median 509.5 ms, 372-1071,
+813 ms, 752-897, patch-to-render 2-16 ms) and macOS (two runs, N=12 after warm-up, medians 509.5 and
+837.0 ms, 372-2096,
 patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is partially
 demonstrated (same window, pid and host state across patches on Linux, Windows and macOS; graceful
 exit and Ctrl-C cleanup on Linux and Windows) for boundary-only edits. Item 1 has a headless
@@ -831,5 +834,5 @@ budget), published numbers, and a stable documented author contract for reloadab
 | How managed `State<T>` participates when its type is defined in reloadable code vs host-stable code | Implementation + follow-up ADR/spec if it changes state ownership rules (D5 of spec 0001) |
 | Debug/release mixing, optimization levels, and symbol/debug info required by the chosen mechanism | Implementation, per platform notes |
 | In-app surfacing of build/reload diagnostics (overlay/panel) vs terminal-only in experimental mode | `auro-ui`/dev UX follow-up; terminal reporting is the minimum |
-| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and patching an element-returning view in session 1 applied then overflowed the main thread's stack (`0xc000041d`); a leaf `HotFn` and a framework-free `ViewData` boundary hot-patched repeatedly with state preserved, so Windows hot reload is limited to framework-free boundaries. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. **Integrated re-test (2026-11-18):** the Windows scaffold applied boundary patches in the interactive session with the same pid and continuing state (median 1375 ms save-to-render, N=5 steady; see D1), kept the previous UI on a type error and exited 0 when the window closed. **macOS measurement (2026-11-18):** a manual GitHub `macos-26-arm64` workflow measured median 509.5 ms after six warm-up edits (N=12, 372-1071; first cold run 515, 431-715); local hardware and hardened-runtime signing remain open. |
+| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and patching an element-returning view in session 1 applied then overflowed the main thread's stack (`0xc000041d`); a leaf `HotFn` and a framework-free `ViewData` boundary hot-patched repeatedly with state preserved, so Windows hot reload is limited to framework-free boundaries. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. **Integrated re-test (2026-11-18):** the Windows scaffold applied boundary patches in the interactive session with the same pid and continuing state (median 1375 ms save-to-render, N=5 steady; see D1), kept the previous UI on a type error and exited 0 when the window closed. **macOS measurement (2026-11-18):** a manual GitHub `macos-26-arm64` workflow measured medians 509.5 and 837.0 ms on two six-warmup runs (N=12 each, 372-2096); a host restart with snapshot restore passed; local hardware and hardened-runtime signing remain open. |
 | Change classification for `types`/`ui`/bin edits in hot mode: `dx` still compiles a patch, the running host keeps its old code, and the schema guard rejects an incompatible data frame; a restart is the honest path | **Implemented (2026-11-18):** the dev loop classifies `.rs`/`.toml` saves, restarts the devserver and app for host-code changes, restores the snapshot, labels `restarted (state restored|reset)`, and ignores editor swap files. |

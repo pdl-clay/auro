@@ -162,8 +162,10 @@ the web. This is *the* bet of the project.
   boundary keeps the previous values and the process, and a save outside `data` restarts the
   devserver/app and restores the snapshot as a labelled restart. A Windows re-test with
   the guarded template measured median 813 ms (N=9, 752-897; a plain-boundary series was 1168),
-  still above target. A shared `macos-26-arm64` runner measured 509.5 ms (N=12 after warm-up,
-  372-1071; first cold run 515), at the target boundary but not claimed met. The target is met on Linux for this documented warm case, not platform-wide.
+  still above target. A shared `macos-26-arm64` runner measured 509.5 and 837.0 ms medians on two six-warmup runs
+  (N=12 each, 372-2096), at or above the target boundary but not claimed met; a host restart with
+  snapshot restore passed. The target is met on Linux for this documented warm case, not
+  platform-wide.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 
