@@ -51,7 +51,7 @@ Every spec carries:
 | [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (download/stage 0013; AppImage 0014; Windows/macOS 0025) |
 | [0013](0013-updater-runtime.md) | Updater runtime: check, download, verify and stage | 2 | Implemented (AppImage in 0014; Windows/macOS in 0025; package/deltas pending) |
 | [0014](0014-appimage-apply.md) | AppImage apply: atomic replacement and rollback receipt | 2 | Implemented (Linux only) |
-| [0015](0015-single-instance.md) | Single instance: advisory lock, argument forwarding | 2 | Implemented (automatic activation pending) |
+| [0015](0015-single-instance.md) | Single instance: advisory lock, argument forwarding | 2 | Implemented (opt-in activation helper) |
 | [0016](0016-capabilities.md) | Capability manifests and enforcement | 2 | Implemented (host wiring pending) |
 | [0017](0017-autostart.md) | Autostart service | 2 | Implemented |
 | [0018](0018-notifications.md) | Notifications service | 2 | Implemented |

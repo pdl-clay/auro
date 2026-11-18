@@ -280,7 +280,7 @@ the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing sq
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
 notarization, `.dmg`/`.pkg` and package-manager updater apply, elevation, deltas/rollout,
-single-instance activation, AccessKit/IME, and the product exit remain.
+AccessKit/IME, and the product exit remain.
 
 **Signing/update foundations (2026-11-18):** `auro-sign` provides Ed25519 keys/signatures and
 SHA-256 hashes; `[bundle.macos]`/`[bundle.windows]` map signing inputs to the bundler; `auro-update`
@@ -314,7 +314,7 @@ accessibility pass remains blocked upstream.
 apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
 `auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
 package-manager updater apply, macOS `.dmg`/`.pkg`, elevation, deltas/staged rollout,
-single-instance activation, and AccessKit/IME. The exit criterion also needs
+and AccessKit/IME. The exit criterion also needs
 three real apps and published benchmarks; it is not met by the workspace alone.
 
 **Alpha candidate (2026-11-17):** the workspace and internal requirements are

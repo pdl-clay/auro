@@ -47,8 +47,8 @@ installable `auro-cli` yet.
 - `auro-core`: `AppInstance` and `App::single_instance()` use a per-user advisory file lock to
   refuse a secondary process before GPUI starts. The secondary forwards its arguments and working
   directory over a local socket, then gets `AuroError::Instance` (`run` exits 2); the primary
-  receives `InstanceMessage` on its event pump. Automatic primary-window activation is app policy
-  (spec 0015).
+  receives `InstanceMessage` on its event pump. `App::activate_on_second_instance()` opts into
+  focusing the first root window; custom activation remains app policy via `on_event` (spec 0015).
 - `auro-services`: `Autostart` and `Autostart::for_current_app` use `auto-launch` to enable,
   disable and query login-item autostart on Linux/macOS/Windows. Windows always uses the
   per-user registry mode; macOS uses a Launch Agent (spec 0017).

@@ -99,6 +99,7 @@ pub struct App {
     event_rx: Option<UnboundedReceiver<QueuedEvent>>,
     sender: EventSender,
     single_instance: bool,
+    activate_on_second_instance: bool,
 }
 
 impl App {
@@ -115,6 +116,7 @@ impl App {
             event_rx: Some(receiver),
             sender: sender.clone(),
             single_instance: false,
+            activate_on_second_instance: false,
         }
     }
 
@@ -144,10 +146,21 @@ impl App {
     ///
     /// A secondary process forwards its arguments and working directory to the primary, then gets
     /// [`AuroError::Instance`] before GPUI starts; [`Self::run`] prints it and exits with code 2.
-    /// Subscribe to [`InstanceMessage`] with [`Self::on_event`] on the primary to react. Window
-    /// activation remains app policy.
+    /// Subscribe to [`InstanceMessage`] with [`Self::on_event`] on the primary to react, or use
+    /// [`Self::activate_on_second_instance`] for the first-root focus default.
     pub fn single_instance(mut self) -> Self {
         self.single_instance = true;
+        self
+    }
+
+    /// Focuses the first root window when a second launch is forwarded to this instance.
+    ///
+    /// This enables [`Self::single_instance`] too. The first registered root is focused and the app
+    /// is activated. Apps that need a different window or custom behavior can leave this off and
+    /// use [`Self::on_event`] with [`InstanceMessage`].
+    pub fn activate_on_second_instance(mut self) -> Self {
+        self.single_instance = true;
+        self.activate_on_second_instance = true;
         self
     }
 
@@ -261,6 +274,7 @@ impl App {
         } else {
             None
         };
+        let activation_label = self.roots.first().map(|(label, _)| *label);
         let App {
             states,
             roots,
@@ -270,6 +284,13 @@ impl App {
             event_rx,
             ..
         } = self;
+
+        if let Some(label) = activation_label {
+            events.on(move |_: &InstanceMessage, cx| {
+                let _ = crate::windows::focus(label, cx);
+                cx.activate(true);
+            });
+        }
 
         Application::new().run(move |cx| {
             // Held for the process lifetime: commands resolve state through this store.
@@ -509,6 +530,10 @@ mod tests {
         assert!(!app.single_instance);
         let app = app.single_instance();
         assert!(app.single_instance);
+
+        let app = App::new().activate_on_second_instance();
+        assert!(app.single_instance);
+        assert!(app.activate_on_second_instance);
     }
 
     impl Render for Blank {
