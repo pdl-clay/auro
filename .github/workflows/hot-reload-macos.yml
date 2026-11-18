@@ -1,0 +1,97 @@
+name: Hot reload macOS benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/hot-reload-ga]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: macOS warm boundary edits
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Install dx
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64) arch=aarch64 ;;
+            x86_64) arch=x86_64 ;;
+            *) echo "unsupported architecture: $(uname -m)"; exit 1 ;;
+          esac
+          url="https://github.com/DioxusLabs/dioxus/releases/download/v0.7.10/dx-${arch}-apple-darwin.tar.gz"
+          curl -L --fail --silent --show-error -o "$RUNNER_TEMP/dx.tar.gz" "$url"
+          tar -xzf "$RUNNER_TEMP/dx.tar.gz" -C "$RUNNER_TEMP"
+          chmod +x "$RUNNER_TEMP/dx"
+          sudo mv "$RUNNER_TEMP/dx" /usr/local/bin/dx
+          dx --version
+      - name: Build the CLI and scaffold an app
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          set -euo pipefail
+          cargo build -p auro-cli --locked
+          ./target/debug/auro new target/hot-macos
+          perl -pi -e 's/hot = false/hot = true/' target/hot-macos/Auro.toml
+          grep -n 'hot = true' target/hot-macos/Auro.toml
+      - name: Run warm boundary edits
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+          AURO_DX: /usr/local/bin/dx
+        run: |
+          set -euo pipefail
+          cd target/hot-macos
+          ../../target/debug/auro dev > hot.log 2>&1 &
+          devpid=$!
+          ready=0
+          for _ in $(seq 1 240); do
+            if grep -q 'auro:trace window_requested' hot.log; then ready=1; break; fi
+            if ! kill -0 "$devpid" 2>/dev/null; then break; fi
+            sleep 5
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "app did not render; log tail:"
+            tail -200 hot.log
+            kill -INT "$devpid" 2>/dev/null || true
+            exit 1
+          fi
+          for i in $(seq 1 12); do
+            perl -pi -e "s/title: \"[^\"]*\"/title: \"Mac$i\"/" data/src/lib.rs
+            sleep 5
+          done
+          sleep 2
+          kill -INT "$devpid" 2>/dev/null || true
+          wait "$devpid" 2>/dev/null || true
+          cp hot.log "$RUNNER_TEMP/hot-macos.log"
+          grep '^{"event":"hot_reload"' hot.log | tee measurements.jsonl
+          python3 - <<'PY'
+          import json, statistics, sys
+          rows = [json.loads(line) for line in open("measurements.jsonl")]
+          values = sorted(row["save_to_render_ms"] for row in rows)
+          if not values:
+              sys.exit("no hot_reload measurements")
+          median = statistics.median(values)
+          print(f"hot reload macOS: N={len(values)} median={median} min={values[0]} max={values[-1]} ms")
+          print("values:", values)
+          if len(values) < 8:
+              sys.exit("fewer than 8 measurements")
+          PY
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hot-macos-log
+          path: |
+            ${{ runner.temp }}/hot-macos.log
+            ${{ github.workspace }}/target/hot-macos/hot.log
+            ${{ github.workspace }}/target/hot-macos/measurements.jsonl
+          if-no-files-found: ignore
