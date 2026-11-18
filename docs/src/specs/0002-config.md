@@ -108,8 +108,9 @@ Validated in Phase 0 and consumed by `auro bundle` (spec 0010) in Phase 2. Nothi
 
 ### `[bundle.macos]`
 
-Code signing and notarization inputs. Notarization credentials come from the environment
-(`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`); they are never config keys.
+Code signing and notarization inputs. `tauri-bundler` reads `APPLE_ID`, `APPLE_PASSWORD`,
+`APPLE_TEAM_ID` (or the Apple API key variables) from the environment; those credentials are never
+config keys. `notarize-profile` selects Auro's keychain-profile path instead.
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
@@ -117,6 +118,7 @@ Code signing and notarization inputs. Notarization credentials come from the env
 | `entitlements` | string | none | plist path relative to the app dir |
 | `hardened-runtime` | bool | `true` | distribution default |
 | `skip-stapling` | bool | `false` | do not wait for/stapling the notarization ticket |
+| `notarize-profile` | string | none | `xcrun notarytool` keychain profile; `auro bundle` notarizes and verifies the produced `.app`/`.dmg`, and ignores the key on hosts that produce no macOS artifact (spec 0032) |
 
 ### `[bundle.windows]`
 

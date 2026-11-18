@@ -166,6 +166,12 @@ pub struct MacOsBundleConfig {
     /// Do not wait for/stapling the notarization ticket.
     #[serde(default)]
     pub skip_stapling: bool,
+    /// Keychain profile passed to `xcrun notarytool` after `auro bundle` produces an artifact.
+    ///
+    /// The profile is created ahead of time with `xcrun notarytool store-credentials`; Auro never
+    /// stores Apple credentials. Ignored on hosts that cannot produce macOS artifacts.
+    #[serde(default)]
+    pub notarize_profile: Option<String>,
 }
 
 impl Default for MacOsBundleConfig {
@@ -175,6 +181,7 @@ impl Default for MacOsBundleConfig {
             entitlements: None,
             hardened_runtime: true,
             skip_stapling: false,
+            notarize_profile: None,
         }
     }
 }
@@ -396,6 +403,19 @@ impl Config {
         }
         if let Some(entitlements) = &self.bundle.macos.entitlements {
             ensure_relative(path, "bundle.macos.entitlements", entitlements)?;
+        }
+        if self
+            .bundle
+            .macos
+            .notarize_profile
+            .as_deref()
+            .is_some_and(|profile| profile.trim().is_empty())
+        {
+            return Err(AuroError::config(
+                path,
+                Some("bundle.macos.notarize-profile"),
+                "must not be empty",
+            ));
         }
 
         if let BundleTargets::Keyword(word) = &self.bundle.targets
@@ -804,6 +824,7 @@ signing-identity = "Developer ID Application: Auro"
 entitlements = "entitlements.plist"
 hardened-runtime = false
 skip-stapling = true
+notarize-profile = "auro-release"
 
 [bundle.windows]
 certificate-thumbprint = "ABC123"

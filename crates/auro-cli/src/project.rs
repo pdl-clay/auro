@@ -78,6 +78,10 @@ pub fn bundle(dir: &Path) -> Result<(), AuroError> {
 
     let binary = binary_name(&dir)?;
     let artifacts = auro_bundle::bundle(&dir, &config, &binary)?;
+    if let Some(profile) = config.bundle.macos.notarize_profile.as_deref() {
+        println!("notarizing macOS artifacts with profile `{profile}`");
+        auro_bundle::MacNotarizer::new().notarize_artifacts(&artifacts, profile)?;
+    }
     for artifact in artifacts {
         println!("{}", artifact.display());
     }
