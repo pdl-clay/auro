@@ -43,9 +43,9 @@ pub mod windows;
 pub mod update {
     pub use auro_update::{
         ApplyJournal, ApplyKind, ApplyPlan, ApplyState, FORMAT_VERSION, InstallerRunner,
-        JOURNAL_FORMAT_VERSION, Manifest, PublicKey, RESTART_HELPER_ENV, Relaunch, StagedUpdate,
-        SystemInstallerRunner, UpdateDecision, UpdateError, Updater, current_platform,
-        run_restart_helper,
+        JOURNAL_FORMAT_VERSION, Manifest, PublicKey, RESTART_HELPER_ENV, Recovery, Relaunch,
+        StagedUpdate, SystemInstallerRunner, UpdateDecision, UpdateError, Updater,
+        current_platform, run_restart_helper,
     };
 
     #[cfg(target_os = "linux")]

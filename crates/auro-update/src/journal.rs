@@ -80,6 +80,25 @@ impl ApplyPlan {
     }
 }
 
+/// What the next app start should do with a journal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Recovery {
+    /// A prepared plan needs the helper to apply it.
+    RetryApply,
+    /// The journal is prepared but has no apply kind; inspect it manually.
+    Prepared,
+    /// The new version is already running; finalize the journal.
+    Complete,
+    /// The update is applied but the current process is not the new version; relaunch.
+    Relaunch,
+    /// The installer asked for a reboot; do not relaunch as if complete.
+    AwaitReboot,
+    /// The apply failed; retain the journal and backup for diagnosis/rollback.
+    Failed,
+    /// The previous artifact was restored.
+    RolledBack,
+}
+
 /// The durable state of one apply/restart attempt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -390,6 +409,59 @@ impl ApplyJournal {
         self.transition(ApplyState::Restarted, None)
     }
 
+    /// Classifies what the next app start should do with this journal.
+    ///
+    /// `current_version` is the running app version (normally `env!("CARGO_PKG_VERSION")`). A
+    /// journal whose version matches the running app is complete; a mismatched applied/restarted
+    /// journal still needs a relaunch. Call [`Self::finalize`] only for `Complete`.
+    pub fn reconcile(&self, current_version: &str) -> Result<Recovery, UpdateError> {
+        let current =
+            semver::Version::parse(current_version).map_err(|_| UpdateError::InvalidVersion {
+                field: "current version",
+                value: current_version.to_owned(),
+            })?;
+        let journal = semver::Version::parse(&self.data.version).map_err(|_| {
+            UpdateError::InvalidVersion {
+                field: "journal version",
+                value: self.data.version.clone(),
+            }
+        })?;
+        Ok(match self.data.state {
+            ApplyState::Prepared if self.data.kind != ApplyKind::None => Recovery::RetryApply,
+            ApplyState::Prepared => Recovery::Prepared,
+            ApplyState::Applied | ApplyState::Restarted if current == journal => Recovery::Complete,
+            ApplyState::Applied | ApplyState::Restarted => Recovery::Relaunch,
+            ApplyState::RebootRequired => Recovery::AwaitReboot,
+            ApplyState::Failed => Recovery::Failed,
+            ApplyState::RolledBack => Recovery::RolledBack,
+        })
+    }
+
+    /// Removes the retained backup, journal and lock file after a completed update.
+    ///
+    /// Call this only after [`Self::reconcile`] returned [`Recovery::Complete`]. A backup must be
+    /// beside the target it replaced; other paths are rejected. Missing files are ignored.
+    pub fn finalize(self) -> Result<(), UpdateError> {
+        if let Some(backup) = self.data.backup.as_deref() {
+            if let Some(target) = self.data.target.as_deref()
+                && backup.parent() != target.parent()
+            {
+                return Err(UpdateError::JournalBackupPath {
+                    backup: backup.to_path_buf(),
+                    target: target.to_path_buf(),
+                });
+            }
+            remove_path(backup)?;
+        }
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        let _ = std::fs::remove_file(&self.data.lock_file);
+        Ok(())
+    }
+
     /// Removes the journal file. The lock file is intentionally left for the next attempt.
     pub fn remove(self) -> Result<(), UpdateError> {
         match std::fs::remove_file(&self.path) {
@@ -663,6 +735,16 @@ fn apply_kind(
     }
 }
 
+fn remove_path(path: &Path) -> Result<(), UpdateError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(path)?,
+        Ok(_) => std::fs::remove_file(path)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
 fn detached_command(program: &Path) -> Command {
     let mut command = Command::new(program);
     #[cfg(unix)]
@@ -816,6 +898,60 @@ mod tests {
             ApplyJournal::load(journal.path()),
             Err(UpdateError::JournalFormat(1))
         ));
+    }
+
+    #[test]
+    fn classifies_recovery_actions() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = journal(&temp);
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("prepared"),
+            Recovery::Prepared
+        );
+        journal.mark_applied().expect("applied");
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("complete"),
+            Recovery::Complete
+        );
+        assert_eq!(
+            journal.reconcile("1.0.0").expect("relaunch"),
+            Recovery::Relaunch
+        );
+        journal.mark_failed("broken").expect("failed");
+        assert_eq!(
+            journal.reconcile("1.2.3").expect("failed"),
+            Recovery::Failed
+        );
+    }
+
+    #[test]
+    fn finalizes_backup_journal_and_lock() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = journal(&temp);
+        let backup = temp.path().join("backup");
+        std::fs::write(&backup, b"old").expect("backup");
+        std::fs::write(journal.lock_file(), b"").expect("lock");
+        journal.set_backup(&backup).expect("set backup");
+        let journal_path = journal.path().to_path_buf();
+        journal.finalize().expect("finalize");
+        assert!(!backup.exists());
+        assert!(!journal_path.exists());
+        assert!(!temp.path().join("apply.lock").exists());
+    }
+
+    #[test]
+    fn refuses_to_finalize_an_unrelated_backup() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = journal(&temp);
+        let elsewhere = tempfile::tempdir().expect("other");
+        let backup = elsewhere.path().join("backup");
+        std::fs::write(&backup, b"old").expect("backup");
+        journal.set_backup(&backup).expect("set backup");
+        assert!(matches!(
+            journal.finalize(),
+            Err(UpdateError::JournalBackupPath { .. })
+        ));
+        assert!(backup.exists());
     }
 
     #[test]

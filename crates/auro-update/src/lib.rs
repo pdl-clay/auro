@@ -161,12 +161,15 @@ pub enum UpdateError {
 
     #[error("apply kind {kind:?} is not supported on this host")]
     UnsupportedApply { kind: crate::journal::ApplyKind },
+
+    #[error("update backup `{}` is not beside target `{}`", .backup.display(), .target.display())]
+    JournalBackupPath { backup: PathBuf, target: PathBuf },
 }
 
 mod journal;
 
 pub use journal::{
-    ApplyJournal, ApplyKind, ApplyPlan, ApplyState, RESTART_HELPER_ENV, Relaunch,
+    ApplyJournal, ApplyKind, ApplyPlan, ApplyState, RESTART_HELPER_ENV, Recovery, Relaunch,
     run_restart_helper,
 };
 

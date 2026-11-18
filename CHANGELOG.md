@@ -40,7 +40,8 @@ installable `auro-cli` yet.
   process exits, then applies a prepared `AppImage`/MSI-NSIS/`.app` plan through the platform
   installers or relaunches an already-applied update. The helper re-verifies the manifest and
   artifact with the app-provided public key, records `Failed` or `RebootRequired` diagnostics, retains the
-  backup and relaunches with the helper variable removed (specs 0026, ADR 0015).
+  backup and relaunches with the helper variable removed. `reconcile` classifies the next start
+  and `finalize` removes a sibling backup, journal and lock (specs 0026, ADR 0015).
 - `auro-update`: `LinuxPackageInstaller` runs a staged `.deb` through `/usr/bin/dpkg -i` or a
   `.rpm` through `/usr/bin/rpm -U` using the shell-free runner and helper journal
   (`ApplyKind::DebPackage`/`RpmPackage`). Elevation and rollback remain package-manager policy
@@ -69,7 +70,8 @@ installable `auro-cli` yet.
 - `auro-ui`: `Button` is a focusable tab stop and activates its click handler on Enter or Space
   without modifiers; held keys do not repeat (spec 0023). AccessKit and IME remain upstream gaps.
 - `auro-services`: `AppLinks` parses, filters and queues URL-scheme deep links;
-  `register_scheme` writes per-user Windows/Linux registrations (macOS stays packager-owned)
+  `register_scheme` writes per-user Windows/Linux registrations (macOS stays packager-owned),
+  and `App::deep_links` shares a cloneable queue fed by initial and forwarded instance arguments
   (spec 0022).
 - `auro`: platform services are opt-in (`services`), and `tray` is a separate feature because
   `tray-icon` requires GTK/AppIndicator development libraries on Linux.

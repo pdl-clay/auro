@@ -301,8 +301,8 @@ advisory file lock after config load and refuse a secondary process before GPUI 
 a local socket; the primary receives `InstanceMessage` on its event pump. Automatic primary-window
 activation remains app policy. GPUI supplies clipboard, file dialogs and open/reveal path/URL
 primitives; `auro-services` implements autostart, notifications, keychain, global shortcuts, tray
-and deep-link parsing/queue (`Autostart`, `Notifications`, `Keychain`, `Shortcuts`, `Tray`,
-`AppLinks`, specs 0017-0022). Tray menus/click handlers, icon selection and shortcut callbacks are implemented; tray
+and deep-link parsing/queue plus initial/forwarded argument wiring (`Autostart`, `Notifications`,
+`Keychain`, `Shortcuts`, `Tray`, `AppLinks`, specs 0017-0022). Tray menus/click handlers, icon selection and shortcut callbacks are implemented; tray
 persistence remains. `auro-perms` implements the capability `Policy` with
 deny-by-default grants and compiled glob scopes; the plugin host that consumes it is Phase 3.
 

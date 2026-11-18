@@ -1,7 +1,7 @@
 # 0026 - Update journal and restart helper
 
-**Status:** Implemented (2026-11-18; journal, helper-side platform apply and relaunch; recovery,
-elevation and helper-side package-manager/.dmg apply are not implemented)
+**Status:** Implemented (2026-11-18; journal, helper-side apply/relaunch, reconciliation and cleanup;
+automatic startup recovery, elevation and helper-side `.dmg` apply are not implemented)
 
 Spec 0025 stops after the platform apply. A running app still needs to record what it installed,
 hand off after it exits, and relaunch the replacement. This spec fixes that handoff.
@@ -15,6 +15,8 @@ hand off after it exits, and relaunch the replacement. This spec fixes that hand
 - `Relaunch`: executable, arguments and working directory for the replacement process.
 - `ApplyJournal::spawn_helper`: locks the exit handoff and starts the same executable in helper
   mode.
+- `ApplyJournal::reconcile`: classifies the next-start action from state and running version.
+- `ApplyJournal::finalize`: removes the retained backup, journal and lock after `Complete`.
 - `App::try_run` helper bootstrap: when `RESTART_HELPER_ENV` is set, wait for the old process to
   release the lock and relaunch without starting GPUI.
 - Facade re-exports behind the `updater` feature.
@@ -26,7 +28,7 @@ hand off after it exits, and relaunch the replacement. This spec fixes that hand
 - A separate helper binary, service, launchd job or Windows scheduled task.
 - State snapshots across the restart; that contract belongs to spec 0004.
 - Automatic cleanup of journals, backups or old artifacts.
-- Recovering an interrupted `Prepared` journal on the next launch.
+- Automatically wiring `reconcile`/`finalize` into every app startup; the app calls them.
 - Timeouts longer than the fixed helper wait, or a user-facing progress UI.
 
 ## Decisions
@@ -149,6 +151,16 @@ impl Relaunch {
     pub fn current() -> Result<Self, UpdateError>;
 }
 
+pub enum Recovery {
+    RetryApply,
+    Prepared,
+    Complete,
+    Relaunch,
+    AwaitReboot,
+    Failed,
+    RolledBack,
+}
+
 pub struct ApplyJournal { /* path, data */ }
 
 impl ApplyJournal {
@@ -170,6 +182,8 @@ impl ApplyJournal {
     pub fn state(&self) -> ApplyState;
     pub fn backup(&self) -> Option<&Path>;
     pub fn set_backup(&mut self, backup: impl Into<PathBuf>) -> Result<(), UpdateError>;
+    pub fn reconcile(&self, current_version: &str) -> Result<Recovery, UpdateError>;
+    pub fn finalize(self) -> Result<(), UpdateError>;
     pub fn mark_applied(&mut self) -> Result<(), UpdateError>;
     pub fn mark_failed(&mut self, message: impl Into<String>) -> Result<(), UpdateError>;
     pub fn mark_rolled_back(&mut self) -> Result<(), UpdateError>;
@@ -186,7 +200,7 @@ pub fn run_restart_helper(path: &Path) -> Result<(), UpdateError>;
 Errors added to `UpdateError`: `JournalMissing`, `JournalFormat`, `JournalNotApplied`,
 `JournalLockPath`, `RelaunchMissing`, `ApplyKindMissing`, `ManifestMissing`,
 `ApplyTargetMissing`, `UnsupportedApply`, `VerificationKeyMissing`, `JournalVersionMismatch`,
-`JournalPlatformMismatch`, `RestartLock` and `RestartTimeout`.
+`JournalPlatformMismatch`, `JournalBackupPath`, `RestartLock` and `RestartTimeout`.
 
 Usage:
 
@@ -231,13 +245,17 @@ until `spawn_helper` returns; the lock is retained by the helper module.
    (`records_reboot_state`).
 5. The helper refuses an unapplied journal and a state flipped while waiting
    (`helper_rejects_an_unapplied_journal`, `helper_refuses_a_state_flipped_while_waiting`).
-6. A missing relaunch executable is rejected and recorded (`helper_records_a_launch_failure`).
-7. A missing, malformed, old-format or non-sibling-lock journal is typed
+6. `reconcile` classifies prepared/applied/current/failed states; `finalize` removes a sibling
+   backup, journal and lock, while refusing an unrelated backup
+   (`classifies_recovery_actions`, `finalizes_backup_journal_and_lock`,
+   `refuses_to_finalize_an_unrelated_backup`).
+7. A missing relaunch executable is rejected and recorded (`helper_records_a_launch_failure`).
+8. A missing, malformed, old-format or non-sibling-lock journal is typed
    (`rejects_a_missing_or_unknown_journal`, `rejects_malformed_json`,
    `reports_an_old_format_before_schema_fields`, `rejects_a_non_sibling_lock_path`).
-8. `App::try_run` enters helper mode from `RESTART_HELPER_ENV` before config/GPUI (compile-time
+9. `App::try_run` enters helper mode from `RESTART_HELPER_ENV` before config/GPUI (compile-time
    façade check).
-9. `cargo fmt --all --check`,
+10. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, `cargo check -p auro --features updater --locked`, and
    `mdbook build docs` pass.
@@ -246,7 +264,7 @@ until `spawn_helper` returns; the lock is retained by the helper module.
 
 | Question | Where it settles |
 |---|---|
-| Journal recovery after a crash | Apply/restart follow-up |
+| Automatic startup recovery and cleanup policy | Apply/restart follow-up |
 | Elevation and an OS service/scheduled task | Platform update UX/spec |
 | Journal/backup cleanup policy | Operations follow-up |
 | Persistent download resume | Updater resume spec |

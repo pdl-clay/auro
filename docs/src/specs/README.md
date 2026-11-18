@@ -58,9 +58,9 @@ Every spec carries:
 | [0019](0019-keychain.md) | Keychain service | 2 | Implemented |
 | [0020](0020-shortcuts.md) | Global shortcuts service | 2 | Implemented (pressed callbacks) |
 | [0021](0021-tray.md) | Tray service | 2 | Implemented (icons, menus and click callbacks) |
-| [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (forwarded-argument wiring pending) |
+| [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (initial and forwarded wiring) |
 | [0023](0023-keyboard-activation.md) | Keyboard activation for Button | 2 | Implemented (AccessKit/IME pending) |
 | [0024](0024-alpha-release.md) | Alpha release: version, publish order, facade features, scaffold | 2 | Draft (alpha candidate; publication pending) |
 | [0025](0025-platform-apply.md) | Windows installer execution and macOS `.app` replacement | 2 | Implemented (.dmg and elevation pending) |
-| [0026](0026-update-journal.md) | Update journal and restart helper | 2 | Implemented (helper applies and relaunches) |
+| [0026](0026-update-journal.md) | Update journal and restart helper | 2 | Implemented (helper applies, relaunches, reconciles) |
 | [0027](0027-linux-packages.md) | Linux `.deb`/`.rpm` package apply | 2 | Implemented (elevation/rollback pending) |

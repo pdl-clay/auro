@@ -99,6 +99,8 @@ pub struct App {
     event_rx: Option<UnboundedReceiver<QueuedEvent>>,
     sender: EventSender,
     single_instance: bool,
+    #[cfg(feature = "services")]
+    deep_links: Option<auro_services::AppLinks>,
     activate_on_second_instance: bool,
 }
 
@@ -117,6 +119,8 @@ impl App {
             sender: sender.clone(),
             single_instance: false,
             activate_on_second_instance: false,
+            #[cfg(feature = "services")]
+            deep_links: None,
         }
     }
 
@@ -161,6 +165,17 @@ impl App {
     pub fn activate_on_second_instance(mut self) -> Self {
         self.single_instance = true;
         self.activate_on_second_instance = true;
+        self
+    }
+
+    /// Feeds launch and forwarded instance arguments into a shared [`auro_services::AppLinks`].
+    ///
+    /// The initial process arguments are parsed at startup. When single-instance mode forwards an
+    /// [`InstanceMessage`], its arguments are pushed into the same queue. The app keeps its own
+    /// clone and drains it on the main thread.
+    #[cfg(feature = "services")]
+    pub fn deep_links(mut self, links: auro_services::AppLinks) -> Self {
+        self.deep_links = Some(links);
         self
     }
 
@@ -282,6 +297,8 @@ impl App {
             None
         };
         let activation_label = self.activation_label();
+        #[cfg(feature = "services")]
+        let deep_links = self.deep_links.clone();
         let App {
             states,
             roots,
@@ -296,6 +313,19 @@ impl App {
             events.on(move |_: &InstanceMessage, cx| {
                 let _ = crate::windows::focus(label, cx);
                 cx.activate(true);
+            });
+        }
+
+        #[cfg(feature = "services")]
+        if let Some(links) = deep_links {
+            let initial: Vec<String> = std::env::args_os()
+                .skip(1)
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect();
+            links.push_raw(&initial);
+            let forwarded = links.clone();
+            events.on(move |message: &InstanceMessage, _cx| {
+                forwarded.push_raw(&message.args);
             });
         }
 
