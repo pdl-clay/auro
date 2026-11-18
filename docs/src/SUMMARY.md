@@ -31,6 +31,7 @@
 - [0015 - Self-helper restart](decisions/0015-self-helper-restart.md)
 - [0016 - Deltas and rollout](decisions/0016-deltas-and-rollout.md)
 - [0017 - Linux package elevation](decisions/0017-linux-package-elevation.md)
+- [0018 - Linux package rollback](decisions/0018-linux-package-rollback.md)
 
 # Specifications
 
@@ -64,6 +65,7 @@
 - [0027 - Linux package apply](specs/0027-linux-packages.md)
 - [0028 - Binary deltas and staged rollout](specs/0028-deltas-rollout.md)
 - [0029 - Linux package elevation](specs/0029-linux-package-elevation.md)
+- [0030 - Linux package rollback](specs/0030-linux-package-rollback.md)
 
 # Reference
 

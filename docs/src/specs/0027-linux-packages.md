@@ -1,8 +1,9 @@
 # 0027 - Linux package apply
 
 **Status:** Implemented (2026-11-18; `.deb`/`.rpm` command execution and helper integration;
-pkexec elevation is [spec 0029](0029-linux-package-elevation.md); rollback and package-manager
-policy are not implemented)
+pkexec elevation is [spec 0029](0029-linux-package-elevation.md) and explicit rollback is
+[spec 0030](0030-linux-package-rollback.md); automatic rollback and package-manager policy are
+not implemented)
 
 Spec 0014 handles a single-file AppImage. This spec covers distribution packages: run `dpkg -i` for
 a staged `.deb`, or `rpm -U` for a staged `.rpm`, through the same shell-free runner used by the
@@ -120,7 +121,7 @@ The snippet is an intended call shape, not an app that exists yet.
 | Question | Where it settles |
 |---|---|
 | Root-owned helper and narrowed polkit policy | [Package elevation](0029-linux-package-elevation.md) |
-| Package rollback and downgrade policy | Package updater spec |
+| Automatic package rollback and downgrade policy | [Package rollback](0030-linux-package-rollback.md) |
 | apt/dnf/zypper policy and dependency repair | Package-manager spec |
 | Package signature verification | Release/package trust spec |
 | Restart scheduling after package install | Apply/restart follow-up |

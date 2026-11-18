@@ -101,6 +101,24 @@ impl LinuxPackageInstaller {
     /// [`LinuxElevation::Pkexec`], a non-zero `pkexec` result (including a denied polkit prompt) is
     /// [`UpdateError::ElevationFailed`]; a missing `pkexec` executable surfaces as an I/O error.
     pub fn install(&self, staged: &StagedUpdate) -> Result<LinuxPackageKind, UpdateError> {
+        self.execute(staged, PackageOperation::Install)
+    }
+
+    /// Installs a caller-supplied older package as a rollback.
+    ///
+    /// `.deb` uses `dpkg --force-downgrade -i`; `.rpm` uses `rpm -U --oldpackage`. Auro does not
+    /// obtain or verify the older package beyond the staged artifact contract; the caller must
+    /// provide an authenticated, already-staged package. The package manager owns dependency and
+    /// transaction policy.
+    pub fn rollback(&self, staged: &StagedUpdate) -> Result<LinuxPackageKind, UpdateError> {
+        self.execute(staged, PackageOperation::Rollback)
+    }
+
+    fn execute(
+        &self,
+        staged: &StagedUpdate,
+        operation: PackageOperation,
+    ) -> Result<LinuxPackageKind, UpdateError> {
         let path = staged.path();
         if !path.is_file() {
             return Err(UpdateError::StagedArtifactMissing {
@@ -114,7 +132,7 @@ impl LinuxPackageInstaller {
             })?;
         let (program, args, held) = match self.elevation {
             LinuxElevation::None => {
-                let (program, args) = command_for(kind, path);
+                let (program, args) = command_for(kind, path, operation);
                 (program, args, None)
             }
             LinuxElevation::Pkexec => {
@@ -126,7 +144,7 @@ impl LinuxPackageInstaller {
                     process::id(),
                     artifact.as_raw_fd()
                 ));
-                let (package, package_args) = command_for(kind, &descriptor);
+                let (package, package_args) = command_for(kind, &descriptor, operation);
                 let mut args = Vec::with_capacity(package_args.len() + 1);
                 args.push(package.into_os_string());
                 args.extend(package_args);
@@ -148,15 +166,41 @@ impl LinuxPackageInstaller {
     }
 }
 
-fn command_for(kind: LinuxPackageKind, artifact: &Path) -> (PathBuf, Vec<OsString>) {
-    match kind {
-        LinuxPackageKind::Deb => (
+#[derive(Clone, Copy)]
+enum PackageOperation {
+    Install,
+    Rollback,
+}
+
+fn command_for(
+    kind: LinuxPackageKind,
+    artifact: &Path,
+    operation: PackageOperation,
+) -> (PathBuf, Vec<OsString>) {
+    match (kind, operation) {
+        (LinuxPackageKind::Deb, PackageOperation::Install) => (
             PathBuf::from("/usr/bin/dpkg"),
             vec![OsString::from("-i"), artifact.as_os_str().to_owned()],
         ),
-        LinuxPackageKind::Rpm => (
+        (LinuxPackageKind::Deb, PackageOperation::Rollback) => (
+            PathBuf::from("/usr/bin/dpkg"),
+            vec![
+                OsString::from("--force-downgrade"),
+                OsString::from("-i"),
+                artifact.as_os_str().to_owned(),
+            ],
+        ),
+        (LinuxPackageKind::Rpm, PackageOperation::Install) => (
             PathBuf::from("/usr/bin/rpm"),
             vec![OsString::from("-U"), artifact.as_os_str().to_owned()],
+        ),
+        (LinuxPackageKind::Rpm, PackageOperation::Rollback) => (
+            PathBuf::from("/usr/bin/rpm"),
+            vec![
+                OsString::from("-U"),
+                OsString::from("--oldpackage"),
+                artifact.as_os_str().to_owned(),
+            ],
         ),
     }
 }
@@ -260,6 +304,90 @@ mod tests {
                 PathBuf::from("/usr/bin/rpm"),
                 vec![OsString::from("-U"), staged.path().as_os_str().to_owned()]
             )]
+        );
+    }
+
+    #[test]
+    fn rollback_rpm_uses_oldpackage() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let staged = staged(&temp, "rpm");
+        let runner = MockRunner::with_code(0);
+        let installer = LinuxPackageInstaller::with_runner(runner.clone());
+
+        assert_eq!(
+            installer.rollback(&staged).expect("rollback"),
+            LinuxPackageKind::Rpm
+        );
+        assert_eq!(
+            runner.calls(),
+            [(
+                PathBuf::from("/usr/bin/rpm"),
+                vec![
+                    OsString::from("-U"),
+                    OsString::from("--oldpackage"),
+                    staged.path().as_os_str().to_owned()
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn rollback_deb_forces_a_downgrade() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let staged = staged(&temp, "deb");
+        let runner = MockRunner::with_code(0);
+        let installer = LinuxPackageInstaller::with_runner(runner.clone());
+
+        assert_eq!(
+            installer.rollback(&staged).expect("rollback"),
+            LinuxPackageKind::Deb
+        );
+        assert_eq!(
+            runner.calls(),
+            [(
+                PathBuf::from("/usr/bin/dpkg"),
+                vec![
+                    OsString::from("--force-downgrade"),
+                    OsString::from("-i"),
+                    staged.path().as_os_str().to_owned()
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn rollback_reports_package_manager_failure() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let staged = staged(&temp, "rpm");
+        let installer = LinuxPackageInstaller::with_runner(MockRunner::with_code(2));
+        assert!(matches!(
+            installer.rollback(&staged),
+            Err(UpdateError::InstallerFailed { code: Some(2), .. })
+        ));
+    }
+
+    #[test]
+    fn elevated_rollback_uses_the_held_descriptor() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let staged = staged(&temp, "rpm");
+        let runner = MockRunner::with_code(0);
+        let installer = LinuxPackageInstaller::with_runner(runner.clone()).elevated();
+
+        installer.rollback(&staged).expect("rollback");
+        let calls = runner.calls();
+        assert_eq!(calls[0].0, PathBuf::from("/usr/bin/pkexec"));
+        assert_eq!(
+            &calls[0].1[..3],
+            [
+                OsString::from("/usr/bin/rpm"),
+                OsString::from("-U"),
+                OsString::from("--oldpackage")
+            ]
+        );
+        assert!(
+            calls[0].1[3]
+                .to_string_lossy()
+                .starts_with(&format!("/proc/{}/fd/", std::process::id()))
         );
     }
 

@@ -49,6 +49,10 @@ installable `auro-cli` yet.
 - `auro-update`: Linux package apply can run through `pkexec` in the restart helper (`LinuxElevation::Pkexec`),
   passing the opened, journal-verified package via `/proc/<pid>/fd/<fd>`; a non-zero `pkexec` result is
   `ElevationFailed`. The app never self-elevates (spec 0029, ADR 0017).
+- `auro-update`: `LinuxPackageInstaller::rollback` installs a caller-supplied older `.deb`
+  (`dpkg --force-downgrade -i`) or `.rpm` (`rpm -U --oldpackage`) through the same optional
+  `pkexec` elevation and held-descriptor path; this is an explicit manual rollback policy, not
+  automatic failure recovery (spec 0030, ADR 0018).
 - `auro-cli`: `auro bench --dir <app>` builds the release binary and reports median startup to the
   first-frame marker, idle RSS and binary size, with `--json` output. The `examples/hello` fixture
   is the no-toolkit benchmark app; a local 5-run Linux measurement is recorded as 154.9 ms,

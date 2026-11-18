@@ -23,7 +23,7 @@ hand off after it exits, and relaunch the replacement. This spec fixes that hand
 
 ## Out of scope
 
-- `.dmg`/`.pkg`, `.deb`/`.rpm` and package-manager helper apply.
+- `.dmg`/`.pkg`, `.deb`/`.rpm` helper apply and automatic package rollback.
 - Root-owned helper installation, UAC, `sudo` or Auro-managed passwords.
 - A separate helper binary, service, launchd job or Windows scheduled task.
 - State snapshots across the restart; that contract belongs to spec 0004.
@@ -267,6 +267,7 @@ until `spawn_helper` returns; the lock is retained by the helper module.
 |---|---|
 | Automatic startup recovery and cleanup policy | Apply/restart follow-up |
 | Root-owned helper, polkit policy and an OS service/scheduled task | [Package elevation](0029-linux-package-elevation.md) |
+| Automatic package rollback | [Package rollback](0030-linux-package-rollback.md) |
 | Journal/backup cleanup policy | Operations follow-up |
 | Persistent download resume | Updater resume spec |
 | State preservation across the relaunch | Spec 0004 snapshot contract |

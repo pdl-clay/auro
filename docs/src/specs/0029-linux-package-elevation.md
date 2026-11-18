@@ -109,6 +109,6 @@ impl LinuxPackageInstaller {
 | Question | Where it settles |
 |---|---|
 | Root-owned helper and a branded polkit policy | Packaging/distro follow-up |
-| Package rollback and downgrade policy | Package updater follow-up |
+| Package rollback and downgrade policy | [Package rollback](0030-linux-package-rollback.md) |
 | apt/dnf/zypper policy and dependency repair | Package-manager spec |
 | Headless/SSH authorization | Operations follow-up |

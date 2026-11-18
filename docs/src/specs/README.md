@@ -66,3 +66,4 @@ Every spec carries:
 | [0027](0027-linux-packages.md) | Linux `.deb`/`.rpm` package apply | 2 | Implemented (elevation in 0029) |
 | [0028](0028-deltas-rollout.md) | Binary deltas and deterministic staged rollout | 2 | Implemented |
 | [0029](0029-linux-package-elevation.md) | Linux package elevation through pkexec | 2 | Implemented |
+| [0030](0030-linux-package-rollback.md) | Linux package rollback with an explicit older artifact | 2 | Implemented (manual policy) |

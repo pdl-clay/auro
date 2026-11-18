@@ -200,4 +200,4 @@ The snippet is an intended call shape, not an app that exists yet.
 | `.deb`/`.rpm` package-manager apply | [Linux package apply](0027-linux-packages.md), [elevation](0029-linux-package-elevation.md) |
 | Restart/helper protocol and crash-safe apply journal | [Update journal and restart helper](0026-update-journal.md) |
 | macOS code-signing preservation and notarization checks | macOS update hardening |
-| Deltas, rollout and downgrade policy | Updater rollout spec |
+| Automatic downgrade policy | [Linux package rollback](0030-linux-package-rollback.md) |
