@@ -420,6 +420,9 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     build_failed = false;
                 }
 
+                if host_rebuild && plain.contains("Build completed successfully") {
+                    host_rebuild = false;
+                }
                 if host_rebuild && build_failed_line(&plain) {
                     host_rebuild = false;
                     println!(
