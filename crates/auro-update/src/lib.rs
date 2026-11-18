@@ -16,7 +16,7 @@ use auro_sign::{SignError, SigningKey};
 use serde::{Deserialize, Serialize};
 
 /// The manifest format this build understands.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// The update journal format this build understands.
 pub const JOURNAL_FORMAT_VERSION: u32 = 2;
@@ -63,6 +63,18 @@ pub enum UpdateError {
 
     #[error("offered version {offered} is not newer than the running version {current}")]
     NotNewer { current: String, offered: String },
+
+    #[error("offered version {version} is held back by the rollout policy")]
+    HeldBack { version: String },
+
+    #[error("delta base does not match the running artifact")]
+    DeltaBaseMismatch,
+
+    #[error("delta version `{actual}` does not apply to running version `{expected}`")]
+    DeltaVersionMismatch { expected: String, actual: String },
+
+    #[error("manifest has no delta for this update")]
+    DeltaMissing,
 
     #[error("download failed: {0}")]
     Http(#[from] ureq::Error),
@@ -184,6 +196,14 @@ mod runtime;
 
 pub use runtime::{StagedUpdate, UpdateDecision, Updater};
 
+/// Creates a bsdiff-compatible patch from `base` to `target`.
+pub fn create_delta(base: &Path, target: &Path) -> Result<Vec<u8>, UpdateError> {
+    let mut patch = Vec::new();
+    qbsdiff::Bsdiff::new(&fs::read(base)?, &fs::read(target)?)
+        .compare(std::io::Cursor::new(&mut patch))?;
+    Ok(patch)
+}
+
 #[cfg(any(target_os = "windows", test))]
 mod windows;
 
@@ -223,7 +243,37 @@ pub struct Manifest {
     pub sha256: String,
     pub notes: String,
     pub published_at: String,
+    /// Optional binary delta from the running version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta: Option<Delta>,
+    /// Optional staged-rollout policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollout: Option<Rollout>,
     pub signature: String,
+}
+
+/// A binary patch from one released artifact to this artifact.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Delta {
+    /// The version the patch applies to.
+    pub from_version: String,
+    /// SHA-256 of the base artifact.
+    pub from_sha256: String,
+    /// URL of the bsdiff-compatible patch.
+    pub url: String,
+    /// Patch size in bytes.
+    pub size: u64,
+    /// Patch SHA-256.
+    pub sha256: String,
+}
+
+/// A deterministic staged-rollout policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Rollout {
+    /// Percentage of installs selected, from 0 through 100.
+    pub percentage: u8,
 }
 
 #[derive(Serialize)]
@@ -236,6 +286,10 @@ struct Payload<'a> {
     sha256: &'a str,
     notes: &'a str,
     published_at: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delta: Option<&'a Delta>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rollout: Option<&'a Rollout>,
 }
 
 impl Manifest {
@@ -258,6 +312,8 @@ impl Manifest {
             sha256: sha256.into(),
             notes: notes.into(),
             published_at: published_at.into(),
+            delta: None,
+            rollout: None,
             signature: String::new(),
         }
     }
@@ -283,6 +339,18 @@ impl Manifest {
         ))
     }
 
+    /// Adds a binary delta to the manifest.
+    pub fn with_delta(mut self, delta: Delta) -> Self {
+        self.delta = Some(delta);
+        self
+    }
+
+    /// Adds a staged-rollout policy.
+    pub fn with_rollout(mut self, rollout: Rollout) -> Self {
+        self.rollout = Some(rollout);
+        self
+    }
+
     /// Signs the canonical payload and stores the base64 signature.
     pub fn sign(mut self, key: &SigningKey) -> Result<Self, UpdateError> {
         self.signature = key.sign(&self.payload()?);
@@ -295,15 +363,30 @@ impl Manifest {
         if self.format != FORMAT_VERSION {
             return Err(UpdateError::UnsupportedFormat(self.format));
         }
-        if self.sha256.len() != 64
-            || !self
-                .sha256
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
+        if !valid_sha256(&self.sha256) {
             return Err(UpdateError::InvalidField {
                 field: "sha256",
                 reason: "must be 64 lowercase hexadecimal characters",
+            });
+        }
+        if let Some(delta) = &self.delta {
+            if !valid_sha256(&delta.from_sha256) || !valid_sha256(&delta.sha256) {
+                return Err(UpdateError::InvalidField {
+                    field: "delta sha256",
+                    reason: "must be 64 lowercase hexadecimal characters",
+                });
+            }
+            if delta.url.trim().is_empty() || delta.from_version.is_empty() {
+                return Err(UpdateError::InvalidField {
+                    field: "delta",
+                    reason: "has an empty URL or version",
+                });
+            }
+        }
+        if self.rollout.is_some_and(|rollout| rollout.percentage > 100) {
+            return Err(UpdateError::InvalidField {
+                field: "rollout.percentage",
+                reason: "must be between 0 and 100",
             });
         }
         if self.signature.is_empty() {
@@ -347,8 +430,17 @@ impl Manifest {
             sha256: &self.sha256,
             notes: &self.notes,
             published_at: &self.published_at,
+            delta: self.delta.as_ref(),
+            rollout: self.rollout.as_ref(),
         })?)
     }
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// The platform key used by manifests: `<os>-<arch>`.
@@ -396,10 +488,10 @@ mod tests {
 
         let signed = manifest().sign(&key).expect("sign");
         let mut future = signed.clone();
-        future.format = 2;
+        future.format = 3;
         assert!(matches!(
             future.verify(&key.public_key()),
-            Err(UpdateError::UnsupportedFormat(2))
+            Err(UpdateError::UnsupportedFormat(3))
         ));
     }
 
@@ -442,6 +534,42 @@ mod tests {
 
         fs::write(&path, b"tampered").expect("write");
         assert!(signed.verify_artifact(&path, &key.public_key()).is_err());
+    }
+
+    #[test]
+    fn signs_delta_and_rollout_metadata() {
+        let key = SigningKey::generate();
+        let signed = manifest()
+            .with_delta(Delta {
+                from_version: "1.0.0".to_owned(),
+                from_sha256: SHA256.to_owned(),
+                url: "https://example.test/app.patch".to_owned(),
+                size: 12,
+                sha256: SHA256.to_owned(),
+            })
+            .with_rollout(Rollout { percentage: 25 })
+            .sign(&key)
+            .expect("sign");
+        signed.verify(&key.public_key()).expect("verify");
+        let parsed = Manifest::from_json(&signed.to_json().expect("json")).expect("parse");
+        assert_eq!(parsed.delta, signed.delta);
+        assert_eq!(parsed.rollout, signed.rollout);
+    }
+
+    #[test]
+    fn rejects_an_invalid_rollout_percentage() {
+        let key = SigningKey::generate();
+        let signed = manifest()
+            .with_rollout(Rollout { percentage: 101 })
+            .sign(&key)
+            .expect("sign");
+        assert!(matches!(
+            signed.verify(&key.public_key()),
+            Err(UpdateError::InvalidField {
+                field: "rollout.percentage",
+                ..
+            })
+        ));
     }
 
     #[test]

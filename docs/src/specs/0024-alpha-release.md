@@ -19,7 +19,7 @@ metadata, facade features, and the scaffold's dependency mode.
 ## Out of scope
 
 - Changing the public API after the alpha except for critical fixes.
-- Deltas, staged rollout, non-AppImage updater apply, AccessKit/IME.
+- AccessKit/IME; updater deltas/rollout now have their own spec 0028.
 - Signed/notarized release artifacts; those remain credential-gated.
 - A website, announcement, or support policy beyond the existing docs.
 

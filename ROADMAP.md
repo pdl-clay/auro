@@ -279,12 +279,12 @@ cleanly. A GitHub `macos-latest` arm64 runner produced an unsigned `.app` and `.
 the app binary and `hdiutil imageinfo`). AppImage preflight rejects a missing square PNG with
 `AuroError::Bundle` instead of letting the bundler panic; Windows installers skip WebView2, run the
 bundler from the app directory and strip the `\\?\` verbatim prefix for WiX/NSIS. Signing/
-notarization, `.dmg`/`.pkg`, elevated package-manager apply, deltas/rollout, AccessKit/IME, and the
-product exit remain.
+notarization, `.dmg`/`.pkg`, elevated package-manager apply, AccessKit/IME, and the product exit
+remain.
 
 **Signing/update foundations (2026-11-18):** `auro-sign` provides Ed25519 keys/signatures and
 SHA-256 hashes; `[bundle.macos]`/`[bundle.windows]` map signing inputs to the bundler; `auro-update`
-defines signed manifest format v1; `auro generate-key` and `auro manifest` are usable. The runtime
+defines signed manifest format v2 with optional deltas/rollout; `auro generate-key` and `auro manifest` are usable. The runtime
 `Updater` now verifies offers, downloads within the manifest size, verifies SHA-256 and stages a
 content-addressed artifact atomically. On Linux, `AppImageInstaller` replaces an AppImage with a
 mode-0755 atomic rename, retains a hard-link/copy backup, and returns a receipt that can roll back
@@ -292,8 +292,8 @@ or discard it. On Windows, `WindowsInstaller` runs staged MSI/NSIS installers si
 `3010` to a restart request; on macOS, `MacAppInstaller` swaps a `.app` from a staged `.app.zip`
 and returns a rollback receipt. `ApplyJournal` and the self-helper handoff record, verify and apply what was staged, wait for the
 old process to exit through a lock, and relaunch the replacement without a shell or a second
-binary. Platform signing still needs certificates/credentials; `.dmg`, `.pkg`,
-elevated package-manager apply, `.dmg`/`.pkg`, deltas and staged rollout are not implemented.
+binary. Platform signing still needs certificates/credentials; `.pkg`, notarization and
+elevated package-manager apply are not implemented.
 
 **Platform services (2026-11-17):** `AppInstance` and `App::single_instance()` acquire a per-user
 advisory file lock after config load and refuse a secondary process before GPUI starts
@@ -310,6 +310,9 @@ deny-by-default grants and compiled glob scopes; the plugin host that consumes i
 Space (spec 0023). AccessKit is absent from GPUI 0.2.2, so the screen-reader/IME portion of the
 accessibility pass remains blocked upstream.
 
+**Deltas and rollout (2026-11-18):** manifest v2 carries optional base-bound bsdiff deltas and a
+deterministic percentage rollout; full downloads remain the fallback.
+
 **Benchmark harness (2026-11-18):** `auro bench` measures spawn-to-first-frame-request, idle RSS
 and stripped binary size; `examples/hello` is the no-toolkit fixture. A local 5-run Linux/Wayland
 result (154.9 ms, 105.3 MB, 15.6 MB) is recorded in the performance budget, not as a published
@@ -318,7 +321,7 @@ baseline or comparison.
 **Phase 2 technical status (2026-11-18):** bundling; signed manifests, staging and Linux AppImage
 apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
 `auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
-elevated package-manager apply, macOS `.dmg`/`.pkg`, deltas/staged rollout, and AccessKit/IME. The exit criterion also needs
+elevated package-manager apply, macOS `.dmg`/`.pkg`, and AccessKit/IME. The exit criterion also needs
 three real apps and published benchmarks; it is not met by the workspace alone.
 
 **Alpha candidate (2026-11-17):** the workspace and internal requirements are

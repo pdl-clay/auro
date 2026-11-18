@@ -22,6 +22,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// Create a new Auro app
     New {
@@ -81,6 +82,33 @@ enum Command {
         /// Publication timestamp (RFC 3339 or any stable text)
         #[arg(long)]
         published_at: String,
+        /// Rollout percentage (0-100)
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+        rollout_percentage: Option<u8>,
+        /// Previous artifact for an optional delta
+        #[arg(long)]
+        delta_from: Option<PathBuf>,
+        /// Version of `--delta-from`
+        #[arg(long)]
+        delta_from_version: Option<String>,
+        /// URL of the delta patch
+        #[arg(long)]
+        delta_url: Option<String>,
+        /// Write the generated delta patch here
+        #[arg(long)]
+        delta_out: Option<PathBuf>,
+    },
+    /// Create a bsdiff-compatible update patch
+    Delta {
+        /// Previous artifact
+        #[arg(long)]
+        from: PathBuf,
+        /// New artifact
+        #[arg(long)]
+        to: PathBuf,
+        /// Patch file to write
+        #[arg(long)]
+        out: PathBuf,
     },
     /// Measure startup, idle RSS and binary size for an app
     Bench {
@@ -124,6 +152,11 @@ fn main() {
             notes,
             platform,
             published_at,
+            rollout_percentage,
+            delta_from,
+            delta_from_version,
+            delta_url,
+            delta_out,
         } => release::manifest(
             &artifact,
             &version,
@@ -133,7 +166,13 @@ fn main() {
             &notes,
             platform.as_deref(),
             &published_at,
+            rollout_percentage,
+            delta_from.as_deref(),
+            delta_from_version.as_deref(),
+            delta_url.as_deref(),
+            delta_out.as_deref(),
         ),
+        Command::Delta { from, to, out } => release::delta(&from, &to, &out),
         Command::Bench {
             dir,
             runs,

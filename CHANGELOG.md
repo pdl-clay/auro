@@ -15,13 +15,13 @@ installable `auro-cli` yet.
 
 - `auro-sign`: Ed25519 signing keys, detached signatures and SHA-256 file hashes; key files are
   0600 on Unix and debug output hides the seed.
-- `auro-update`: signed update manifest format v1 with canonical JSON payloads, artifact
+- `auro-update`: signed update manifest format v2 with canonical JSON payloads, artifact
   size/SHA-256 verification, and `auro manifest`.
 - `auro-update`: runtime `Updater` checks signature/platform/semantic version, downloads with
   connect/per-call/per-read timeouts and an exact manifest-size bound, verifies SHA-256, and stages
   content-addressed artifacts atomically; `stage_from_path` uses the same path for local artifacts.
-  Staged files that still verify are reused. Apply paths live in specs 0014/0025; deltas and staged
-  rollout are not implemented (spec 0013). The facade exposes this as `auro::update` behind the
+  Staged files that still verify are reused. Apply paths live in specs 0014/0025; deltas and
+  staged rollout are spec 0028. The facade exposes this as `auro::update` behind the
   opt-in `updater` feature; `PublicKey` is re-exported for key loading.
 - `auro-update`: Windows `WindowsInstaller` runs staged MSI (`msiexec /i ... /qn /norestart`) or
   NSIS (`/S`) installers through an injectable, shell-free command runner and maps code `3010` to
@@ -31,8 +31,7 @@ installable `auro-cli` yet.
 - `auro-update`: Linux `AppImageInstaller` replaces a staged AppImage atomically, sets mode `0755`,
   and retains a hard-link (or copy) backup. `InstallReceipt` can roll the previous file back or
   discard the backup after the new version is accepted. Windows/macOS apply is in spec 0025;
-  package-manager apply, elevation, deltas and staged rollout are not implemented (spec 0014,
-  ADR 0013).
+  package-manager apply and elevation are not implemented (spec 0014, ADR 0013).
 - `auro-update`: `ApplyJournal` records one apply attempt atomically (`Prepared`, `Applied`,
   `RebootRequired`, `Failed`, `RolledBack`, `Restarted`), with artifact/target/backup and relaunch
   command. The
@@ -50,6 +49,10 @@ installable `auro-cli` yet.
   first-frame marker, idle RSS and binary size, with `--json` output. The `examples/hello` fixture
   is the no-toolkit benchmark app; a local 5-run Linux measurement is recorded as 154.9 ms,
   105.3 MB RSS and 15.6 MB stripped, explicitly not a published baseline.
+- `auro-update`: manifest v2 adds signed delta (bsdiff-compatible base-bound patch) and deterministic
+  rollout metadata. `download_delta`/`stage_delta_from_path` verify base, patch and full artifact;
+  `with_rollout_key` gates partial releases. CLI gains `auro delta` and `--rollout-percentage`/
+  delta options on `auro manifest` (spec 0028, ADR 0016).
 - `auro-perms`: deny-by-default capability `Policy` with `fs`/`net`/`shell`/`clipboard`/
   `notification`/`keychain` grants, compiled glob scopes for the scoped capabilities, typed
   `Denied` errors, and `auro::perms` re-exports (spec 0016).

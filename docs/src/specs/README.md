@@ -48,8 +48,8 @@ Every spec carries:
 | [0009](0009-window-manager.md) | Window manager: open/close/focus by configured label | 1 | Implemented |
 | [0010](0010-bundling.md) | Bundling: map `[bundle]` to `tauri-bundler`, host formats, `auro bundle` | 2 | Implemented (Linux, Windows and macOS verified) |
 | [0011](0011-signing.md) | Signing keys, artifact hashes, platform signing config | 2 | Implemented |
-| [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (download/stage 0013; AppImage 0014; Windows/macOS 0025) |
-| [0013](0013-updater-runtime.md) | Updater runtime: check, download, verify and stage | 2 | Implemented (AppImage in 0014; Windows/macOS in 0025; package/deltas pending) |
+| [0012](0012-update-manifests.md) | Signed update manifests: format, verify, CLI | 2 | Implemented (v2; 0013 stage, 0028 deltas/rollout) |
+| [0013](0013-updater-runtime.md) | Updater runtime: check, download, verify and stage | 2 | Implemented (full/delta; 0014/0025 apply) |
 | [0014](0014-appimage-apply.md) | AppImage apply: atomic replacement and rollback receipt | 2 | Implemented (Linux only) |
 | [0015](0015-single-instance.md) | Single instance: advisory lock, argument forwarding | 2 | Implemented (opt-in activation helper) |
 | [0016](0016-capabilities.md) | Capability manifests and enforcement | 2 | Implemented (host wiring pending) |
@@ -64,3 +64,4 @@ Every spec carries:
 | [0025](0025-platform-apply.md) | Windows installer execution and macOS `.app` replacement | 2 | Implemented (.dmg and elevation pending) |
 | [0026](0026-update-journal.md) | Update journal and restart helper | 2 | Implemented (helper applies, relaunches, reconciles) |
 | [0027](0027-linux-packages.md) | Linux `.deb`/`.rpm` package apply | 2 | Implemented (elevation/rollback pending) |
+| [0028](0028-deltas-rollout.md) | Binary deltas and deterministic staged rollout | 2 | Implemented |
