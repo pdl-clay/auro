@@ -1,0 +1,13 @@
+[package]
+name = "{{name}}-ui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+
+[dependencies]
+auro = {{auro_dependency}}
+serde = { version = "1", features = ["derive"] }
+{{name}}-types = { path = "../types" }
+
+[features]
+hot-reload = ["auro/hot-reload"]

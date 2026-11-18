@@ -173,6 +173,21 @@ fn watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Hot mode also watches the generated layout's crate sources.
+///
+/// A project scaffolded before the four-crate layout, or one whose `[dev] watch` was not updated,
+/// would otherwise hot-patch without a save timestamp and lose the D6 measurement.
+fn hot_watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
+    let mut paths = watch_paths(dir, config);
+    for member in ["ui", "data", "types"] {
+        let path = dir.join(member).join("src");
+        if path.is_dir() && !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
 /// Runs the hot-patch devserver. `dx` owns the app process; this loop forwards its output,
 /// timestamps saves from our own watcher, and reports how long each patch took.
 fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroError> {
@@ -249,17 +264,26 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
         });
     }
 
-    let (saves, saved) = mpsc::channel::<()>();
+    let (saves, saved) = mpsc::channel::<Instant>();
+    // One save is one burst of watcher events. Timestamp in the callback so the measurement starts
+    // when the save is observed, not when the loop next polls the channel.
+    let last_save = Arc::new(Mutex::new(None::<Instant>));
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         if let Ok(event) = &event
             && matches!(event.kind, notify::EventKind::Access(_))
         {
             return;
         }
-        let _ = saves.send(());
+        let now = Instant::now();
+        let mut last = last_save.lock().expect("save clock");
+        if last.is_some_and(|last| now.duration_since(last) < Duration::from_millis(150)) {
+            return;
+        }
+        *last = Some(now);
+        let _ = saves.send(now);
     })
     .map_err(|error| AuroError::Message(format!("cannot start the file watcher: {error}")))?;
-    for path in watch_paths(dir, config) {
+    for path in hot_watch_paths(dir, config) {
         watcher
             .watch(&path, RecursiveMode::Recursive)
             .map_err(|error| {
@@ -279,10 +303,14 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
     let mut relaunches = 0u32;
 
     loop {
-        if saved.try_recv().is_ok() {
-            // Coalesce a burst: the newest save is the one the patch name refers to.
-            while saved.try_recv().is_ok() {}
-            saved_at = Some(Instant::now());
+        let mut newest_save = None;
+        while let Ok(when) = saved.try_recv() {
+            newest_save = Some(when);
+        }
+        if let Some(when) = newest_save {
+            // A queued save means the edit happened after the previous build started; the newest
+            // one is the edit this measurement belongs to.
+            saved_at = Some(when);
             patched_at = None;
             patch_took = None;
             build_failed = false;
@@ -305,19 +333,42 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                 }
 
                 if let Some(took) = patch_took_ms(&line) {
-                    patched_at = Some(Instant::now());
-                    patch_took = Some(took);
-                    match saved_at {
-                        Some(saved) => println!(
+                    // A devserver line that arrives before our watcher saw the save, or after the
+                    // app already reported the patch, cannot be attributed to this measurement.
+                    if let Some(saved) = saved_at {
+                        if patched_at.is_none() {
+                            patched_at = Some(Instant::now());
+                            patch_took = Some(took);
+                        }
+                        println!(
                             "auro: hot patch applied ({took} ms, {} ms after the save)",
                             saved.elapsed().as_millis()
-                        ),
-                        None => println!("auro: hot patch applied ({took} ms)"),
+                        );
+                    } else {
+                        println!("auro: hot patch applied ({took} ms)");
                     }
                 }
 
                 if trace_u64(&plain, "auro:trace hot_patch ").is_some() {
                     patched_at.get_or_insert_with(Instant::now);
+                }
+
+                if let Some(reason) = trace_text(&plain, "auro:trace hot_data_rejected ") {
+                    // The code applied but the view refused its data (for example a schema change
+                    // that needs a restart). Do not present that as a reload.
+                    println!("auro: reload rejected by the view: {reason}; previous UI kept");
+                    saved_at = None;
+                    patched_at = None;
+                    patch_took = None;
+                }
+
+                if let Some(reason) = trace_text(&plain, "auro:trace hot_patch_failed ") {
+                    // The app keeps its previous jump table; dx heads for a full rebuild. There is
+                    // no render to measure, so this save must not produce a timing line later.
+                    println!("auro: patch rejected by the app: {reason}");
+                    saved_at = None;
+                    patched_at = None;
+                    patch_took = None;
                 }
 
                 if trace_u64(&plain, "auro:trace hot_render ").is_some() {
@@ -457,6 +508,13 @@ fn patch_took_ms(line: &str) -> Option<u128> {
 fn trace_u64(line: &str, marker: &str) -> Option<u64> {
     let (_, rest) = line.split_once(marker)?;
     rest.split_whitespace().next()?.parse().ok()
+}
+
+/// The message after a trace marker, e.g. the reason in `auro:trace hot_patch_failed <reason>`.
+fn trace_text<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
+    let (_, rest) = line.split_once(marker)?;
+    let rest = rest.trim();
+    (!rest.is_empty()).then_some(rest)
 }
 
 /// One machine-readable line per applied patch (spec 0004, D6).
@@ -913,6 +971,28 @@ mod tests {
         assert!(value["save_to_patch_ms"].is_null());
         assert!(value["patch_to_render_ms"].is_null());
         assert!(value["patch_took_ms"].is_null());
+    }
+
+    #[test]
+    fn reads_the_reason_a_patch_was_rejected() {
+        assert_eq!(
+            trace_text(
+                "  2.1s ERROR auro:trace hot_patch_failed Failed to load library: file too short",
+                "auro:trace hot_patch_failed "
+            ),
+            Some("Failed to load library: file too short")
+        );
+        assert_eq!(
+            trace_text(
+                "auro:trace hot_patch_failed",
+                "auro:trace hot_patch_failed "
+            ),
+            None
+        );
+        assert_eq!(
+            trace_text("auro:trace hot_patch 3", "auro:trace hot_patch_failed "),
+            None
+        );
     }
 
     #[test]

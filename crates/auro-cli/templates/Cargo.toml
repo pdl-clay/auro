@@ -5,12 +5,11 @@ edition = "2024"
 rust-version = "1.90"
 
 [dependencies]
-auro = {{auro_dependency}}
-serde = { version = "1", features = ["derive"] }
-{{patch}}
+{{name}}-ui = { path = "ui" }
+{{name}}-data = { path = "data" }
 
 [features]
-hot-reload = ["auro/hot-reload"]
+hot-reload = ["{{name}}-ui/hot-reload"]
 
 # `dx serve` builds this adhoc profile (the Dioxus CLI keeps it separate from `dev`). Hot reload
 # relinks the app crate on every save and DWARF dominates that link; `debug_assertions` stays on,
@@ -25,3 +24,6 @@ incremental = false
 
 # Its own workspace: a parent manifest must never capture the generated app.
 [workspace]
+members = [".", "ui", "data", "types"]
+
+{{patch}}

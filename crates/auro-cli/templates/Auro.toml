@@ -10,6 +10,7 @@ width = 960
 height = 640
 
 [dev]
-watch = ["src", "Auro.toml"]
+# `types` is the shared shape; a change there is a restart, not a hot patch.
+watch = ["src", "ui/src", "data/src", "types/src", "Auro.toml"]
 # `hot = true` runs the hot-patch devserver instead of rebuilding and relaunching.
 hot = false

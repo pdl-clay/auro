@@ -121,7 +121,9 @@ function-level hot-patching of the **tip crate**:
   `App::try_run` polls it (16 ms) on the main thread and calls `cx.notify(root_entity)` for every
   open window, so the next frame runs the patched boundary.
 - **Measured render.** `auro::hot::hot`/`hot_with` print `auro:trace hot_render <n>` on the first
-  call after a patch. `auro dev` combines its own save timestamp, the devserver's
+  call after a patch. A view that validates the frame first (the generated one does) calls
+  `hot_frame` and `rendered` only after the frame is accepted, so a rejected frame does not produce
+  a render marker. `auro dev` combines its own save timestamp, the devserver's
   `Hot-patching ... took` line and this marker into one JSON line per edit
   (`save_to_patch_ms`, `patch_to_render_ms`, `save_to_render_ms`, `patch_took_ms`).
 - **Boundary is the reloadable unit.** `view_data() -> ViewData` returns plain data; element and
@@ -133,25 +135,47 @@ function-level hot-patching of the **tip crate**:
   `dx serve`; `debug_assertions` remain on, which subsecond requires. DWARF dominated the relink
   (3.3 s → ~0.5 s save-to-render on the demo), and disabling the incremental session was faster and
   steadier for the one-file ThinLink rebuild.
+- **Crate boundary.** The scaffold is a four-crate workspace: `types` (`ViewData` + fixed
+  `HotData`), `data` (the boundary), `ui` (`Render`, window, element tree, snapshot/autosave) and a
+  thin bin. `ui` does not depend on `data`, so `dx` recompiles the changed boundary crate and the
+  bin, not GPUI or the view. The patch library falls from roughly the size of the app to ~12 KB, and
+  the measured Linux median fell from 521 ms to 368 ms (N=12, 325-394). A plan struct boundary
+  without the fixed-frame check measured 288 ms; the guard costs ~80 ms and is kept because it
+  rejects a patch built against a changed data layout instead of letting the old host read it.
+- **Apply containment.** `auro::hot` opens the devserver connection itself. A patch that fails to
+  load is caught (error or loader panic), reported, and the previous jump table keeps running; the
+  listener stays open for the next edit. The dev loop labels it `patch rejected by the app`, never
+  as a reload. A committed patch wakes the main thread through a watch channel instead of a 16 ms
+  poll, so patch-to-render is 1-26 ms and an idle app does not wake twice a frame.
 
-**Linux measurement (niri/Wayland, x86_64, 12 CPUs, rustc 1.99.1, gpui 0.2.2, dx/subsecond/
-dioxus-devtools 0.7.10, demo scaffold, warm dependency cache, boundary-only edits):** save-to-render
-473/488/519/521/521/522/528/539/548/567/572 ms (**median 521 ms, min 473, max 572, N=11**);
-patch-to-render 8-24 ms; same pid and monotonically continuing host state across patches
-(counter 52→59 in the continuity run). With `incremental = true` the same app measured median
-650.5 ms (N=10, 547-1722). A deliberate type error kept the previous UI running and applied no
-patch; the fixing edit reloaded in 634 ms in the same process. Closing the window ended `auro dev`
-with exit 0 and no orphan process; Ctrl-C ended the devserver and the app.
+**Linux measurement, earlier single-crate scaffold (niri/Wayland, x86_64, 12 CPUs, rustc 1.99.1,
+gpui 0.2.2, dx/subsecond/dioxus-devtools 0.7.10, warm dependency cache, boundary-only edits):**
+save-to-render 473/488/519/521/521/522/528/539/548/567/572 ms (**median 521 ms, min 473, max 572,
+N=11**); patch-to-render 8-24 ms; same pid and host state across patches. With `incremental = true`
+the same app measured median 650.5 ms (N=10, 547-1722).
+
+**Linux measurement, four-crate scaffold (2026-11-18):** save-to-render
+393/371/385/370/366/339/357/370/394/350/325/366 ms (**median 368 ms, min 325, max 394, N=12**),
+patch-to-render 1-26 ms, `patch_took` 268-325 ms, same pid/window/host state. The host was under
+load average ~16 from an unrelated workspace test build for the series, so the numbers are
+conservative for this machine. A type error kept the previous UI and the fixing edit applied in
+270 ms (simple-frame series). A schema change applied as a patch was rejected by the running view
+and left the previous values on screen.
 
 ## Platform status (2026-11-18)
 
-- **Linux:** measured above; integrated loop, state continuity, build-failure recovery, graceful
-  exit and Ctrl-C cleanup verified (niri/Wayland).
+- **Linux:** measured above; four-crate scaffold median 368 ms (N=12), integrated loop, state
+  continuity, build-failure recovery, apply containment, schema rejection, graceful exit and Ctrl-C
+  cleanup verified (niri/Wayland).
 - **Windows:** integrated loop verified in the WinBoat guest (interactive console session 1, MSVC
   1.99.0): first patch after launch 2806 ms save-to-render, five steady-state patches
   1823/1505/1375/1237/1282 ms (median 1375), patch-to-render 8-38 ms; same pid and ticking host
   state across patches, a type error kept the previous UI live, the fix reloaded in 1696 ms, and
-  closing the window exited the dev loop with code 0. `dx serve` must run inside the interactive
+  closing the window exited the dev loop with code 0. A four-crate re-test (simple boundary)
+  measured 873/1872/1735/1229/1168/961/820/2359/921 ms (N=9, median 1168, patch-to-render 3-13 ms)
+  with the same pid/window/state: better, still above 500 ms. The guarded `HotData` template built
+  and applied in the same guest (650 ms patch, same window); the remaining gap is MSVC
+  compile/link, not repaint. `dx serve` must run inside the interactive
   session (a session-0 run fails before render with DirectX `0x887A0022`), and Defender exclusions
   for the project/cargo/rustup directories cut patch time substantially. The data boundary is the
   reloadable unit; Windows cannot patch element-returning code.
@@ -160,17 +184,26 @@ with exit 0 and no orphan process; Ctrl-C ended the devserver and the app.
   `hot-reload` feature on `macos-latest`. A hardened-runtime build would reject the unsigned patch
   dylib; that, signing, and an interactive Aqua measurement are open.
 
-The loop's numbers are Linux/Windows only; the < 500 ms target is reported as a target, not as met.
+The < 500 ms reference case is met on Linux (median 368 ms) and not on Windows; macOS has no live
+run. It is reported per platform, never as a single global claim.
 
-## Direction under investigation
+| Platform | Hot mode | Save-to-render (warm) | Evidence |
+|---|---|---|---|
+| Linux x86_64, niri/Wayland | Opt-in, verified | **368 ms** median, N=12 (325-394) | Four-crate scaffold, `desktop-dev`, boundary edits, same pid/window/state |
+| Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **1168 ms** median, N=9 (820-2359) | Four-crate scaffold, simple boundary; guarded template built and applied (650 ms patch); still above target |
+| macOS | Compiles/tests in CI only | Unmeasured | No Apple host; interactive Aqua run, signing and hardened-runtime behaviour open |
 
-Per [ADR 0008](../decisions/0008-hot-reload-mechanism-revision.md), the mechanism must keep one
-GPUI `Application`/window/event loop and reload updated UI code in the same process and type
-universe. Current leading evidenced candidate: subsecond/dx function-level tip-crate patching with
-explicit `HotFn` boundaries and host-owned snapshot/state, subject to productization (project layout,
-tooling integration, snapshot/restore API, change classification, diagnostics, and representative D6
-measurement). The chosen mechanism, layout/build model, and measurements are recorded in
-[spec 0004](../specs/0004-hot-reload.md) when proven.
+## Mechanism and layout
+
+Per [ADR 0008](../decisions/0008-hot-reload-mechanism-revision.md), the mechanism keeps one GPUI
+`Application`/window/event loop and reloads updated UI code in the same process and type universe.
+The implemented mechanism is `subsecond`/`dx` function-level patching of an explicit `HotFn`
+boundary, with host-owned GPUI state and a versioned snapshot. The generated layout makes the
+reloadable unit a small workspace crate (`data`) that the view crate (`ui`) does not depend on,
+which keeps GPUI out of the patch and brings the Linux warm-edit median under 500 ms. The boundary
+returns a fixed `HotData` frame so a changed data layout is rejected rather than misinterpreted.
+The contract, measurements and remaining platform limits are in
+[spec 0004](../specs/0004-hot-reload.md).
 
 ## State preservation
 
@@ -209,15 +242,21 @@ context and is labelled honestly.
 - Hot patching requires a build with `debug_assertions` enabled: `HotFn::try_call` calls the local
   function directly in release builds, so the jump table is bypassed and code changes silently do
   not apply.
+- The boundary's return type must keep a fixed layout: the running host was compiled against the old
+  one. The scaffold uses `types::HotData`, a fixed `#[repr(C)]` frame with a schema number; change
+  `ViewData` and its encoder, bump `SCHEMA`, and never re-lay-out `HotData`.
+- A patch that cannot be loaded must not kill the listener. `auro::hot` handles `apply_patch`
+  errors and loader panics and keeps the previous jump table; the next edit can still apply.
 
 ## Open problems
 
 - Hot mode is integrated behind `[dev] hot = true`; open: change classification for edits outside
   the boundary (currently a patched, unchanged boundary), forced fallback restart, and a headless
   reload fixture.
-- Project/layout/build strategy: the scaffold's tip-crate `view_data` boundary plus host-stable
-  `Render` is the implemented shape; migration for older Phase 0 scaffolds is documented, but the
-  author contract for larger reloadable units is open.
+- Project/layout/build strategy: the four-crate `data`/`ui`/`types`/bin shape is implemented and
+  documented, including migration for older scaffolds; the author contract for larger reloadable
+  units and for edits outside `data` (currently observed as a patch but not reflected in the running
+  view) is open.
 - Snapshot format/versioning, incompatible-change classification, and state migration/reset policy.
 - Representative D6 measurements on Auro apps/scaffolds (cold/warm, debug/release, more hardware and
   Windows/macOS coverage); Linux and Windows have one scaffold series each, macOS none.

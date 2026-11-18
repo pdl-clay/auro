@@ -10,8 +10,13 @@ const CARGO_TOML: &str = include_str!("../templates/Cargo.toml");
 const AURO_TOML: &str = include_str!("../templates/Auro.toml");
 const DIOXUS_TOML: &str = include_str!("../templates/Dioxus.toml");
 const MAIN_RS: &str = include_str!("../templates/main.rs");
-const VIEW_RS: &str = include_str!("../templates/view.rs");
-const SERVICE_RS: &str = include_str!("../templates/service.rs");
+const UI_CARGO_TOML: &str = include_str!("../templates/ui/Cargo.toml");
+const UI_LIB_RS: &str = include_str!("../templates/ui/lib.rs");
+const SERVICE_RS: &str = include_str!("../templates/ui/services.rs");
+const DATA_CARGO_TOML: &str = include_str!("../templates/data/Cargo.toml");
+const DATA_LIB_RS: &str = include_str!("../templates/data/lib.rs");
+const TYPES_CARGO_TOML: &str = include_str!("../templates/types/Cargo.toml");
+const TYPES_LIB_RS: &str = include_str!("../templates/types/lib.rs");
 const GITIGNORE: &str = "/target\n";
 
 /// Scaffolds an app. Refuses a directory that already has content.
@@ -25,37 +30,33 @@ pub fn new(path: &Path) -> Result<(), AuroError> {
 
     fs::create_dir_all(path)?;
     let name = package_name(path);
+    let crate_name = name.replace('-', "_");
     let identifier = format!("com.example.{}", name.replace('-', ""));
+    let auro = auro_dependency(
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+        env!("CARGO_PKG_VERSION"),
+    );
+    let patch = xattr_patch();
+    let fill = |template: &str| {
+        template
+            .replace("{{name}}", &name)
+            .replace("{{crate}}", &crate_name)
+            .replace("{{identifier}}", &identifier)
+            .replace("{{auro_dependency}}", &auro)
+            .replace("{{patch}}", &patch)
+    };
 
-    write(
-        &path.join("Cargo.toml"),
-        &CARGO_TOML
-            .replace("{{name}}", &name)
-            .replace(
-                "{{auro_dependency}}",
-                &auro_dependency(
-                    Path::new(env!("CARGO_MANIFEST_DIR")),
-                    env!("CARGO_PKG_VERSION"),
-                ),
-            )
-            .replace("{{patch}}", &xattr_patch()),
-    )?;
-    write(
-        &path.join("Auro.toml"),
-        &AURO_TOML
-            .replace("{{name}}", &name)
-            .replace("{{identifier}}", &identifier),
-    )?;
-    write(
-        &path.join("Dioxus.toml"),
-        &DIOXUS_TOML.replace("{{name}}", &name),
-    )?;
-    write(&path.join("src/main.rs"), MAIN_RS)?;
-    write(
-        &path.join("src/views/mod.rs"),
-        &VIEW_RS.replace("{{identifier}}", &identifier),
-    )?;
-    write(&path.join("src/services/mod.rs"), SERVICE_RS)?;
+    write(&path.join("Cargo.toml"), &fill(CARGO_TOML))?;
+    write(&path.join("Auro.toml"), &fill(AURO_TOML))?;
+    write(&path.join("Dioxus.toml"), &fill(DIOXUS_TOML))?;
+    write(&path.join("src/main.rs"), &fill(MAIN_RS))?;
+    write(&path.join("ui/Cargo.toml"), &fill(UI_CARGO_TOML))?;
+    write(&path.join("ui/src/lib.rs"), &fill(UI_LIB_RS))?;
+    write(&path.join("ui/src/services.rs"), &fill(SERVICE_RS))?;
+    write(&path.join("data/Cargo.toml"), &fill(DATA_CARGO_TOML))?;
+    write(&path.join("data/src/lib.rs"), &fill(DATA_LIB_RS))?;
+    write(&path.join("types/Cargo.toml"), &fill(TYPES_CARGO_TOML))?;
+    write(&path.join("types/src/lib.rs"), &fill(TYPES_LIB_RS))?;
     write(&path.join(".gitignore"), GITIGNORE)?;
 
     println!("Created {} at {}", name, path.display());
@@ -279,8 +280,13 @@ mod tests {
             "Auro.toml",
             "Dioxus.toml",
             "src/main.rs",
-            "src/views/mod.rs",
-            "src/services/mod.rs",
+            "ui/Cargo.toml",
+            "ui/src/lib.rs",
+            "ui/src/services.rs",
+            "data/Cargo.toml",
+            "data/src/lib.rs",
+            "types/Cargo.toml",
+            "types/src/lib.rs",
         ] {
             assert!(target.join(file).is_file(), "{file} missing");
         }
@@ -295,12 +301,33 @@ mod tests {
         let manifest =
             std::fs::read_to_string(target.join("Cargo.toml")).expect("generated manifest");
         assert!(
-            manifest.contains("auro = { path ="),
-            "in-repo scaffolds point at the workspace: {manifest}"
+            manifest.contains("members = [\".\", \"ui\", \"data\", \"types\"]"),
+            "the scaffold is a four-crate workspace: {manifest}"
         );
         assert!(
             manifest.contains("[workspace]"),
             "the app must be its own workspace: {manifest}"
+        );
+        let ui =
+            std::fs::read_to_string(target.join("ui/Cargo.toml")).expect("generated ui manifest");
+        assert!(
+            ui.contains("auro = { path ="),
+            "in-repo scaffolds point at the workspace: {ui}"
+        );
+        assert!(
+            !ui.contains("demo-data"),
+            "the ui crate must not depend on the boundary: {ui}"
+        );
+        let data = std::fs::read_to_string(target.join("data/Cargo.toml"))
+            .expect("generated data manifest");
+        assert!(
+            !data.contains("auro ="),
+            "the boundary crate stays framework-free: {data}"
+        );
+        let main = std::fs::read_to_string(target.join("src/main.rs")).expect("main");
+        assert!(
+            main.contains("demo_ui::run(demo_data::view_data)"),
+            "the bin wires the boundary: {main}"
         );
         let dioxus = std::fs::read_to_string(target.join("Dioxus.toml")).expect("Dioxus.toml");
         assert!(
@@ -309,7 +336,7 @@ mod tests {
         );
 
         // A leftover `{{identifier}}` would not compile in the generated app.
-        let view = std::fs::read_to_string(target.join("src/views/mod.rs")).expect("view");
+        let view = std::fs::read_to_string(target.join("ui/src/lib.rs")).expect("view");
         assert!(
             view.contains("com.example.demo"),
             "identifier must reach the view: {view}"

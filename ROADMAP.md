@@ -150,8 +150,17 @@ the web. This is *the* bet of the project.
   session, MSVC), the first patch measured 2806 ms and five steady-state patches
   1823/1505/1375/1237/1282 ms (median 1375, patch-to-render 8-38 ms), also with the same pid and
   continuing host state; the fix after a type error reloaded in 1696 ms and closing the window
-  exited 0. The <500 ms median target is not met on either platform. macOS is unmeasured (no Apple
-  host); CI compile/tests the feature there. `auro dev` still relaunches by default.
+  exited 0. macOS is unmeasured (no Apple host); CI compile/tests the feature there. `auro dev`
+  still relaunches by default.
+- **Four-crate scaffold (2026-11-18, opt-in):** the generated app is now `types` (fixed `HotData`
+  frame), `data` (the boundary), `ui` (view/render/window code) and a thin bin; `ui` does not depend
+  on `data`, so a boundary edit recompiles the boundary and the bin, not GPUI. On niri/Wayland the
+  same reference machine measured **325-394 ms save-to-render (N=12, median 368)**, patch-to-render
+  1-26 ms, same pid/window/state; a plain-struct variant measured median 288 ms. The patch library
+  is ~12 KB instead of the fat binary. A failed apply is caught and reported while the previous code
+  keeps running, and a changed `HotData` schema is rejected by the old host. A Windows re-test with
+  the simple boundary measured median 1168 ms (N=9, 820-2359), still above target; macOS
+  unmeasured. The target is met on Linux for this documented warm case, not platform-wide.
 - **Fallback:** state-preserving process restart, labelled honestly and never presented as hot
   reload.
 
@@ -249,7 +258,7 @@ headless test asserts the title reaches the window.
 - Reference app: [`examples/log-viewer`](examples/log-viewer/README.md) — log viewer plus a
   settings window, using `gpui-component 0.5.1` at the app level. It is the phase's manual exit
   proof and is not built by the main CI matrix.
-- `auro dev`: watch + rebuild + relaunch by default; opt-in hot mode (`[dev] hot = true`) with a data-only boundary, measured on Linux and Windows and unmeasured on macOS ([spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
+- `auro dev`: watch + rebuild + relaunch by default; opt-in hot mode (`[dev] hot = true`) with a four-crate data boundary, Linux median 368 ms (target met for the documented warm case), Windows above target, macOS unmeasured ([spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 - CLI: `new`, `dev`, `build`, `doctor`.
 
 **Progress (2026-11-17):** the toolkit seam ([spec 0005](docs/src/specs/0005-toolkit-seam.md)),

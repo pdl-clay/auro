@@ -24,3 +24,10 @@ fn hot_boundary_is_repeatable() {
     let second = auro::hot::hot(answer);
     assert_eq!(first, second);
 }
+
+#[test]
+fn frame_boundary_can_report_after_validation() {
+    let value = auro::hot::hot_frame(answer);
+    assert_eq!(value, 42);
+    auro::hot::rendered();
+}
