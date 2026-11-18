@@ -95,6 +95,15 @@ mod tests {
     }
 
     #[test]
+    fn round_trips_a_full_multibyte_title() {
+        let data = ViewData {
+            title: "é".repeat(TITLE_BYTES / 2),
+            accent: 0x123456,
+        };
+        assert_eq!(HotData::encode(&data).decode().expect("decodes"), data);
+    }
+
+    #[test]
     fn rejects_a_foreign_schema() {
         let mut frame = HotData::encode(&ViewData::default());
         frame.schema = HotData::SCHEMA + 1;
