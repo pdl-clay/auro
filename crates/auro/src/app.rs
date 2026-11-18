@@ -220,7 +220,19 @@ impl App {
 
     /// Runs the app, returning before the event loop starts if configuration is invalid or another
     /// instance holds the single-instance lock.
+    ///
+    /// With the `updater` feature, setting `AURO_UPDATE_RESTART_HELPER` makes this run the restart
+    /// helper instead of loading config or starting GPUI. The helper waits for the previous process,
+    /// relaunches it and returns.
     pub fn try_run(self) -> Result<(), AuroError> {
+        #[cfg(feature = "updater")]
+        if let Some(path) =
+            std::env::var_os(auro_update::RESTART_HELPER_ENV).filter(|path| !path.is_empty())
+        {
+            return auro_update::run_restart_helper(std::path::Path::new(&path))
+                .map_err(|error| AuroError::Message(format!("update restart helper: {error}")));
+        }
+
         #[cfg(feature = "hot-reload")]
         crate::hot::install();
 

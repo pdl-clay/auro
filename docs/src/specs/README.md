@@ -61,4 +61,5 @@ Every spec carries:
 | [0022](0022-deep-links.md) | Deep links: scheme registration, parsing and queue | 2 | Implemented (forwarded-argument wiring pending) |
 | [0023](0023-keyboard-activation.md) | Keyboard activation for Button | 2 | Implemented (AccessKit/IME pending) |
 | [0024](0024-alpha-release.md) | Alpha release: version, publish order, facade features, scaffold | 2 | Draft (alpha candidate; publication pending) |
-| [0025](0025-platform-apply.md) | Windows installer execution and macOS `.app` replacement | 2 | Implemented (.dmg, elevation and restart pending) |
+| [0025](0025-platform-apply.md) | Windows installer execution and macOS `.app` replacement | 2 | Implemented (.dmg and elevation pending) |
+| [0026](0026-update-journal.md) | Update journal and restart helper | 2 | Implemented (relaunch helper; helper-side apply pending) |

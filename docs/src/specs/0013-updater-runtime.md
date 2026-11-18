@@ -180,6 +180,6 @@ the facade's `updater` feature (or depend on `auro-update` directly) to use the 
 |---|---|
 | Install/restart/rollback by platform | [AppImage apply](0014-appimage-apply.md) / [Windows and macOS apply](0025-platform-apply.md) / restart spec |
 | Deltas and staged rollout selection | Updater rollout spec |
-| Persistent update journal and resume | Updater apply spec |
+| Persistent update journal and resume | [Update journal](0026-update-journal.md) / resume spec |
 | Key rotation/revocation and pinning in the app | Trust/update client spec |
 | Update channels, prompts and scheduling | Platform/update UX follow-up |

@@ -1,8 +1,8 @@
 # 0014 - AppImage apply and rollback
 
 **Status:** Implemented (2026-11-17; Linux AppImage only; Windows/macOS apply is
-[spec 0025](0025-platform-apply.md); restart orchestration and package-manager installers are not
-implemented)
+[spec 0025](0025-platform-apply.md), restart handoff is [spec 0026](0026-update-journal.md);
+helper-side apply, elevation and package-manager installers are not implemented)
 
 Spec 0013 stops at a verified staged artifact. This spec adds the first apply path: replacing a
 single-file Linux AppImage, with a receipt that can roll the previous file back. It deliberately
@@ -20,10 +20,10 @@ does not generalise installation into a command hook.
 
 - `.deb`/`.rpm` package installation, macOS `.dmg`/`.pkg`, and the Windows/MSI/NSIS and macOS
   `.app` details owned by [spec 0025](0025-platform-apply.md).
-- Restarting the app, waiting for a process to exit, or a helper-process protocol.
+- Restarting the app, waiting for a process to exit, or a helper-process protocol; the journal/
+  restart handoff is [spec 0026](0026-update-journal.md).
 - Deltas, staged rollout, update channels and downgrade policy.
 - Preserving owner, group, extended attributes, SELinux labels or other file metadata beyond mode.
-- A persistent receipt/journal across process restarts.
 - Signature verification; the artifact is already a [`StagedUpdate`](0013-updater-runtime.md).
 
 ## Decisions
@@ -127,6 +127,6 @@ The snippet is an intended call shape, not code that exists as an app.
 | Windows MSI/NSIS apply and privilege handling | [Windows and macOS apply](0025-platform-apply.md) / Windows UX |
 | macOS `.dmg`/`.pkg` replacement and notarization | macOS updater spec |
 | `.deb`/`.rpm` package-manager updates | Linux package updater spec |
-| Restart/helper protocol and crash-safe receipt | Apply/restart spec |
+| Restart/helper protocol and crash-safe receipt | [Update journal and restart helper](0026-update-journal.md) |
 | Preserving xattrs, SELinux labels and ownership | Platform apply hardening |
 | Rollout, deltas and downgrade policy | Updater rollout spec |

@@ -33,6 +33,11 @@ installable `auro-cli` yet.
   discard the backup after the new version is accepted. Windows/macOS apply is in spec 0025;
   package-manager apply, restart orchestration, deltas and staged rollout are not implemented
   (spec 0014, ADR 0013).
+- `auro-update`: `ApplyJournal` records one apply attempt atomically (`Prepared`, `Applied`,
+  `Failed`, `RolledBack`, `Restarted`), with artifact/target/backup and relaunch command. The
+  restart helper re-executes the app with `AURO_UPDATE_RESTART_HELPER`, waits on a lock until the old
+  process exits, then relaunches with that variable removed. The helper only relaunches; platform
+  apply stays synchronous (specs 0026, ADR 0015).
 - `auro-perms`: deny-by-default capability `Policy` with `fs`/`net`/`shell`/`clipboard`/
   `notification`/`keychain` grants, compiled glob scopes for the scoped capabilities, typed
   `Denied` errors, and `auro::perms` re-exports (spec 0016).

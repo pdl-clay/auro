@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 /// The manifest format this build understands.
 pub const FORMAT_VERSION: u32 = 1;
 
+/// The update journal format this build understands.
+pub const JOURNAL_FORMAT_VERSION: u32 = 1;
+
 /// Why a manifest or artifact failed verification.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -114,7 +117,34 @@ pub enum UpdateError {
 
     #[error("archive entry `{}` escapes the extraction directory through a symlink", .path.display())]
     UnsafeArchive { path: PathBuf },
+
+    #[error("update journal `{}` is missing", .path.display())]
+    JournalMissing { path: PathBuf },
+
+    #[error(
+        "unsupported update journal format {0}; this build understands {JOURNAL_FORMAT_VERSION}"
+    )]
+    JournalFormat(u32),
+
+    #[error("update journal is {actual:?}; expected Applied")]
+    JournalNotApplied { actual: crate::journal::ApplyState },
+
+    #[error("restart lock `{}` is busy: {message}", .path.display())]
+    RestartLock { path: PathBuf, message: String },
+
+    #[error("timed out waiting for the app to exit before restart")]
+    RestartTimeout,
+
+    #[error("journal lock `{}` is not the sibling of `{}`", .lock.display(), .path.display())]
+    JournalLockPath { path: PathBuf, lock: PathBuf },
+
+    #[error("relaunch executable `{}` is missing", .path.display())]
+    RelaunchMissing { path: PathBuf },
 }
+
+mod journal;
+
+pub use journal::{ApplyJournal, ApplyState, RESTART_HELPER_ENV, Relaunch, run_restart_helper};
 
 mod installer;
 

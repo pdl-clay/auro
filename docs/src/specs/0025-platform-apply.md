@@ -1,7 +1,7 @@
 # 0025 - Windows and macOS apply
 
 **Status:** Implemented (2026-11-17; Windows MSI/NSIS execution and macOS `.app.zip` replacement;
-`.dmg`, macOS packages, elevation and restart orchestration are not implemented)
+`.dmg`, macOS packages and elevation are not implemented; restart handoff is spec 0026)
 
 Spec 0013 stops at a verified staged artifact. Spec 0014 adds the Linux AppImage apply path. This
 spec adds the next two platform paths: run a Windows MSI/NSIS installer, and replace a macOS `.app`
@@ -21,14 +21,14 @@ size and SHA-256 were checked before any platform action.
 ## Out of scope
 
 - Elevation, UAC, `sudo`, admin prompts or a privileged helper process.
-- Waiting for the running app to exit, relaunching it, or a restart protocol.
+- Waiting for the running app to exit, relaunching it, or a restart protocol; the journal/restart
+  handoff is [spec 0026](0026-update-journal.md).
 - Windows rollback. The MSI/NSIS installer owns its install transaction.
 - macOS `.dmg` mounting, `.pkg` installation and notarization.
 - `.deb`/`.rpm` package-manager apply.
 - Preserving extended attributes, ACLs, SELinux labels or ownership beyond what the archive and
   filesystem copy provide.
 - Deltas, staged rollout, update channels and downgrade policy.
-- A persistent apply journal across process restarts.
 
 ## Decisions
 
@@ -87,7 +87,7 @@ therefore tested on Linux CI, while the host-specific types remain exported only
 *Rejected:* `#[cfg(test)]` branches inside the production install function. The runner keeps the
 test double explicit and lets an app provide a custom runner if needed.
 
-### D4 - No automatic restart or elevation
+### D4 - The installer does not restart or elevate
 
 A Windows installer may return `3010` or `1641`, and a macOS bundle is used on the next launch.
 Neither
@@ -198,6 +198,6 @@ The snippet is an intended call shape, not an app that exists yet.
 | Windows elevation, reboot and installer UI policy | Windows update UX/spec |
 | macOS `.dmg` and `.pkg` apply | macOS package apply spec |
 | `.deb`/`.rpm` package-manager apply | Linux package updater spec |
-| Restart/helper protocol and crash-safe apply journal | Apply/restart spec |
+| Restart/helper protocol and crash-safe apply journal | [Update journal and restart helper](0026-update-journal.md) |
 | macOS code-signing preservation and notarization checks | macOS update hardening |
 | Deltas, rollout and downgrade policy | Updater rollout spec |

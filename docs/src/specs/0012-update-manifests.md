@@ -130,7 +130,7 @@ impl Manifest {
 
 | Question | Where it settles |
 |---|---|
-| Download/apply/staging/restart and rollback | [Updater runtime](0013-updater-runtime.md) / [AppImage](0014-appimage-apply.md) / [Windows and macOS](0025-platform-apply.md) / restart spec |
+| Download/apply/staging/restart and rollback | [Updater runtime](0013-updater-runtime.md) / [AppImage](0014-appimage-apply.md) / [Windows and macOS](0025-platform-apply.md) / [journal and restart](0026-update-journal.md) |
 | Deltas/patches and staged rollout percentages | Updater rollout spec |
 | Key pinning and rotation inside the app | Trust/update client spec |
 | Update channels and UI | Platform/update UX follow-up |

@@ -28,6 +28,7 @@
 - [0012 - Release trust](decisions/0012-release-trust.md)
 - [0013 - AppImage updates](decisions/0013-appimage-updates.md)
 - [0014 - Platform update apply](decisions/0014-platform-update-apply.md)
+- [0015 - Self-helper restart](decisions/0015-self-helper-restart.md)
 
 # Specifications
 
@@ -57,6 +58,7 @@
 - [0023 - Keyboard activation](specs/0023-keyboard-activation.md)
 - [0024 - Alpha release](specs/0024-alpha-release.md)
 - [0025 - Windows and macOS apply](specs/0025-platform-apply.md)
+- [0026 - Update journal and restart helper](specs/0026-update-journal.md)
 
 # Reference
 

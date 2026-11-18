@@ -36,13 +36,14 @@ mod app;
 pub mod windows;
 
 #[cfg(feature = "updater")]
-/// Signed update manifests and the staged updater runtime (specs 0012, 0013).
+/// Signed update manifests, staging, platform apply and restart handoff (specs 0012-0015, 0025, 0026).
 ///
 /// Enable the `updater` feature to use this module.
 pub mod update {
     pub use auro_update::{
-        FORMAT_VERSION, InstallerRunner, Manifest, PublicKey, StagedUpdate, SystemInstallerRunner,
-        UpdateDecision, UpdateError, Updater, current_platform,
+        ApplyJournal, ApplyState, FORMAT_VERSION, InstallerRunner, JOURNAL_FORMAT_VERSION,
+        Manifest, PublicKey, RESTART_HELPER_ENV, Relaunch, StagedUpdate, SystemInstallerRunner,
+        UpdateDecision, UpdateError, Updater, current_platform, run_restart_helper,
     };
 
     #[cfg(target_os = "linux")]
