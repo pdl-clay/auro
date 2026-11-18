@@ -137,6 +137,9 @@ mod platform {
         Ok(())
     }
 
+    // libc::S_ISVTX is u16 on macOS and u32 on Linux; the cast is required on macOS and a no-op
+    // on Linux, where clippy would otherwise call it unnecessary.
+    #[allow(clippy::unnecessary_cast)]
     fn validate_owner_and_mode(
         path: &Path,
         metadata: &Metadata,
