@@ -69,7 +69,11 @@ The artifact is written to a temporary file in the staging directory. The reader
 manifest size; one additional byte is read to reject an oversized body. A short body is an
 `ArtifactSize` error. The temporary file is synced, verified against the manifest's size and
 SHA-256, then persisted at its content-addressed path. A failed download publishes nothing: the
-temporary file is dropped, and a previously staged file is left untouched.
+temporary file is dropped, and a previously staged file is left untouched. Verification compares
+the file length from metadata and hashes in 64 KiB chunks, so its memory use is independent of the
+artifact size; reused staged files and delta patches follow the same rule. A delta is applied
+directly into the staging temp file (the base and patch are still read into memory because the
+bsdiff API takes slices), and the resulting file is verified before it is published.
 
 *Rejected:* downloading to the final path and verifying afterwards. A crash or a failed hash would
 leave a plausible-looking but unusable file.

@@ -19,7 +19,8 @@ Phase 2 needs installable artifacts. Auro does not write a bundler: `auro-bundle
 - Code signing, notarization and the signed updater (later Phase 2 specs).
 - Cross-compilation as a supported workflow; the bundler warns and is not exercised by CI.
 - Custom installer UI, installer hooks and file associations.
-- Generating icon assets; apps provide them through `[bundle].icon`.
+- Generating icon assets beyond the scaffold's placeholder; apps provide their own through
+  `[bundle].icon`.
 - Package formats outside the config schema (APK, Snap, Flatpak, …).
 
 ## Decisions
@@ -53,9 +54,10 @@ An unknown category or package format is `AuroError::Bundle`, not a bundler pani
 
 ### D3 - `auro bundle` builds first
 
-`auro bundle` loads and version-checks the config, runs `cargo build --release`, resolves the
-executable name (`package.default-run`, else `package.name`), then calls
-`auro_bundle::bundle(dir, &config, &binary)`. The bundler's project output directory is
+`auro bundle` loads and version-checks the config, rejects a config with
+`[bundle] active = false` (`AuroError::Bundle`; bundling is opt-out, not a silent no-op), runs
+`cargo build --release`, resolves the executable name (`package.default-run`, else `package.name`),
+then calls `auro_bundle::bundle(dir, &config, &binary)`. The bundler's project output directory is
 `<app>/target/release`, so artifacts land under `target/release/bundle/<format>/`. Every produced
 path is printed, one per line.
 

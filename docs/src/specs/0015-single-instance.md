@@ -46,20 +46,25 @@ is racy. *Rejected:* a TCP listener; a local socket has no ports, firewall rules
 
 The path is `auro-<sanitised-id>.lock`. The identifier is sanitised to ASCII alphanumerics, `.`, `-`
 and `_`, truncated to 128 characters, so it cannot escape the directory. On Unix the file is created
-with mode `0600`. The directory is `XDG_RUNTIME_DIR` when it exists, otherwise the per-user temporary
-directory. The identifier is normally `app.identifier` from `Auro.toml`.
+with mode `0600`. The directory is `XDG_RUNTIME_DIR` when it is a real directory owned by this user
+with no group/other permission bits; otherwise the process uses a private `auro-<uid>` subdirectory
+of the temporary directory, created with mode `0700` and re-validated (ownership, owner-only mode,
+not a symlink) before use. The identifier is normally `app.identifier` from `Auro.toml`.
 
-Linux containers without `XDG_RUNTIME_DIR` fall back to the temporary directory; the lock is still
-per-process-user in the common case, but a shared `/tmp` can be deliberately interfered with by the
-same user. That is outside the threat model.
+On a shared `/tmp`, a predictable name alone is not enough: another local user could pre-create the
+directory, lock file or socket and receive forwarded arguments. An `XDG_RUNTIME_DIR` that fails the
+check is ignored in favor of the fallback; a fallback directory that fails is refused with
+`AuroError::Instance`. An attacker who pre-creates the per-user directory can still deny
+single-instance operation (the app refuses to start that guard), which is a denial of service, not
+an information leak. Interference by a same-user process remains outside the threat model.
 
 ### D3 - Secondary startup forwards, then exits with an error
 
 The secondary acquires the lock (finding it already held), forwards `InstanceMessage { args, cwd }`,
 and returns `AuroError::Instance` before GPUI starts. `App::run` prints it and exits with code 2. The
 primary receives the message on its event pump. `App::activate_on_second_instance()` opts into
-focusing the first registered root and activating the app; apps that need another window use
-`InstanceMessage` and `on_event`.
+focusing `app.default-window` (the first declared window when the key is unset) and activating the
+app; apps that need another window use `InstanceMessage` and `on_event`.
 
 *Rejected:* returning success from the secondary process. It would hide a user's attempted launch
 and make automated tests unable to distinguish "opened" from "refused".
@@ -78,17 +83,22 @@ forwarding thread and the process exit releases the socket. Neither is stored in
 
 ### D6 - Local socket, one JSON line per message
 
-On Unix the primary binds a filesystem socket in the per-user runtime directory (name derived from
-the same sanitised identifier, truncated to 32 characters to fit `sun_path`); Linux applies mode
-`0600`, and macOS uses the per-user `$TMPDIR`. Windows uses a named pipe. The listener accepts
-connections in a background thread, reads one JSON line capped at 64 KiB, and sends the decoded
-`InstanceMessage` to the app's `EventSender`. The secondary writes the same JSON line and closes
-the connection.
+On Unix the primary binds a filesystem socket in the per-user runtime directory selected by D2 (name
+derived from the same sanitised identifier truncated to 40 characters plus a stable hash of the
+full identifier, so long reverse-DNS identifiers sharing a prefix cannot collide); Linux applies
+mode `0600`, and macOS uses the private directory under its per-user `$TMPDIR`. Windows uses a
+named pipe with the same label. The listener accepts connections in a background thread, reads one
+JSON line capped at 64 KiB, and sends the decoded `InstanceMessage` to the app's `EventSender`. The
+secondary writes the same JSON line and closes the connection.
 
 This avoids an abstract Linux socket, which has no filesystem permissions: a different local user
 could otherwise inject messages. `ListenerOptions::try_overwrite` handles a stale socket name; the
 file lock remains the authority that prevents two primaries. Invalid JSON is logged and never
 invokes the app handler.
+
+On Windows the named pipe is machine-global rather than behind a per-user directory; isolation
+relies on the pipe's default ACL, and multi-user behavior has not been verified on a real desktop
+session. The forwarded payload is arguments and a working directory, never secrets by contract.
 
 *Rejected:* a shared-memory or file-drop protocol. It needs polling or a second notification channel
 and is harder to test than a local socket. *Rejected:* an abstract socket, because peer credentials

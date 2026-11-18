@@ -31,9 +31,10 @@ Precision matters more than the number, because a budget you cannot reproduce is
 prints min, median, p95 and max for startup and RSS, and `--json` emits the same summary plus the
 raw `startup_ms_samples`/`rss_mb_samples` arrays. The p95 uses the nearest-rank definition, so a
 small run count (five is the default) makes p95 the maximum sample; raise `--runs` before reading
-it as a tail estimate. The marker is a first-frame request, not proof of a painted frame; the
-stricter painted-frame method remains a target. Run it on an otherwise idle machine and record the
-platform/toolchain with the result.
+it as a tail estimate. A process that exits after the startup marker but before or during the idle
+sample is reported as an error with its exit status, never as a 0 MB sample. The marker is a
+first-frame request, not proof of a painted frame; the stricter painted-frame method remains a
+target. Run it on an otherwise idle machine and record the platform/toolchain with the result.
 
 Local measurement, 2026-11-18, Linux x86_64, niri/Wayland, release build, `examples/hello`, five
 runs with a five-second idle sample: startup median **154.9 ms**, idle RSS median **105.3 MB**,

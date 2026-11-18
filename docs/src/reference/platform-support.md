@@ -30,6 +30,17 @@ Text input, IME and accessibility have their own audit in
 [Text input, IME and accessibility](../architecture/accessibility.md): GPUI 0.2.2 has IME plumbing
 on all three platforms but no AccessKit, and Auro has no text-input primitive.
 
+## Security-relevant verification gaps
+
+- The single-instance private-directory, ownership and mode checks are unit-tested on Unix; no
+  multi-user Linux or macOS desktop session has exercised them. Windows uses a machine-global named
+  pipe and relies on its ACL; that isolation is unverified.
+- Updater signature, size and SHA-256 paths are unit-tested on every OS; TUF-style key rotation,
+  revocation and a real signed release have not been exercised. Update artifacts are hashed in
+  bounded chunks, but platform installers are only integration-tested where the host tools exist.
+- The macOS `.pkg` and notarization paths are command-tested but not run against Apple services;
+  Windows MSI/NSIS is not installed by the CI gate. Both remain manual verification lines.
+
 ## Linux system dependencies
 
 The CI job installs exactly this set to build the workspace

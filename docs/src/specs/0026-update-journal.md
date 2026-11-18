@@ -105,6 +105,23 @@ and exits. It never builds a shell command.
 The journal is intentionally left on disk for diagnosis. Cleanup is the app's or a future recovery
 policy's job.
 
+### D5 - The journal's directory is a trust boundary
+
+The journal carries the verification key, staged artifact path, platform target and the relaunch
+program and arguments. The helper trusts all of them; re-verifying the artifact with the key the
+journal names proves internal consistency, not who wrote the file. The journal and its lock must
+therefore live in a directory only the current user can write (for example the app's data
+directory), and the caller must not point `ApplyJournal` or `RESTART_HELPER_ENV` at a shared
+location. A journal planted by another local user would otherwise be able to name its own key,
+artifact and relaunch executable, and a package apply would reach the elevation prompt with that
+caller-supplied package.
+
+Auro does not yet enforce a directory ACL or file mode in `ApplyJournal::load`: Unix modes are a
+partial signal, and the correct check differs on Windows. Until that policy exists, this is an
+explicit integration requirement, not a property the library provides. The helper never
+self-elevates; the elevation prompt and the package manager remain the user's decision
+(spec 0029).
+
 ## Interfaces
 
 ```rust
