@@ -23,8 +23,22 @@ sha2.workspace = true
 thiserror.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [target.'cfg(target_os = "macos")'.dependencies]
 zip.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", default-features = false, features = [
+  "std",
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_SystemServices",
+  "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 zip.workspace = true

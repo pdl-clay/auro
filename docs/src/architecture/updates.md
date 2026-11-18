@@ -52,8 +52,13 @@ the lock, re-verifies the manifest and artifact, applies the platform action, ma
 `RebootRequired`), and relaunches. Failures are `Failed` with a diagnostic and no relaunch.
 The app classifies the next start with `reconcile` and cleans up with `finalize` after `Complete`.
 
-The journal is user-writable local state. It is a crash-recovery record, not a second trust
-anchor: the app's pinned key and the signed manifest travel with it, and the helper verifies both.
+The journal is user-writable local state, but its path is a trust boundary: it names the
+verification key, staged artifact, target and relaunch command, so a journal planted by another
+local user would choose what the helper runs. `ApplyJournal::load`, `save` and the helper lock open
+refuse a journal or lock in a directory another user can write: Unix checks owner, mode, symlinks
+and ancestors; Windows rejects reparse points and checks the owner/DACL; the Windows tests pass on
+GitHub Actions. See [spec 0033](../specs/0033-update-journal-trust.md). The helper still
+re-verifies the signed manifest and artifact; path trust does not replace signature verification.
 
 ## Rollback
 
@@ -77,7 +82,8 @@ the Auro manifest signature. See [macOS notarization](../specs/0032-macos-notari
 
 ## Not implemented
 
-- a served update channel, release key rotation and revocation;
+- a served update channel, metadata expiry/generation, release key rotation and revocation
+  ([RFC 0001](../../../rfcs/0001-update-metadata-trust.md));
 - a real notarization submission or a macOS `.pkg` apply on a macOS host;
 - automatic retention of a previous package;
 - an update UI, scheduling, channels or resume of an interrupted download;

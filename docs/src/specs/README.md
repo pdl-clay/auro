@@ -69,3 +69,4 @@ Every spec carries:
 | [0030](0030-linux-package-rollback.md) | Linux package rollback with an explicit older artifact | 2 | Implemented (manual policy) |
 | [0031](0031-macos-package-apply.md) | macOS `.pkg` apply through installer/osascript | 2 | Implemented in tree (runtime unverified) |
 | [0032](0032-macos-notarization.md) | macOS notarization submission and stapling | 2 | Implemented in tree (credentials/runtime unverified) |
+| [0033](0033-update-journal-trust.md) | Update journal trust boundary: fail-closed ownership/mode/ACL checks | 2 | Implemented (Unix tested; Windows compile-verified, runtime unverified) |

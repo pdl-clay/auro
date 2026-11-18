@@ -719,6 +719,7 @@ name = "auro-update"
 version = "0.1.0-alpha.1"
 dependencies = [
  "auro-sign",
+ "libc",
  "qbsdiff",
  "semver",
  "serde",
@@ -727,6 +728,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "ureq",
+ "windows 0.61.3",
  "zip 2.6.1",
 ]
 

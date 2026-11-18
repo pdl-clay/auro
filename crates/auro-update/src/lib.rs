@@ -139,6 +139,9 @@ pub enum UpdateError {
     #[error("update journal `{}` is missing", .path.display())]
     JournalMissing { path: PathBuf },
 
+    #[error("update journal path `{}` is not trusted: {reason}", .path.display())]
+    JournalTrust { path: PathBuf, reason: &'static str },
+
     #[error(
         "unsupported update journal format {0}; this build understands {JOURNAL_FORMAT_VERSION}"
     )]
@@ -197,6 +200,7 @@ pub enum UpdateError {
 }
 
 mod journal;
+mod trust;
 
 pub use journal::{
     ApplyJournal, ApplyKind, ApplyPlan, ApplyState, PackageRollback, RESTART_HELPER_ENV, Recovery,
