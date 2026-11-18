@@ -22,6 +22,11 @@ debug = 0
 # consistently faster without an incremental session (measured).
 incremental = false
 
+# The documented binary-size method is a release build with symbols stripped. `panic = "abort"`
+# is deliberately not set: hot reload catches a panicking boundary so the previous UI stays alive.
+[profile.release]
+strip = "symbols"
+
 # Its own workspace: a parent manifest must never capture the generated app.
 [workspace]
 members = [".", "ui", "data", "types"]

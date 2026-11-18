@@ -133,14 +133,32 @@ fn run_once(binary: &Path, dir: &Path, idle_seconds: u64) -> Result<Run, AuroErr
             )));
         }
     };
+    if let Some(status) = child.try_wait()? {
+        return Err(AuroError::Message(format!(
+            "app exited with {status} after `{STARTUP_MARKER}`; no idle sample"
+        )));
+    }
     thread::sleep(Duration::from_secs(idle_seconds));
+    if let Some(status) = child.try_wait()? {
+        return Err(AuroError::Message(format!(
+            "app exited with {status} during the {idle_seconds}s idle window; no idle sample"
+        )));
+    }
     let pid = Pid::from_u32(child.id());
     let mut system = System::new();
     system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     let rss_bytes = system
         .process(pid)
         .map(sysinfo::Process::memory)
-        .unwrap_or_default();
+        .filter(|bytes| *bytes > 0);
+    let Some(rss_bytes) = rss_bytes else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(AuroError::Message(format!(
+            "could not read RSS for process {} after the idle window",
+            child.id()
+        )));
+    };
     let _ = child.kill();
     let _ = child.wait();
 

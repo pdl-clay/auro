@@ -9,5 +9,9 @@ edition = "2024"
 auro = { path = "../../crates/auro" }
 gpui-component = "=0.5.1"
 
+# The README's binary size is a stripped release build.
+[profile.release]
+strip = "symbols"
+
 [patch.crates-io]
 xattr = { path = "../../vendor/xattr" }

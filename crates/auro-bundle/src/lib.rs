@@ -92,11 +92,17 @@ fn preflight(dir: &Path, config: &Config) -> Result<(), AuroError> {
 }
 
 fn is_square_png(path: &Path) -> bool {
-    let Ok(bytes) = std::fs::read(path) else {
+    use std::io::Read as _;
+
+    let Ok(mut file) = std::fs::File::open(path) else {
         return false;
     };
+    let mut bytes = [0u8; 24];
+    if file.read_exact(&mut bytes).is_err() {
+        return false;
+    }
     const SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
-    if bytes.len() < 24 || bytes[..8] != SIGNATURE || &bytes[12..16] != b"IHDR" {
+    if bytes[..8] != SIGNATURE || &bytes[12..16] != b"IHDR" {
         return false;
     }
     let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
