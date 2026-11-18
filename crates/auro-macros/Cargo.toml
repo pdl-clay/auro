@@ -10,7 +10,7 @@ homepage = "https://pdl-clay.github.io/auro/"
 keywords = ["gui", "macros", "commands", "proc-macro"]
 categories = ["development-tools::procedural-macro-helpers"]
 authors.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [lib]
 proc-macro = true

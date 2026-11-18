@@ -10,7 +10,7 @@ homepage = "https://pdl-clay.github.io/auro/"
 keywords = ["gui", "desktop", "gpui", "tauri", "framework"]
 categories = ["gui", "development-tools"]
 authors.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [package.metadata.docs.rs]
 features = ["services", "tray", "updater"]
