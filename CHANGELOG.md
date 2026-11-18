@@ -442,6 +442,12 @@ installable `auro-cli` yet.
 
 ### Changed
 
+- Hot-reload communication narrowed to what was measured: the 368 ms Linux median is save-to-render
+  for edits in the scaffold's `data/src` boundary (`view_data() -> HotData`), not a general view
+  reload. `README.md`, `README.pt-BR.md` and the performance budget now state that changes to
+  `ui`/`Render`, layout, `types`, dependencies or configuration rebuild the host and restart the
+  process, restoring the snapshot when compatible and labelling the outcome `restarted (state
+  restored)` or `restarted (state reset: <reason>)`.
 - `auro new` writes a 512x512 placeholder `icons/icon.png` and sets `[bundle] icon`, so a fresh
   scaffold passes the AppImage preflight instead of failing the first `auro bundle`. Replace the
   placeholder with the app's own icon.
