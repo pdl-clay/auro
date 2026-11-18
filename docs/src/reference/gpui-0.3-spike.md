@@ -28,6 +28,10 @@ moves from `gpui = "=0.2.2"` to the `gpui-pre 0.3.x` line, and is the hot-reload
 The first app build through `dx` took 72.41 s (shared dependency target, cold app crate). A host
 rebuild after a `types`/`ui` edit took 3.09 s.
 
+A runtime smoke of `examples/hello` on the same target built in 3m05s (debug) and ran: it printed
+`auro:startup` and was killed by a 10 s timeout while the event loop was still running (expected
+for a window app).
+
 ## Broken APIs
 
 Only two workspace call sites needed changes; the generated template needed one more.
