@@ -503,9 +503,11 @@ patch-to-render. Editor swap files beside the source produced no restart. A host
 syntax error kept the previous app alive (same pid) and printed `auro: host rebuild failed;
 previous UI still running`; the fixed save rebuilt in 3.15 s, launched a new pid and restored the
 snapshot. The same host restart succeeded on Windows: a `ui/src/lib.rs` save rebuilt in 5.91 s,
-launched a new pid, restored the snapshot and the next `data` edit patched in 910 ms. macOS CI
-also passed the restart check (`restarted (state restored)`, new pid) after a seeded snapshot. This
-is the state-preserving restart path required by D4/D7, not a reload.
+launched a new pid, restored the snapshot and the next `data` edit patched in 910 ms. A Windows
+host rebuild with a syntax error kept the previous app (pid 11740) and printed `host rebuild failed;
+previous UI still running`. macOS CI also passed the restart check (`restarted (state restored)`,
+new pid) after a seeded snapshot. This is the state-preserving restart path required by D4/D7, not
+a reload.
 
 ### D5 - Compatibility is enforced, not assumed
 

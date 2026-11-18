@@ -195,8 +195,9 @@ and left the previous values on screen.
   its fat-link interception requires the default linker, so lld is not a usable lever. `/OPT:REF`
   plus `/OPT:ICF` measured a 767 ms median save-to-render (N=4), no gain. A `ui/src/lib.rs` save
   restarted the devserver/app in 5.91 s with a new pid and restored snapshot; a following `data`
-  edit patched in 910 ms. The data boundary is the reloadable unit; Windows cannot patch
-  element-returning code.
+  edit patched in 910 ms, and a syntax error kept the previous app and printed `host rebuild
+  failed; previous UI still running`. The data boundary is the reloadable unit; Windows cannot
+  patch element-returning code.
 - **macOS:** no local Apple host, but a manual workflow (`Hot reload macOS benchmark`) measured the
   guarded scaffold on a shared `macos-26-arm64` runner with the prebuilt dx 0.7.10: six warm-up
   edits then twelve measured, save-to-render
