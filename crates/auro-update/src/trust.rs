@@ -161,7 +161,7 @@ mod platform {
             // directory must not be writable by another principal at all.
             let sticky_ancestor = directory
                 && !immediate
-                && mode & libc::S_ISVTX != 0
+                && mode & (libc::S_ISVTX as u32) != 0
                 && (metadata.uid() == 0 || metadata.uid() == euid);
             if !sticky_ancestor {
                 return Err(trust_error(
