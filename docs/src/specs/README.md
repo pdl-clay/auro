@@ -40,7 +40,7 @@ Every spec carries:
 | - | [What Auro takes from Tauri](tauri-basis.md) | evidence | living |
 | [0001](0001-foundation.md) | Foundation: workspace, runtime seam, commands, state, dev loop | 0 | Implemented |
 | [0002](0002-config.md) | `Auro.toml` schema, merge rules, validation | 0 | Implemented |
-| [0004](0004-hot-reload.md) | Hot reload: save-to-visible with preserved state, measurability, mechanism under revision | 1, 3 | Draft - opt-in hot mode integrated; Linux measured |
+| [0004](0004-hot-reload.md) | Hot reload: save-to-visible with preserved state, measurability, mechanism under revision | 1, 3 | Draft - opt-in hot mode integrated; Linux 368 ms median (target met), Windows 813 ms (above), macOS CI-only |
 | [0005](0005-toolkit-seam.md) | Toolkit seam: setup hook, app-owned root, no framework toolkit | 1 | Implemented |
 | [0006](0006-lifecycle-events.md) | Lifecycle events: ready, window open/close, exiting | 1 | Implemented |
 | [0007](0007-events.md) | Typed application events: sender, main-thread pump, handlers | 1 | Implemented |

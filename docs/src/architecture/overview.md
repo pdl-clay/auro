@@ -66,9 +66,11 @@ The call site is a Rust call, so a wrong argument type is a compile error rather
 
 - **UI state** lives in GPUI entities on the main thread.
 - **Application state** lives in the core state store, reachable from commands.
-- **Reloadable state** (planned) is captured as a host-owned `serde` snapshot so a future hot reload
-  or a state-preserving restart can restore opted-in state. The hot-reload mechanism is under
-  revision ([spec 0004](../specs/0004-hot-reload.md), [ADR 0008](../decisions/0008-hot-reload-mechanism-revision.md)).
+- **Reloadable state** is captured as a host-owned `serde` snapshot so a hot reload or a
+  state-preserving restart can restore opted-in state. Opt-in hot mode patches a small boundary
+  crate in-process; the contract is in [spec 0004](../specs/0004-hot-reload.md), the mechanism in
+  [ADR 0008](../decisions/0008-hot-reload-mechanism-revision.md) and the boundary layout in
+  [ADR 0021](../decisions/0021-hot-reload-boundary-crate.md).
 
 The boundary rule that keeps this honest: nothing outside `auro-core` holds a global mutable
 reference to app state, and nothing on the main thread blocks on I/O.
