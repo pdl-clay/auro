@@ -506,8 +506,9 @@ snapshot. The same host restart succeeded on Windows: a `ui/src/lib.rs` save reb
 launched a new pid, restored the snapshot and the next `data` edit patched in 910 ms. A Windows
 host rebuild with a syntax error kept the previous app (pid 11740) and printed `host rebuild failed;
 previous UI still running`. macOS CI also passed the restart check (`restarted (state restored)`,
-new pid) after a seeded snapshot. This is the state-preserving restart path required by D4/D7, not
-a reload.
+new pid) after a seeded snapshot. The old app remains interactive during the build; state changed
+there after the replacement has loaded its snapshot is not guaranteed to carry over. This is the
+state-preserving restart path required by D4/D7, not a reload.
 
 ### D5 - Compatibility is enforced, not assumed
 
