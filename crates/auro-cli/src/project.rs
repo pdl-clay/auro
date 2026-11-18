@@ -139,11 +139,10 @@ fn resolve_target_dir(dir: &Path, value: Option<std::ffi::OsString>, cwd: &Path)
     match value {
         Some(value) => {
             let target = PathBuf::from(value);
-            if target.is_absolute() {
-                target
-            } else {
-                cwd.join(target)
-            }
+            // `Path::is_absolute` is false on Windows for a Unix-style `/tmp` value; a leading
+            // separator is rooted and should not be joined to the invocation directory.
+            let rooted = target.is_absolute() || target.to_string_lossy().starts_with(['/', '\\']);
+            if rooted { target } else { cwd.join(target) }
         }
         None => dir.join("target"),
     }
