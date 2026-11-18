@@ -17,7 +17,7 @@ use interprocess::local_socket::GenericFilePath;
 #[cfg(windows)]
 use interprocess::local_socket::GenericNamespaced;
 use interprocess::local_socket::{ListenerOptions, Name, prelude::*};
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use interprocess::os::unix::local_socket::ListenerOptionsExt as _;
 use serde::{Deserialize, Serialize};
 
