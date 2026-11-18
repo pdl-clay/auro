@@ -43,9 +43,17 @@ Only two workspace call sites needed changes; the generated template needed one 
 3. `gpui::Timer` is no longer re-exported (0.2.2 re-exported `smol::Timer`). The scaffold used it in
    the snapshot debounce; the spike adds `smol = "2"` to the `ui` crate and imports `smol::Timer`.
    This is a template change, not a framework API change.
+4. `Window::focus_next` now takes `&mut App`. `crates/auro-ui/tests/button_keyboard.rs:31` calls
+   `window.focus_next()` and fails to compile; the test must pass the app context. This is a test
+   API change that a real migration must include, not just a library call site.
+5. The spike hardcodes `gpui_linux::current_platform(false)`. The CI matrix fails on macOS and
+   Windows with `cannot find module or crate gpui_linux`; `ubuntu-latest` also failed in the first
+   CI run. A real migration needs target-specific platform crates and a per-target CI leg.
 
 `gpui-component 0.10.0` compiled the existing `log-viewer` source without changes. That is a
-compile result, not a runtime or visual verification.
+compile result, not a runtime or visual verification. The spike branch's Linux 22.04 build passes;
+the other matrix legs fail for the platform/test reasons above, which is expected for a Linux-only
+spike and is recorded rather than hidden.
 
 ## Hot reload
 
@@ -99,8 +107,8 @@ migrate:
    `gpui-component =0.10.0` together; do not mix 0.3.12 and 0.3.13.
 2. Move platform selection into `auro-ui` (the only crate that names GPUI) and add a per-target CI
    check for the platform crates.
-3. Change `Application::new` to the platform factory and `on_window_closed` to the two-argument
-   callback in the same PR.
+3. Change `Application::new` to the platform factory, `on_window_closed` to the two-argument
+   callback, and the `focus_next` test call site to pass the app context in the same PR.
 4. Replace `gpui::Timer` in the template with `smol::Timer` (or a deliberate `auro-ui` re-export)
    and add `smol` to the generated `ui` crate.
 5. Re-run the hot-reload boundary benchmark and the `examples/hello`/`log-viewer` runtime, then
