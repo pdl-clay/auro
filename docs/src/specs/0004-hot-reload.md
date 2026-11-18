@@ -1,6 +1,6 @@
 # 0004 - Hot reload
 
-**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows above target, macOS unmeasured); `auro dev` still relaunches by default
+**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows 813 ms, macOS 509.5 ms on a shared CI runner); `auro dev` still relaunches by default
 
 Spec 0001 closed Phase 0 with a relaunch loop and recorded ~60 s save-to-visible on the development
 machine (relink dominates). This spec defines the contract that must replace that loop for UI work:
@@ -303,13 +303,16 @@ first patch and 830/848/799/819 ms steady (N=4), also no improvement. `codegen-u
 MSVC compile/link of the boundary and bin, not the repaint, the incremental session or codegen-unit
 count.
 
-**macOS (2026-11-18): no live run.** There is no Apple host here, so no save-to-render number
-exists. The loop, preflight, `auro doctor` and diagnostics are platform-neutral, `subsecond`
-supports the Mach-O patch transport, and CI builds and runs the `hot-reload` feature tests on
-`macos-latest` (including a generated four-crate scaffold); a real measurement needs an
-interactive Aqua session. A hardened-runtime build
-would refuse the unsigned patch dylib, so hot-reload dev builds must not enable the hardened
-runtime; this is unverified and recorded as an open item, not as support.
+**macOS measurement (2026-11-18, GitHub macOS 26 arm64 runner).** There is no local Apple host,
+but the manual `Hot reload macOS benchmark` workflow ran the guarded four-crate scaffold with the
+prebuilt dx 0.7.10 on `macos-latest` (`macos-26-arm64`): `auro dev`, six warm-up boundary edits,
+then twelve measured edits. Save-to-render was
+536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, min 372, max 1071;
+patch-to-render 2-17 ms), with the app process and window kept. A first cold run without warm-up
+measured median 515 ms (N=12, 431-715). The shared runner is noisy and the median is slightly above
+500 ms; five of the twelve warm edits were under it. No local Apple hardware, hardened-runtime
+build, signing or interactive Aqua session was exercised. macOS is measured but not GA, and CI
+also builds/tests the feature and the generated scaffold on `macos-latest`.
 
 **Boundary crate split (2026-11-18, integrated).** The first integrated scaffold kept the boundary
 and the GPUI view in the same bin crate. Every patch then recompiled and relinked the view code and
@@ -758,8 +761,8 @@ recorded with machine and method in D6. Item 7 is partially demonstrated (same w
 state across patches, graceful exit, Ctrl-C cleanup) for boundary-only edits. Item 1 still has no
 headless fixture; item 4 rests on the crate boundary (`ui` does not depend on `data`, only
 `hot`-wrapped calls read the jump table); item 8 is the repository gates. The Linux median is now
-under 500 ms for the documented warm case, but Windows remains above it and macOS is unmeasured, so
-the target is not met platform-wide and experimental mode must not claim it.
+under 500 ms for the documented warm case, macOS is at the boundary on a shared CI runner and
+Windows remains above it, so the target is not met platform-wide and experimental mode must not claim it.
 
 GA additionally requires: measured < 500 ms save-to-visible for the documented warm view-only case on
 each Tier 1 platform (or an explicit, approved revision of the target recorded in the performance
@@ -775,5 +778,5 @@ budget), published numbers, and a stable documented author contract for reloadab
 | How managed `State<T>` participates when its type is defined in reloadable code vs host-stable code | Implementation + follow-up ADR/spec if it changes state ownership rules (D5 of spec 0001) |
 | Debug/release mixing, optimization levels, and symbol/debug info required by the chosen mechanism | Implementation, per platform notes |
 | In-app surfacing of build/reload diagnostics (overlay/panel) vs terminal-only in experimental mode | `auro-ui`/dev UX follow-up; terminal reporting is the minimum |
-| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and patching an element-returning view in session 1 applied then overflowed the main thread's stack (`0xc000041d`); a leaf `HotFn` and a framework-free `ViewData` boundary hot-patched repeatedly with state preserved, so Windows hot reload is limited to framework-free boundaries. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. **Integrated re-test (2026-11-18):** the Windows scaffold applied boundary patches in the interactive session with the same pid and continuing state (median 1375 ms save-to-render, N=5 steady; see D1), kept the previous UI on a type error and exited 0 when the window closed. macOS has no live run; CI compiles/tests the feature and hardened-runtime signing of the patch dylib is open. |
+| Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and patching an element-returning view in session 1 applied then overflowed the main thread's stack (`0xc000041d`); a leaf `HotFn` and a framework-free `ViewData` boundary hot-patched repeatedly with state preserved, so Windows hot reload is limited to framework-free boundaries. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. **Integrated re-test (2026-11-18):** the Windows scaffold applied boundary patches in the interactive session with the same pid and continuing state (median 1375 ms save-to-render, N=5 steady; see D1), kept the previous UI on a type error and exited 0 when the window closed. **macOS measurement (2026-11-18):** a manual GitHub `macos-26-arm64` workflow measured median 509.5 ms after six warm-up edits (N=12, 372-1071; first cold run 515, 431-715); local hardware and hardened-runtime signing remain open. |
 | Change classification for `types`/`ui`/bin edits in hot mode: `dx` still compiles a patch, the running host keeps its old code, and the schema guard rejects an incompatible data frame; a restart is the honest path | dev loop watch-path classification (follow-up) |

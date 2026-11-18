@@ -188,20 +188,23 @@ and left the previous values on screen.
   the project/cargo/rustup directories are recommended, but in this run they left four steady
   patches at 719-735 ms (one 1293 ms outlier), not enough to reach the target. The data boundary
   is the reloadable unit; Windows cannot patch element-returning code.
-- **macOS:** no live run and no measured number; there is no Apple host here. The loop, doctor and
-  diagnostics are shared, `subsecond` carries a Mach-O transport, and CI compiles and tests the
-  `hot-reload` feature and a generated four-crate scaffold on `macos-latest`. A hardened-runtime
-  build would reject the unsigned patch dylib; that, signing, and an interactive Aqua measurement
-  are open.
+- **macOS:** no local Apple host, but a manual workflow (`Hot reload macOS benchmark`) measured the
+  guarded scaffold on a shared `macos-26-arm64` runner with the prebuilt dx 0.7.10: six warm-up
+  edits then twelve measured, save-to-render
+  536/520/444/625/1071/598/481/507/439/512/462/372 ms (N=12, **median 509.5**, min 372, max 1071;
+  patch-to-render 2-17 ms), same process/window. A first cold run measured median 515 (N=12,
+  431-715). The runner is noisy and the median is slightly above target; five of twelve warm edits
+  were under 500. Local hardware, signing and hardened-runtime behaviour remain open.
 
-The < 500 ms reference case is met on Linux (median 368 ms) and not on Windows; macOS has no live
-run. It is reported per platform, never as a single global claim.
+The < 500 ms reference case is met on Linux (median 368 ms), not on Windows (median 813 ms), and
+is at the boundary on a shared macOS runner (median 509.5 ms). It is reported per platform, never
+as a single global claim.
 
 | Platform | Hot mode | Save-to-render (warm) | Evidence |
 |---|---|---|---|
 | Linux x86_64, niri/Wayland | Opt-in, verified | **368 ms** median, N=12 (325-394) | Four-crate scaffold, `desktop-dev`, boundary edits, same pid/window/state |
 | Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **813 ms** median, N=9 (752-897) | Guarded four-crate scaffold, `auro dev` trace, same pid/window; still above target (a plain-boundary series measured 1168 ms) |
-| macOS | Compiles/tests in CI only | Unmeasured | No Apple host; the generated scaffold builds/tests on `macos-latest`; interactive Aqua run, signing and hardened-runtime behaviour open |
+| macOS arm64 (`macos-26-arm64` runner) | Opt-in, measured in CI | **509.5 ms** median, N=12 after 6 warm-up (372-1071) | Shared GitHub runner; first cold run 515 ms; no local Apple hardware, signing or hardened-runtime test |
 
 ## Mechanism and layout
 

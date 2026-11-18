@@ -2,8 +2,10 @@ name: Hot reload macOS benchmark
 
 on:
   workflow_dispatch:
-  push:
-    branches: [agent/hot-reload-ga]
+
+concurrency:
+  group: hot-reload-macos-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

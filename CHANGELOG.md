@@ -32,8 +32,9 @@ installable `auro-cli` yet.
   machine measured 325-394 ms save-to-render (N=12, median 368, patch-to-render 1-26 ms,
   `desktop-dev` `debug=0`, `incremental=false`) with the same pid, window and state; a plain-struct
   boundary measured median 288 ms, so the fixed-frame guard costs ~80 ms. Windows still exceeds
-  500 ms; macOS is unmeasured. The target is met on Linux for this documented warm case, not
-  platform-wide.
+  500 ms (813 ms, N=9); a shared `macos-26-arm64` runner measured 509.5 ms (N=12 after warm-up,
+  372-1071; first cold run 515). The target is met on Linux for this documented warm case, at the
+  boundary on macOS CI, and not on Windows; not platform-wide.
 - `auro::hot` now owns the devserver connection: a patch that fails to load (error or loader panic)
   is reported as `auro:trace hot_patch_failed <reason>` and `auro: patch rejected by the app:
   <reason>`, the previous code keeps running, and the listener stays open for the next edit. A

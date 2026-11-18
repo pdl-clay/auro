@@ -58,7 +58,8 @@ wakes the main thread through a watch channel rather than a poll.
 - Windows remains above the 500 ms target (813 ms median, N=9) because MSVC compile/link of the
   boundary and bin dominates; `incremental` and Defender exclusions did not close the gap. The
   relaunch loop remains the Windows fallback.
-- macOS has no live measurement; CI builds/tests the scaffold.
+- macOS is measured on a shared CI runner at 509.5 ms median (N=12 after warm-up), at the target
+  boundary; local hardware and signing remain unverified.
 
 **Forbidden**
 
