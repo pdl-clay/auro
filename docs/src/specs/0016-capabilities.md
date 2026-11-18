@@ -39,6 +39,14 @@ effect on behalf of a subject, so a missing grant must be an error, not a shortc
 capability, value)` matches the value against the compiled form; it never re-parses the pattern per
 call.
 
+A filesystem value must be rooted (absolute, or a leading separator) with no `.` or `..`
+components. The match is lexical, so `/var/lib/notes/../secret` would otherwise match
+`/var/lib/notes/**` and escape the grant. A shell value must have no `.`/`..` components either,
+but may be a bare executable name; a full command string must be parsed and validated by the
+caller. The policy does not resolve symlinks; the call site that performs the effect must
+canonicalize and re-check when a symlink could leave the granted tree. `net` keeps its
+caller-defined value shape.
+
 *Rejected:* substring or prefix matching. It is too coarse for paths and hosts. *Rejected:* regular
 expressions. Globs are easier to audit and sufficient for the current boundaries.
 
@@ -137,8 +145,10 @@ policy.check_scope("plugin:notes", auro::perms::Capability::Fs, "/var/lib/notes/
    grant (`matches_a_scoped_grant`, `rejects_an_out_of_scope_value`).
 4. Capability strings round-trip and an invalid pattern or scope mismatch is rejected
    (`capability_strings_round_trip`, `rejects_an_invalid_pattern`, `rejects_a_scope_mismatch`).
-5. `auro::perms` re-exports the same API surface (`crates/auro/src/lib.rs`).
-6. `cargo fmt --all --check`,
+5. A filesystem value that is relative or contains `.`/`..`, and a shell value containing `.`/`..`,
+   are denied before glob matching (`rejects_a_traversal_or_relative_filesystem_value`).
+6. `auro::perms` re-exports the same API surface (`crates/auro/src/lib.rs`).
+7. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 

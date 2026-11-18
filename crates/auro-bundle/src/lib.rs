@@ -55,8 +55,21 @@ pub fn package_types(config: &Config) -> Result<Vec<PackageType>, AuroError> {
 /// `cargo build --release` (using the manifest's `default-run` or package name).
 /// Returns every produced artifact path.
 pub fn bundle(dir: &Path, config: &Config, binary: &str) -> Result<Vec<PathBuf>, AuroError> {
+    bundle_in(dir, config, binary, &dir.join("target"))
+}
+
+/// Bundles a release binary built under an explicit Cargo target directory.
+///
+/// `auro bundle` passes the resolved `CARGO_TARGET_DIR` here so the bundler reads the same
+/// `release/` directory cargo wrote, instead of assuming `<app>/target`.
+pub fn bundle_in(
+    dir: &Path,
+    config: &Config,
+    binary: &str,
+    target_root: &Path,
+) -> Result<Vec<PathBuf>, AuroError> {
     preflight(dir, config)?;
-    let settings = settings(dir, config, binary)?;
+    let settings = settings(dir, config, binary, target_root)?;
 
     // tauri-bundler resolves icons/resources and runs its tools relative to the project cwd.
     // `auro bundle` may be invoked from anywhere, so make the app directory the cwd for the
@@ -92,11 +105,17 @@ fn preflight(dir: &Path, config: &Config) -> Result<(), AuroError> {
 }
 
 fn is_square_png(path: &Path) -> bool {
-    let Ok(bytes) = std::fs::read(path) else {
+    use std::io::Read as _;
+
+    let Ok(mut file) = std::fs::File::open(path) else {
         return false;
     };
+    let mut bytes = [0u8; 24];
+    if file.read_exact(&mut bytes).is_err() {
+        return false;
+    }
     const SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
-    if bytes.len() < 24 || bytes[..8] != SIGNATURE || &bytes[12..16] != b"IHDR" {
+    if bytes[..8] != SIGNATURE || &bytes[12..16] != b"IHDR" {
         return false;
     }
     let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
@@ -104,8 +123,13 @@ fn is_square_png(path: &Path) -> bool {
     width > 0 && width == height
 }
 
-fn settings(dir: &Path, config: &Config, binary: &str) -> Result<Settings, AuroError> {
-    let out_dir = dir.join("target").join("release");
+fn settings(
+    dir: &Path,
+    config: &Config,
+    binary: &str,
+    target_root: &Path,
+) -> Result<Settings, AuroError> {
+    let out_dir = target_root.join("release");
     let category = AppCategory::from_str(&config.bundle.category).map_err(|suggestion| {
         let hint = suggestion
             .map(|value| format!("; did you mean `{value}`?"))
@@ -260,9 +284,23 @@ resources = ["assets/**"]
     }
 
     #[test]
+    fn uses_an_explicit_target_root() {
+        let (temp, config) = config("");
+        let target = temp.path().join("custom-target");
+        let settings = settings(temp.path(), &config, "bundle-demo", &target).expect("settings");
+        assert_eq!(settings.project_out_directory(), target.join("release"));
+    }
+
+    #[test]
     fn maps_the_manifest_metadata() {
         let (temp, config) = config("");
-        let settings = settings(temp.path(), &config, "bundle-demo").expect("settings");
+        let settings = settings(
+            temp.path(),
+            &config,
+            "bundle-demo",
+            &temp.path().join("target"),
+        )
+        .expect("settings");
         assert_eq!(
             settings.project_out_directory(),
             temp.path().join("target").join("release")
@@ -325,7 +363,13 @@ sign-args = ["sign", "%1"]
 allow-downgrades = false
 "#,
         );
-        let settings = settings(temp.path(), &config, "bundle-demo").expect("settings");
+        let settings = settings(
+            temp.path(),
+            &config,
+            "bundle-demo",
+            &temp.path().join("target"),
+        )
+        .expect("settings");
 
         let macos = settings.macos();
         assert_eq!(
@@ -358,7 +402,8 @@ allow-downgrades = false
     fn rejects_an_unknown_category() {
         let (_temp, mut config) = config("");
         config.bundle.category = "not a real category".to_owned();
-        let error = settings(Path::new("."), &config, "demo").expect_err("category");
+        let error =
+            settings(Path::new("."), &config, "demo", Path::new("target")).expect_err("category");
         assert_eq!(error.kind(), "bundle");
     }
 }

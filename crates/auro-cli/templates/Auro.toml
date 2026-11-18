@@ -14,3 +14,7 @@ height = 640
 watch = ["src", "ui/src", "data/src", "types/src", "Auro.toml"]
 # `hot = true` runs the hot-patch devserver instead of rebuilding and relaunching.
 hot = false
+
+[bundle]
+# A 512x512 placeholder shipped by `auro new`; replace it with the app's own icon.
+icon = ["icons/icon.png"]

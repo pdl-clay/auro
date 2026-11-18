@@ -41,3 +41,15 @@ On 2026-11-17 (niri/Wayland, Linux x86_64):
 - closing both windows exited the app;
 - the window manager's close/reopen-by-label path is covered by headless tests and by a separate
   niri two-window probe, not by the example's own Settings button.
+
+## Limits
+
+This is an application-model reference, not a high-volume log viewer:
+
+- the model keeps the last 2000 lines and the view rebuilds up to 500 row elements per frame;
+  filtering lowercases every retained message on every render. A real large-data viewer should use
+  a toolkit virtual list and precomputed/cached filter keys;
+- the background producer emits about three lines per second. The typed event channel is unbounded
+  (spec 0007, D5), so a burst producer must rate-limit or coalesce events itself;
+- it is not built by the main CI matrix, because `gpui-component` is an application dependency;
+  `cargo check` in this directory is the manual compatibility check.

@@ -249,11 +249,33 @@ impl App {
         self
     }
 
-    fn activation_label(&self) -> Option<&'static str> {
+    /// The window the built-in second-instance activation focuses.
+    ///
+    /// Uses `app.default-window`; `Config::default_window` already falls back to the first
+    /// declared window, so this follows the config contract instead of the root registration
+    /// order.
+    fn activation_label(&self, config: &Config) -> Option<String> {
         if !self.activate_on_second_instance {
             return None;
         }
-        self.roots.first().map(|(label, _)| *label)
+        config.default_window().map(|window| window.label.clone())
+    }
+
+    /// Rejects a config window that has no root before GPUI starts.
+    ///
+    /// A window declared in `Auro.toml` is opened at startup, and `windows::open` cannot create it
+    /// without a registered root. Failing here turns a headless, apparently hung app into a named
+    /// configuration error.
+    fn validate_roots(&self, config: &Config) -> Result<(), AuroError> {
+        for window in &config.app.windows {
+            if !self.roots.iter().any(|(label, _)| *label == window.label) {
+                return Err(AuroError::window(
+                    &window.label,
+                    "no root view attached; call App::root or App::root_with for every window declared in Auro.toml",
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Runs the app, returning before the event loop starts if configuration is invalid or another
@@ -280,6 +302,7 @@ impl App {
         }
 
         let config = Config::load(&std::env::current_dir()?)?;
+        self.validate_roots(&config)?;
         let instance_listener = if self.single_instance {
             let instance = AppInstance::acquire(&config.app.identifier)?;
             if instance.is_primary() {
@@ -304,7 +327,7 @@ impl App {
         } else {
             None
         };
-        let activation_label = self.activation_label();
+        let activation_label = self.activation_label(&config);
         #[cfg(feature = "services")]
         let deep_links = self.deep_links.clone();
         let App {
@@ -319,7 +342,7 @@ impl App {
 
         if let Some(label) = activation_label {
             events.on(move |_: &InstanceMessage, cx| {
-                let _ = crate::windows::focus(label, cx);
+                let _ = crate::windows::focus(&label, cx);
                 cx.activate(true);
             });
         }
@@ -598,11 +621,23 @@ mod tests {
         assert!(app.single_instance);
 
         let app = App::new().root::<Blank>("main");
-        assert_eq!(app.activation_label(), None);
+        let config = config(None);
+        assert_eq!(app.activation_label(&config), None);
         let app = app.activate_on_second_instance();
         assert!(app.single_instance);
         assert!(app.activate_on_second_instance);
-        assert_eq!(app.activation_label(), Some("main"));
+        assert_eq!(app.activation_label(&config), Some("main".to_owned()));
+
+        let mut two_windows = config.clone();
+        let mut second = two_windows.app.windows[0].clone();
+        second.label = "secondary".to_owned();
+        two_windows.app.windows.push(second);
+        two_windows.app.default_window = Some("secondary".to_owned());
+        assert_eq!(
+            app.activation_label(&two_windows),
+            Some("secondary".to_owned()),
+            "the configured default window wins over declaration order"
+        );
     }
 
     impl Render for Blank {
@@ -645,6 +680,30 @@ mod tests {
             dev: DevConfig::default(),
             bundle: BundleConfig::default(),
         }
+    }
+
+    #[test]
+    fn missing_roots_are_reported_before_the_event_loop() {
+        let config = config(None);
+        let error = App::new()
+            .validate_roots(&config)
+            .expect_err("a declared window without a root is a configuration error");
+        assert!(matches!(error, AuroError::Window { ref label, .. } if label == "main"));
+
+        App::new()
+            .root::<Blank>("main")
+            .validate_roots(&config)
+            .expect("every declared window is rooted");
+
+        let mut two_windows = config.clone();
+        let mut second = two_windows.app.windows[0].clone();
+        second.label = "secondary".to_owned();
+        two_windows.app.windows.push(second);
+        let error = App::new()
+            .root::<Blank>("main")
+            .validate_roots(&two_windows)
+            .expect_err("the second window has no root");
+        assert!(matches!(error, AuroError::Window { ref label, .. } if label == "secondary"));
     }
 
     #[test]

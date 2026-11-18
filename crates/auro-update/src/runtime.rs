@@ -7,7 +7,7 @@
 //! rollback are a separate contract.
 
 use std::fs;
-use std::io::{Cursor, Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -313,10 +313,11 @@ impl Updater {
         let source = fs::read(base)?;
         let patch = fs::read(patch)?;
         let patcher = qbsdiff::Bspatch::new(&patch)?;
-        let mut output = Vec::with_capacity(manifest.size as usize);
-        patcher.apply(&source, Cursor::new(&mut output))?;
+        // Write the patched bytes straight into the staging file. qbsdiff still needs the base
+        // and the patch in memory, but an intermediate `Vec` of the full artifact is not needed,
+        // and the manifest's size never sizes an allocation.
         let mut temp = NamedTempFile::new_in(&self.staging_dir)?;
-        temp.as_file_mut().write_all(&output)?;
+        patcher.apply(&source, temp.as_file_mut())?;
         temp.as_file_mut().sync_all()?;
         manifest.verify_artifact(temp.path(), &self.key)?;
         temp.persist(target).map_err(|error| error.error)?;
@@ -434,11 +435,11 @@ impl Updater {
 }
 
 fn verify_blob(path: &Path, size: u64, sha256: &str) -> Result<(), UpdateError> {
-    let bytes = fs::read(path)?;
-    if bytes.len() as u64 != size {
+    let actual = fs::metadata(path)?.len();
+    if actual != size {
         return Err(UpdateError::ArtifactSize {
             expected: size,
-            actual: bytes.len() as u64,
+            actual,
         });
     }
     if auro_sign::sha256_file(path)? != sha256 {
@@ -485,6 +486,7 @@ fn safe_extension(url: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Cursor, Write as _};
     use std::net::TcpListener;
     use std::thread::{self, JoinHandle};
 

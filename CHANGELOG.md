@@ -353,6 +353,42 @@ installable `auro-cli` yet.
 
 ### Fixed
 
+- `auro build`, `auro bundle` and `auro bench` resolve `CARGO_TARGET_DIR` the way cargo does and
+  pass an explicit `--target-dir`; `auro bundle` previously looked under `<app>/target/release` and
+  failed when the variable pointed elsewhere.
+- `auro bundle` now honors `[bundle] active = false` with a typed error instead of ignoring the key
+  and producing installers anyway. `[bundle] icon` and `license-file` paths are validated as
+  app-relative (absolute paths and `..` escape are rejected at config load, like `resources` and
+  entitlements), and window dimensions are validated (`width`/`height` above zero, a set minimum
+  not above its maximum).
+- An app whose `Auro.toml` declares a window without a matching `App::root`/`App::root_with` now
+  fails before GPUI starts with the window label and the missing call, instead of opening no
+  window and leaving a headless process running.
+- `auro dev` ignores watcher events under `target/` and `.git/` and editor swap/backup files, so a
+  `[dev] watch` entry that covers the app root cannot rebuild forever.
+- Signing key files are created with mode `0600` (and an existing file is restricted) before the
+  seed is written, closing the window where a key could be world-readable between `write` and
+  `chmod`.
+- Single-instance socket names append a stable hash of the full app identifier; the previous
+  32-character truncation let two long identifiers with a shared prefix share a socket and receive
+  each other's forwarded launches.
+- Single-instance lock/socket paths no longer fall back to a shared `/tmp` directly: a private
+  per-user directory is created with mode `0700`, and a runtime directory that is a symlink, owned
+  by another user, or accessible by group/other is ignored. This closes socket pre-creation and
+  argument-leak paths for other local users when `XDG_RUNTIME_DIR` is absent.
+- `App::activate_on_second_instance()` focuses `app.default-window` (the configured default, not
+  the first root registration order); the config key was previously validated and then unused by
+  the built-in activation helper.
+- `auro bench` fails with the child's exit status instead of reporting a 0 MB idle sample when the
+  app exits after the startup marker (for example a crash after first frame).
+- `auro-perms` rejects a filesystem scope value that is relative or contains `.`/`..`, and a shell
+  value with `.`/`..`, before glob matching. Previously `/var/lib/notes/../secret` matched a
+  `/var/lib/notes/**` grant lexically; the call site still owns symlink and command-string
+  canonicalization (spec 0016).
+- Update artifact and delta verification hash files in bounded chunks instead of loading them into
+  memory; a delta is applied straight into the staged file rather than into an intermediate buffer
+  sized by the manifest. A large or corrupt manifest can no longer exhaust memory during
+  verification or patching.
 - `[dev] run-args` is passed to the spawned app (it was parsed and ignored), and hot mode says so
   when it cannot forward the args because `dx` owns the process.
 - `[app.windows]` options `transparent` and `center` are now applied instead of parsed and
@@ -406,6 +442,16 @@ installable `auro-cli` yet.
 
 ### Changed
 
+- `auro new` writes a 512x512 placeholder `icons/icon.png` and sets `[bundle] icon`, so a fresh
+  scaffold passes the AppImage preflight instead of failing the first `auro bundle`. Replace the
+  placeholder with the app's own icon.
+- Generated apps and the `log-viewer` example set `[profile.release] strip = "symbols"`, so a
+  default release build matches the documented binary-size method. Scaffolds do not set
+  `panic = "abort"`: hot reload catches a panicking boundary and keeps the previous UI alive.
+- Update verification memory is now bounded by the read chunk rather than the artifact size:
+  `Manifest::for_artifact` uses file metadata and `sha256_file` streams. `auro-sign` gained no new
+  format; existing keys, manifests and signatures are unchanged. The AppImage icon preflight reads
+  only the 24-byte PNG header instead of the whole file.
 - Elevated Linux package failures now follow `pkexec`'s exit-code contract: `126`/`127` (or no
   code) remain `ElevationFailed`, while other non-zero codes are the package manager's status and
   are `InstallerFailed`. This is what lets the opt-in package rollback distinguish a declined

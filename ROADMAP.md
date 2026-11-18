@@ -379,6 +379,19 @@ composition end to end. Recorded in
 [Text input, IME and accessibility](docs/src/architecture/accessibility.md); the accessibility pass
 remains blocked upstream.
 
+**Security and integrity hardening (2026-11-18):** signing keys are written `0600` before the seed
+exists; the single-instance runtime directories are validated as private (owner, mode, not a
+symlink) with a `0700` per-user fallback instead of a shared `/tmp`; update manifests, deltas and
+staged artifacts are hashed in bounded chunks, so verification memory no longer scales with the
+artifact, and a delta is applied straight into its staged file instead of an intermediate buffer.
+Config validation now rejects absolute/escaping `[bundle] icon`/`license-file` paths and impossible
+window dimensions, `auro bundle` errors on `[bundle] active = false`, and an unrooted declared
+window fails before GPUI starts. `auro new` now writes a 512x512 placeholder icon and sets
+`[bundle] icon`, so the AppImage preflight passes on a fresh scaffold. Remaining trust boundary:
+the restart-helper journal names its own verification key and relaunch program, so its directory
+must be user-private; that contract is documented in spec 0026 and is not yet enforced by the
+library.
+
 **Phase 2 technical status (2026-11-18):** bundling; signed manifests, staging and Linux AppImage
 apply; explicit Linux package rollback staging; platform services (autostart, notifications,
 keychain, global shortcuts, tray, deep links); `auro-perms`; Button keyboard activation; and

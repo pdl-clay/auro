@@ -203,19 +203,32 @@ belongs in `auro-ui` with the rest of the renderer.
 
 ### Generated project
 
+The scaffold is the four-crate workspace from
+[ADR 0022](../decisions/0022-hot-reload-boundary-crate.md); `types` is framework-free, `data` owns
+the hot boundary, `ui` owns the view, and the bin wires them.
+
 ```
 demo/
   Auro.toml
-  Cargo.toml            # auro = { path = "..." } in-repo, version = "0.x" once published;
-                        # also carries the vendored xattr patch until the chain updates
+  Cargo.toml            # auro in-repo path or published version; workspace members and profiles
+  Dioxus.toml           # `dx serve` name for hot mode
+  icons/icon.png        # 512x512 placeholder; replace before release
   src/
-    main.rs             # auro::App::new().root::<Root>("main").run()
-    views/mod.rs        # the root view
-    services/mod.rs     # command functions, the `api` module the UI calls
+    main.rs             # demo_ui::run(demo_data::view_data)
+  ui/
+    Cargo.toml          # depends on auro and types, never on data
+    src/lib.rs          # Render, window, element tree
+    src/services.rs     # command functions, the `api` module the UI calls
+  data/
+    Cargo.toml          # depends on types only
+    src/lib.rs          # the hot boundary
+  types/
+    Cargo.toml          # no dependencies
+    src/lib.rs          # ViewData and the fixed HotData frame
 ```
 
-The icon set arrives with the bundler in Phase 2; `auro new` does not create empty asset
-directories.
+The bundler slice extends the scaffold with the placeholder icon and `[bundle] icon`; apps replace
+it with their own asset. `auro new` does not create empty asset directories.
 
 ### The slice, as the author writes it
 

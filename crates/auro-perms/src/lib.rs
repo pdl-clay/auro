@@ -246,7 +246,11 @@ impl Policy {
 
     /// Answers a scoped capability check for `subject`.
     ///
-    /// Unscoped capabilities fall back to [`Self::check`]; the value is ignored there.
+    /// Unscoped capabilities fall back to [`Self::check`]; the value is ignored there. A
+    /// filesystem scope is lexical: the value must be an absolute path without `.` or `..`
+    /// components, otherwise a plugin could request `/allowed/../secret` and match a prefix
+    /// pattern. Symlinks are not resolved here; the call site that performs the effect must
+    /// canonicalize and re-check when symlink traversal matters.
     pub fn check_scope(
         &self,
         subject: &str,
@@ -255,6 +259,20 @@ impl Policy {
     ) -> Result<(), Denied> {
         if !capability.is_scoped() {
             return self.check(subject, capability);
+        }
+        if capability == Capability::Fs && !is_absolute_path_without_dots(value) {
+            return Err(Denied {
+                subject: subject.to_owned(),
+                capability,
+                value: Some(value.to_owned()),
+            });
+        }
+        if capability == Capability::Shell && !has_no_dot_components(value) {
+            return Err(Denied {
+                subject: subject.to_owned(),
+                capability,
+                value: Some(value.to_owned()),
+            });
         }
         if self
             .grants
@@ -269,6 +287,29 @@ impl Policy {
             value: Some(value.to_owned()),
         })
     }
+}
+
+/// Whether `value` is a rooted path whose components are only normal names.
+///
+/// `Path::is_absolute` is false on Windows for a Unix-style `/var/...` value, which capability
+/// tests and cross-platform plugin manifests use. A leading separator is rooted (the current
+/// volume on Windows) and is accepted; a drive-relative `C:foo` is not.
+fn is_absolute_path_without_dots(value: &str) -> bool {
+    use std::path::Path;
+
+    (Path::new(value).is_absolute() || value.starts_with(['/', '\\']))
+        && has_no_dot_components(value)
+}
+
+/// Whether a value has no `.` or `..` path components.
+///
+/// This is lexical: `Path::components` normalizes a `.` away, so the raw separators are checked.
+/// A shell command string is not parsed, so a caller that passes a full command rather than an
+/// executable path must still validate its own syntax.
+fn has_no_dot_components(value: &str) -> bool {
+    !value
+        .split(['/', '\\'])
+        .any(|component| component == "." || component == "..")
 }
 
 #[cfg(test)]
@@ -372,6 +413,39 @@ mod tests {
         assert_eq!(Capability::Fs.to_string(), "fs");
         assert!(Capability::Fs.is_scoped());
         assert!(!Capability::Clipboard.is_scoped());
+    }
+
+    #[test]
+    fn rejects_a_traversal_or_relative_filesystem_value() {
+        let policy = policy();
+        for value in [
+            "/var/lib/notes/../secret",
+            "/var/lib/notes/./a.txt",
+            "relative/a.txt",
+            "/var/lib/notes/../../etc/passwd",
+        ] {
+            assert!(
+                policy
+                    .check_scope("plugin:notes", Capability::Fs, value)
+                    .is_err(),
+                "`{value}` must not pass a lexical scope"
+            );
+        }
+        policy
+            .check_scope("plugin:notes", Capability::Fs, "/var/lib/notes/a.txt")
+            .expect("a normal absolute path");
+
+        let shell = Policy::deny_all()
+            .allow_scope("plugin", Capability::Shell, "/usr/bin/**")
+            .expect("shell scope");
+        assert!(
+            shell
+                .check_scope("plugin", Capability::Shell, "/usr/bin/../tmp/evil")
+                .is_err()
+        );
+        shell
+            .check_scope("plugin", Capability::Shell, "/usr/bin/git")
+            .expect("a normal executable");
     }
 
     #[test]

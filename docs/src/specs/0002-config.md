@@ -148,7 +148,12 @@ Failures are `AuroError::Config { path, key, message }` and abort before a windo
 5. `bundle.targets` naming a package format the host cannot produce: error listing the valid set
    for that host. The known formats are `app`, `dmg`, `msi`, `nsis`, `appimage`, `deb` and `rpm`;
    the host sets are macOS `app`/`dmg`, Windows `msi`/`nsis`, and Linux `appimage`/`deb`/`rpm`.
-6. Relative `watch`, `resources` or `bundle.macos.entitlements` paths escaping the app directory: error.
+6. Relative `watch`, `icon`, `license-file`, `resources` or `bundle.macos.entitlements` paths
+   escaping the app directory: error.
+7. Window `width`/`height` must be greater than zero; a set `min-width`/`min-height`/
+   `max-width`/`max-height` must be greater than zero, and a minimum must not exceed its maximum.
+8. A window declared in `app.windows` without a matching `App::root`/`App::root_with` is a typed
+   `AuroError::Window` before the event loop starts, not a headless process.
 
 ## Interfaces
 

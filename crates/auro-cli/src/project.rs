@@ -17,6 +17,7 @@ const DATA_CARGO_TOML: &str = include_str!("../templates/data/Cargo.toml");
 const DATA_LIB_RS: &str = include_str!("../templates/data/lib.rs");
 const TYPES_CARGO_TOML: &str = include_str!("../templates/types/Cargo.toml");
 const TYPES_LIB_RS: &str = include_str!("../templates/types/lib.rs");
+const ICON_PNG: &[u8] = include_bytes!("../templates/icon.png");
 const GITIGNORE: &str = "/target\n";
 
 /// Scaffolds an app. Refuses a directory that already has content.
@@ -57,6 +58,7 @@ pub fn new(path: &Path) -> Result<(), AuroError> {
     write(&path.join("data/src/lib.rs"), &fill(DATA_LIB_RS))?;
     write(&path.join("types/Cargo.toml"), &fill(TYPES_CARGO_TOML))?;
     write(&path.join("types/src/lib.rs"), &fill(TYPES_LIB_RS))?;
+    write_bytes(&path.join("icons/icon.png"), ICON_PNG)?;
     write(&path.join(".gitignore"), GITIGNORE)?;
 
     println!("Created {} at {}", name, path.display());
@@ -75,10 +77,12 @@ pub fn build(dir: &Path) -> Result<(), AuroError> {
 pub fn bundle(dir: &Path) -> Result<(), AuroError> {
     let dir = plain_path(dir.canonicalize()?);
     let config = load_checked(&dir)?;
+    ensure_bundle_active(&config)?;
     build_release(&dir, &config)?;
 
     let binary = binary_name(&dir)?;
-    let artifacts = auro_bundle::bundle(&dir, &config, &binary)?;
+    let target = target_dir(&dir)?;
+    let artifacts = auro_bundle::bundle_in(&dir, &config, &binary, &target)?;
     if let Some(profile) = config.bundle.macos.notarize_profile.as_deref() {
         println!("notarizing macOS artifacts with profile `{profile}`");
         auro_bundle::MacNotarizer::new().notarize_artifacts(&artifacts, profile)?;
@@ -89,10 +93,25 @@ pub fn bundle(dir: &Path) -> Result<(), AuroError> {
     Ok(())
 }
 
+/// `auro bundle` is an explicit request, so an app that opted out is an error rather than a
+/// silent success.
+fn ensure_bundle_active(config: &Config) -> Result<(), AuroError> {
+    if config.bundle.active {
+        Ok(())
+    } else {
+        Err(AuroError::bundle(
+            "`[bundle] active = false` disables bundling for this app",
+        ))
+    }
+}
+
 fn build_release(dir: &Path, _config: &Config) -> Result<(), AuroError> {
+    let target = target_dir(dir)?;
     let status = Command::new("cargo")
         .arg("build")
         .arg("--release")
+        .arg("--target-dir")
+        .arg(&target)
         .arg("--manifest-path")
         .arg(dir.join("Cargo.toml"))
         .status()?;
@@ -101,6 +120,32 @@ fn build_release(dir: &Path, _config: &Config) -> Result<(), AuroError> {
         return Err(AuroError::Message("cargo build failed".to_owned()));
     }
     Ok(())
+}
+
+/// The Cargo target directory, resolved the way cargo resolves `CARGO_TARGET_DIR`.
+///
+/// `auro build`/`auro bundle` pass an explicit `--target-dir` to cargo and hand the same path to
+/// the bundler, so a relative `CARGO_TARGET_DIR` cannot make the bundler look under
+/// `<app>/target` for a binary cargo wrote somewhere else.
+pub(crate) fn target_dir(dir: &Path) -> Result<PathBuf, AuroError> {
+    Ok(resolve_target_dir(
+        dir,
+        std::env::var_os("CARGO_TARGET_DIR"),
+        &std::env::current_dir()?,
+    ))
+}
+
+fn resolve_target_dir(dir: &Path, value: Option<std::ffi::OsString>, cwd: &Path) -> PathBuf {
+    match value {
+        Some(value) => {
+            let target = PathBuf::from(value);
+            // `Path::is_absolute` is false on Windows for a Unix-style `/tmp` value; a leading
+            // separator is rooted and should not be joined to the invocation directory.
+            let rooted = target.is_absolute() || target.to_string_lossy().starts_with(['/', '\\']);
+            if rooted { target } else { cwd.join(target) }
+        }
+        None => dir.join("target"),
+    }
 }
 
 /// Windows `canonicalize` returns a `\\?\` verbatim path; WiX/NSIS tools reject it.
@@ -194,6 +239,10 @@ fn toml_path(path: &Path) -> String {
 }
 
 fn write(path: &Path, contents: &str) -> Result<(), AuroError> {
+    write_bytes(path, contents.as_bytes())
+}
+
+fn write_bytes(path: &Path, contents: &[u8]) -> Result<(), AuroError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -291,9 +340,18 @@ mod tests {
             "data/src/lib.rs",
             "types/Cargo.toml",
             "types/src/lib.rs",
+            "icons/icon.png",
         ] {
             assert!(target.join(file).is_file(), "{file} missing");
         }
+
+        let icon = std::fs::read(target.join("icons/icon.png")).expect("icon");
+        assert!(icon.starts_with(b"\x89PNG\r\n\x1a\n"), "icon is a PNG");
+        assert_eq!(
+            u32::from_be_bytes([icon[16], icon[17], icon[18], icon[19]]),
+            512,
+            "the AppImage preflight needs a square PNG"
+        );
 
         let config = Config::load_from(&target.join("Auro.toml")).expect("valid config");
         assert_eq!(config.app.product_name, "demo");
@@ -311,6 +369,10 @@ mod tests {
         assert!(
             manifest.contains("[workspace]"),
             "the app must be its own workspace: {manifest}"
+        );
+        assert!(
+            manifest.contains("strip = \"symbols\""),
+            "release symbols are stripped by default: {manifest}"
         );
         let ui =
             std::fs::read_to_string(target.join("ui/Cargo.toml")).expect("generated ui manifest");
@@ -375,6 +437,24 @@ mod tests {
         )
         .expect("write");
         assert!(!declares_hot_feature(temp.path()).expect("reads"));
+    }
+
+    #[test]
+    fn resolves_the_cargo_target_directory() {
+        let app = Path::new("/app");
+        let cwd = Path::new("/work");
+        assert_eq!(
+            resolve_target_dir(app, None, cwd),
+            Path::new("/app").join("target")
+        );
+        assert_eq!(
+            resolve_target_dir(app, Some(std::ffi::OsString::from("/tmp/auro-target")), cwd),
+            PathBuf::from("/tmp/auro-target")
+        );
+        assert_eq!(
+            resolve_target_dir(app, Some(std::ffi::OsString::from("local-target")), cwd),
+            Path::new("/work").join("local-target")
+        );
     }
 
     #[test]
@@ -448,6 +528,17 @@ version = "{manifest_version}"
         let message = error.to_string();
         assert!(message.contains("9.9.9"), "{message}");
         assert!(message.contains("0.1.0"), "{message}");
+    }
+
+    #[test]
+    fn refuses_to_bundle_when_the_config_disables_it() {
+        let temp = app_with_versions("0.1.0", "0.1.0");
+        let mut config = std::fs::read_to_string(temp.path().join("Auro.toml")).expect("config");
+        config.push_str("\n[bundle]\nactive = false\n");
+        std::fs::write(temp.path().join("Auro.toml"), config).expect("config");
+
+        let error = bundle(temp.path()).expect_err("bundling is disabled");
+        assert!(error.to_string().contains("active = false"), "{error}");
     }
 
     #[test]

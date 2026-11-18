@@ -383,6 +383,7 @@ impl Config {
                     format!("duplicate window label `{}`", window.label),
                 ));
             }
+            validate_window_dimensions(path, window)?;
         }
 
         if let Some(default) = &app.default_window
@@ -397,6 +398,12 @@ impl Config {
 
         for watch in &self.dev.watch {
             ensure_relative(path, "dev.watch", watch)?;
+        }
+        for icon in &self.bundle.icon {
+            ensure_relative(path, "bundle.icon", icon)?;
+        }
+        if !self.bundle.license_file.is_empty() {
+            ensure_relative(path, "bundle.license-file", &self.bundle.license_file)?;
         }
         for resource in &self.bundle.resources {
             ensure_relative(path, "bundle.resources", resource)?;
@@ -542,13 +549,61 @@ fn is_window_label(value: &str) -> bool {
         })
 }
 
+/// Rejects dimensions a window backend cannot represent or that contradict each other.
+fn validate_window_dimensions(path: &Path, window: &WindowConfig) -> Result<(), AuroError> {
+    let key = |field: &str| format!("app.windows.{}.{field}", window.label);
+    let reject = |field: &str, message: &str| {
+        Err(AuroError::config(
+            path,
+            Some(&key(field)),
+            message.to_owned(),
+        ))
+    };
+
+    if window.width == 0 || window.height == 0 {
+        return reject(
+            "width",
+            "initial width and height must be greater than zero",
+        );
+    }
+    for (field, value) in [
+        ("min-width", window.min_width),
+        ("min-height", window.min_height),
+        ("max-width", window.max_width),
+        ("max-height", window.max_height),
+    ] {
+        if value == Some(0) {
+            return reject(field, "must be greater than zero when set");
+        }
+    }
+    if let (Some(min), Some(max)) = (window.min_width, window.max_width)
+        && min > max
+    {
+        return reject("min-width", "min-width is greater than max-width");
+    }
+    if let (Some(min), Some(max)) = (window.min_height, window.max_height)
+        && min > max
+    {
+        return reject("min-height", "min-height is greater than max-height");
+    }
+    Ok(())
+}
+
 fn ensure_relative(path: &Path, key: &str, value: &str) -> Result<(), AuroError> {
     let candidate = Path::new(value);
-    if candidate.is_absolute()
-        || candidate
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
+    if value.trim().is_empty() {
+        return Err(AuroError::config(
+            path,
+            Some(key),
+            "must not be empty".to_owned(),
+        ));
+    }
+    if candidate.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
         return Err(AuroError::config(
             path,
             Some(key),
@@ -661,6 +716,27 @@ width = 320
     }
 
     #[test]
+    fn rejects_zero_and_contradictory_window_dimensions() {
+        let zero = format!("{MINIMAL}\nwidth = 0\n");
+        let error = parse(&zero).expect_err("zero width");
+        assert!(error.to_string().contains("greater than zero"), "{error}");
+
+        let zero_min = format!("{MINIMAL}\nmin-height = 0\n");
+        let error = parse(&zero_min).expect_err("zero minimum");
+        assert!(error.to_string().contains("greater than zero"), "{error}");
+
+        let inverted = format!("{MINIMAL}\nmin-width = 1280\nmax-width = 320\n");
+        let error = parse(&inverted).expect_err("min above max");
+        assert!(error.to_string().contains("min-width"), "{error}");
+        assert!(error.to_string().contains("max-width"), "{error}");
+
+        let valid = format!("{MINIMAL}\nmin-width = 320\nmax-width = 1280\n");
+        let config = parse(&valid).expect("valid bounds");
+        assert_eq!(config.app.windows[0].min_width, Some(320));
+        assert_eq!(config.app.windows[0].max_width, Some(1280));
+    }
+
+    #[test]
     fn rejects_a_non_semver_version() {
         let text = MINIMAL.replace("0.1.0", "one");
         assert!(parse(&text).is_err());
@@ -686,6 +762,14 @@ label = "main"
     fn rejects_paths_that_escape_the_app_directory() {
         let text = format!("{MINIMAL}\n[dev]\nwatch = [\"../secrets\"]\n");
         let error = parse(&text).expect_err("escape");
+        assert!(error.to_string().contains("relative"), "{error}");
+
+        let icon = format!("{MINIMAL}\n[bundle]\nicon = [\"/etc/passwd\"]\n");
+        let error = parse(&icon).expect_err("absolute icon");
+        assert!(error.to_string().contains("relative"), "{error}");
+
+        let license = format!("{MINIMAL}\n[bundle]\nlicense-file = \"../LICENSE\"\n");
+        let error = parse(&license).expect_err("escaping license");
         assert!(error.to_string().contains("relative"), "{error}");
     }
 

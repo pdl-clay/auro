@@ -347,12 +347,11 @@ impl Manifest {
         notes: impl Into<String>,
         published_at: impl Into<String>,
     ) -> Result<Self, UpdateError> {
-        let bytes = fs::read(artifact)?;
         Ok(Manifest::new(
             version,
             platform,
             url,
-            bytes.len() as u64,
+            fs::metadata(artifact)?.len(),
             auro_sign::sha256_file(artifact)?,
             notes,
             published_at,
@@ -417,13 +416,16 @@ impl Manifest {
     }
 
     /// Verifies the manifest signature, then the artifact's size and SHA-256.
+    ///
+    /// The file is hashed in bounded chunks, so verification of a large artifact does not depend
+    /// on its size fitting in memory.
     pub fn verify_artifact(&self, path: &Path, key: &PublicKey) -> Result<(), UpdateError> {
         self.verify(key)?;
-        let bytes = fs::read(path)?;
-        if bytes.len() as u64 != self.size {
+        let actual = fs::metadata(path)?.len();
+        if actual != self.size {
             return Err(UpdateError::ArtifactSize {
                 expected: self.size,
-                actual: bytes.len() as u64,
+                actual,
             });
         }
         if auro_sign::sha256_file(path)? != self.sha256 {

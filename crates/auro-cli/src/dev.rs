@@ -54,6 +54,7 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     install_ctrl_c(Arc::clone(&slot))?;
 
     let (events, received) = std::sync::mpsc::channel();
+    let watch_root = dir.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         // Reads are not changes. The app opens `Auro.toml` on every start, and reacting to that
         // re-triggers the build that started it: an endless rebuild loop.
@@ -66,6 +67,15 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
             && let Ok(event) = &event
         {
             eprintln!("auro: event {:?} {:?}", event.kind, event.paths);
+        }
+        if let Ok(event) = &event
+            && !event.paths.is_empty()
+            && event
+                .paths
+                .iter()
+                .all(|path| is_ignored_build_event(path, &watch_root))
+        {
+            return;
         }
         let _ = events.send(event);
     })
@@ -173,6 +183,25 @@ fn watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Whether a watcher event is a build artifact or an editor side file rather than a source edit.
+///
+/// `target/` is written by the build this loop starts; watching the app root (a valid
+/// configuration) would otherwise rebuild forever. Editor swap/backup files would cause a restart
+/// without a code change.
+fn is_ignored_build_event(path: &Path, app_dir: &Path) -> bool {
+    let relative = path.strip_prefix(app_dir).unwrap_or(path);
+    if let Some(first) = relative.components().next()
+        && matches!(first.as_os_str().to_str(), Some("target" | ".git"))
+    {
+        return true;
+    }
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    name.starts_with(".#") || name.ends_with('~') || name.ends_with(".swp")
+}
+
 /// Source and manifest files hot mode reacts to. Swap/lock files are ignored.
 fn hot_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     paths
@@ -267,6 +296,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
     // One save is one burst of watcher events. Timestamp in the callback so the measurement starts
     // when the save is observed, not when the loop next polls the channel.
     let last_save = Arc::new(Mutex::new(None::<Instant>));
+    let hot_root = dir.to_path_buf();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let Ok(event) = event else {
             return;
@@ -274,7 +304,13 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
         if matches!(event.kind, notify::EventKind::Access(_)) {
             return;
         }
-        let paths = hot_paths(event.paths);
+        let paths = hot_paths(
+            event
+                .paths
+                .into_iter()
+                .filter(|path| !is_ignored_build_event(path, &hot_root))
+                .collect(),
+        );
         if paths.is_empty() {
             // Editors create swap files and lock files next to the source; a restart on those
             // would interrupt the session without a code change.
@@ -988,6 +1024,20 @@ mod tests {
         );
         assert_eq!(ready_label("auro: running /tmp/app"), None);
         assert_eq!(ready_label(""), None);
+    }
+
+    #[test]
+    fn ignores_build_and_editor_artifacts() {
+        let app = Path::new("demo");
+        assert!(is_ignored_build_event(
+            Path::new("demo/target/debug/demo"),
+            app
+        ));
+        assert!(is_ignored_build_event(Path::new("demo/.git/index"), app));
+        assert!(is_ignored_build_event(Path::new("demo/src/main.rs~"), app));
+        assert!(is_ignored_build_event(Path::new("demo/src/.#main.rs"), app));
+        assert!(!is_ignored_build_event(Path::new("demo/src/main.rs"), app));
+        assert!(!is_ignored_build_event(Path::new("demo/Auro.toml"), app));
     }
 
     #[test]
