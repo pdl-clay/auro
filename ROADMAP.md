@@ -158,8 +158,9 @@ the web. This is *the* bet of the project.
   same reference machine measured **325-394 ms save-to-render (N=12, median 368)**, patch-to-render
   1-26 ms, same pid/window/state; a plain-struct variant measured median 288 ms. The patch library
   is ~12 KB instead of the fat binary. A failed apply is caught and reported while the previous code
-  keeps running, a changed `HotData` schema is rejected by the old host, and a panic in the patched
-  boundary keeps the previous values and the process. A Windows re-test with
+  keeps running, a changed `HotData` schema is rejected by the old host, a panic in the patched
+  boundary keeps the previous values and the process, and a save outside `data` restarts the
+  devserver/app and restores the snapshot as a labelled restart. A Windows re-test with
   the guarded template measured median 813 ms (N=9, 752-897; a plain-boundary series was 1168),
   still above target. A shared `macos-26-arm64` runner measured 509.5 ms (N=12 after warm-up,
   372-1071; first cold run 515), at the target boundary but not claimed met. The target is met on Linux for this documented warm case, not platform-wide.

@@ -49,6 +49,8 @@ wakes the main thread through a watch channel rather than a poll.
 - A failed apply is a message and a still-live app, not a dead devserver listener.
 - A panic in patched boundary code is contained; the view keeps its previous values and the process
   survives.
+- A save outside `data` restarts the devserver/app and restores the snapshot; it is labelled as a
+  restart, never as a reload.
 
 **Harder**
 

@@ -127,13 +127,15 @@ function-level hot-patching of the **tip crate**:
   `Hot-patching ... took` line and this marker into one JSON line per edit
   (`save_to_patch_ms`, `patch_to_render_ms`, `save_to_render_ms`, `patch_took_ms`).
 - **Change classification.** A save under `data/src` is a hot boundary edit. A save in `ui`,
-  `types`, the bin, a dependency or the profile is labelled `outside the hot boundary`; a patch
-  that follows it is reported as `patch compiled, running UI unchanged`, never as a reload. This
-  makes the documented reload unit visible instead of relying on the user to know it.
+  `types`, the bin, a dependency, a manifest or the profile is labelled `outside the hot boundary`;
+  `auro dev` restarts the devserver and app, restores the snapshot and labels the outcome
+  `restarted (state restored|reset)`, never as a reload. This makes the documented reload unit
+  visible and gives host-code changes the documented fallback instead of a silent no-op.
 - **Boundary is the reloadable unit.** `view_data() -> HotData` returns plain data; element and
   layout code in `Render` is host-stable. Only functions reached through `hot`/`hot_with` consult
-  the jump table, so editing `render` does not change the running UI (and does not crash); the
-  scaffold prints the boundary's returned value per revision so this is visible.
+  the jump table, so a patch of `render` alone does not change the running UI; `auro dev` restarts
+  the devserver/app for that host-code save. The scaffold prints the boundary's returned value per
+  revision so a boundary reload is visible.
 - **Dev profile.** Scaffolded `Cargo.toml` defines `[profile.desktop-dev]` with
   `inherits = "dev"`, `debug = 0`, `incremental = false`. The Dioxus CLI uses that adhoc profile for
   `dx serve`; `debug_assertions` remain on, which subsecond requires. DWARF dominated the relink
@@ -275,11 +277,10 @@ context and is labelled honestly.
   reload fixture.
 - Project/layout/build strategy: the four-crate `data`/`ui`/`types`/bin shape is implemented and
   documented, including migration for older scaffolds; the author contract for larger reloadable
-  units and for edits outside `data` (currently observed as a patch but not reflected in the running
-  view) is open.
+  units is open. Edits outside `data` restart the devserver/app and restore the snapshot.
 - Snapshot format/versioning, incompatible-change classification, and state migration/reset policy.
 - Representative D6 measurements on Auro apps/scaffolds (cold/warm, debug/release, more hardware and
-  Windows/macOS coverage); Linux and Windows have one scaffold series each, macOS none.
+  Windows/macOS coverage); Linux, Windows and macOS each have one scaffold series.
 - Debugging, symbols, breakpoints, and backtraces through the chosen reload mechanism.
 - Full view-code hot reload on Windows (element-returning hot boundaries crash after apply; the
   implemented layout keeps elements host-stable), macOS feasibility, signing/entitlements (a

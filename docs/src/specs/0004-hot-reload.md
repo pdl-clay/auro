@@ -474,6 +474,13 @@ rejection. A patched boundary that panics is caught by the generated view, repor
 `hot data rejected: the patched boundary panicked`, and leaves the previous values and process
 alive; removing the panic applied in 327 ms in the same process.
 
+**Host-code fallback (2026-11-18).** A save in `ui/src/lib.rs` was classified outside the hot
+boundary, the devserver and app were restarted (build 3.14 s), the app printed `state restored` from
+the existing snapshot, and the dev loop printed `restarted (state restored)`; the new process
+rendered the edited button and a following `data` edit hot-patched in 978 ms with a 5 ms
+patch-to-render. Editor swap files beside the source produced no restart. This is the
+state-preserving restart path required by D4/D7, not a reload.
+
 ### D5 - Compatibility is enforced, not assumed
 
 The dev host and reloadable UI are built under a compatible toolchain/profile/target/dependency set
@@ -613,14 +620,14 @@ authors once implemented.
 `hot_with` reloads in-process. In the generated four-crate layout the reloadable unit is
 `data/src/lib.rs`; `ui` (the `Render` impl, layout, element construction) is outside the jump table
 and is deliberately not a dependency of `data`. Editing `ui`, `types`, the bin, a dependency or the
-dev profile is host code: `dx` may still compile a patch, but the running view is not replaced. The
-`types::HotData` schema check rejects a frame built against a changed data layout. The dev loop
-prints the patch it observed; the scaffold prints the boundary value per revision, so a
-no-visible-change patch is distinguishable. A save outside `data/src` is labelled at save time
-(`auro: change in ui/src/lib.rs is outside the hot boundary; the running view keeps its code`) and a
-patch that follows it is reported as `patch compiled, running UI unchanged`, never as `reloaded`. A change to a non-tip crate or the dev profile makes
-`dx` rebuild and relaunch the app, which restores the snapshot and is labelled as a restart, not a
-reload. A patch that cannot be generated makes `dx` start a full rebuild; the dev loop prints
+dev profile is host code: a patch cannot replace the running view's code. A save outside
+`data/src` is labelled at save time (`auro: change in ui/src/lib.rs is outside the hot boundary;
+restarting the app (state preserved)`), the devserver and app are restarted, the snapshot is
+restored, and the outcome is labelled `restarted (state restored)` or
+`restarted (state reset: <reason>)`, never `reloaded`. Editor swap/lock files are ignored. The
+`types::HotData` schema check still rejects a frame built against a changed data layout if a patch
+races the restart. A change to a non-tip crate or the dev profile takes the same restart path.
+A patch that cannot be generated makes `dx` start a full rebuild; the dev loop prints
 `hot patch failed, dev server is rebuilding the app`. Build errors keep the previous UI live.
 
 Staged delivery (aligns roadmap):
@@ -767,7 +774,8 @@ patch-generation failure keeping app on previous code, and warm view-only save-t
 **Status (2026-11-18, integrated hot mode, four-crate scaffold):** item 2 (build failure keeps the
 previous UI) is demonstrated on Linux and Windows; item 3's apply-failure path is contained by
 `apply_patch` error/panic handling (unit-tested selection, manual rejection of an incompatible frame
-observed) and item 5's forced fallback restart was not exercised in hot mode. Item 6 is demonstrated
+observed). Item 5 is demonstrated: a save outside `data/src` restarts the devserver and app,
+restores the snapshot and is labelled `restarted (state restored)`. Item 6 is demonstrated
 on Linux (N=12, median 368 ms, min 325, max 394, patch-to-render 1-26 ms), Windows (N=9, median
 813 ms, 752-897, patch-to-render 2-16 ms) and macOS (N=12 after warm-up, median 509.5 ms, 372-1071,
 patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is partially
@@ -793,4 +801,4 @@ budget), published numbers, and a stable documented author contract for reloadab
 | Debug/release mixing, optimization levels, and symbol/debug info required by the chosen mechanism | Implementation, per platform notes |
 | In-app surfacing of build/reload diagnostics (overlay/panel) vs terminal-only in experimental mode | `auro-ui`/dev UX follow-up; terminal reporting is the minimum |
 | Windows and macOS feasibility, code-signing implications, and debugger behavior for the chosen mechanism | **Partially evidenced on Windows x86_64 (2026-11-16, WinBoat guest):** plain non-GPUI tip-crate `HotFn` patching applied 3/3 warm patches with continuity; a second plain prototype showed frontend view edits (590/523 ms) with host state continuous and an init-captured backend interval applying only after restart; GPUI 0.2.2 built and rendered in the interactive console session, but `dx serve` from session 0 hit DirectX `0x887A0022` before render, and patching an element-returning view in session 1 applied then overflowed the main thread's stack (`0xc000041d`); a leaf `HotFn` and a framework-free `ViewData` boundary hot-patched repeatedly with state preserved, so Windows hot reload is limited to framework-free boundaries. macOS, signing/entitlements, debugger behavior, and representative D6 remain unverified. **Integrated re-test (2026-11-18):** the Windows scaffold applied boundary patches in the interactive session with the same pid and continuing state (median 1375 ms save-to-render, N=5 steady; see D1), kept the previous UI on a type error and exited 0 when the window closed. **macOS measurement (2026-11-18):** a manual GitHub `macos-26-arm64` workflow measured median 509.5 ms after six warm-up edits (N=12, 372-1071; first cold run 515, 431-715); local hardware and hardened-runtime signing remain open. |
-| Change classification for `types`/`ui`/bin edits in hot mode: `dx` still compiles a patch, the running host keeps its old code, and the schema guard rejects an incompatible data frame; a restart is the honest path | dev loop watch-path classification (follow-up) |
+| Change classification for `types`/`ui`/bin edits in hot mode: `dx` still compiles a patch, the running host keeps its old code, and the schema guard rejects an incompatible data frame; a restart is the honest path | **Implemented (2026-11-18):** the dev loop classifies `.rs`/`.toml` saves, restarts the devserver and app for host-code changes, restores the snapshot, labels `restarted (state restored|reset)`, and ignores editor swap files. |

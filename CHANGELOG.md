@@ -40,8 +40,10 @@ installable `auro-cli` yet.
   <reason>`, the previous code keeps running, and the listener stays open for the next edit. A
   committed patch wakes the main thread through a watch channel instead of a 16 ms poll, which
   removes the poll from patch-to-render and stops an idle app waking twice a frame. Saves outside
-  `data/src` are labelled `outside the hot boundary` and a following patch reports `patch compiled,
-  running UI unchanged`, never a reload.
+  `data/src` are host-code changes: `auro dev` restarts the devserver and app instead of applying a
+  patch that cannot take effect, restores the snapshot and labels the outcome `restarted (state
+  restored)` or `restarted (state reset: <reason>)`, never `reloaded`. Editor swap/lock files are
+  ignored.
 - Scaffolded hot boundaries return `types::HotData`, a fixed `#[repr(C)]` frame with a schema
   number; the running host checks the schema and bounds before decoding. A patch built against a
   changed `ViewData` layout is rejected with `auro: reload rejected by the view: ...; previous UI
