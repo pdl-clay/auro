@@ -16,7 +16,7 @@ Tier 1 means: builds in CI, tests run, a maintainer uses it, regressions are rel
 
 ## Current status
 
-Measured against CI run `44249665963` (push of `e8dd79e`, 2026-11-18): CI, Docs and Bundle smoke
+Measured against CI run `44339911191` (push of `af7c224`, 2026-11-18): CI, Docs and Bundle smoke
 all succeeded. "Not verified" still means no maintainer has exercised a real desktop session.
 
 | Platform | Builds | Tests | Manually used | Notes |

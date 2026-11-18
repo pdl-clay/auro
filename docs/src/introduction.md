@@ -28,7 +28,8 @@ The frontend is Rust. There is no HTML, no CSS engine and no JavaScript in the a
 1. **Typed IPC, everywhere.** Schemas are derived from Rust signatures. There is no
    stringly-typed bridge, because there is no JavaScript to bridge to.
 2. **Hot reload or bust.** Rust compile times are the only real reason to stay on the web.
-   Target: edit to see in under 500 ms, with app state preserved.
+   Target: edit to see in under 500 ms, with app state preserved. The opt-in hot mode measured
+   368 ms median on Linux for the documented case; Windows and macOS remain above the target.
 3. **Capabilities for the real boundary.** With a Rust frontend, most permission checking is
    compile-time. What needs a runtime fence is plugin code and untrusted content.
 
