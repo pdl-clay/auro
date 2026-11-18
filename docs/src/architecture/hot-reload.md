@@ -252,6 +252,9 @@ context and is labelled honestly.
 - The boundary's return type must keep a fixed layout: the running host was compiled against the old
   one. The scaffold uses `types::HotData`, a fixed `#[repr(C)]` frame with a schema number; change
   `ViewData` and its encoder, bump `SCHEMA`, and never re-lay-out `HotData`.
+- The patch loader keeps each applied library mapped for the life of the process (unloading live
+  patched code is unsafe). A ~12 KB patch keeps a long session bounded; an app-sized patch would
+  grow the process by hundreds of MB per apply.
 - A patch that cannot be loaded must not kill the listener. `auro::hot` handles `apply_patch`
   errors and loader panics and keeps the previous jump table; the next edit can still apply.
 

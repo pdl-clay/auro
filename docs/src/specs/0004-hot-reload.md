@@ -323,7 +323,8 @@ artifact was the size of the app. The scaffold now generates four workspace crat
 
 `ui` deliberately does not depend on `data`: `dx` recompiles the changed crate and its dependents,
 so editing the boundary recompiles `data` and the thin bin, not GPUI or the view. The patch library
-is ~12 KB instead of the size of the fat binary, apply and load are cheap, and the steady-state
+is ~12 KB instead of the size of the fat binary (the loader keeps each applied library mapped, so
+this also bounds long-session growth), apply and load are cheap, and the steady-state
 save-to-render distribution on the same Linux reference machine was 325-394 ms (N=12, median 368)
 with `patch_took` 268-325 ms and patch-to-render 1-26 ms; the same setup with a plain struct
 boundary and no fixed-frame check measured median 288 ms (N=12). The process id, window and host
