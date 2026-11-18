@@ -44,7 +44,7 @@ installable `auro-cli` yet.
   patch that cannot take effect, restores the snapshot and labels the outcome `restarted (state
   restored)` or `restarted (state reset: <reason>)`, never `reloaded`. A failed host rebuild stops
   the old process before the build, so no app runs until the next successful save; the dev loop
-  says so. Editor swap/lock files are ignored.
+  says so. The restart path is verified on Linux and Windows. Editor swap/lock files are ignored.
 - A headless hot fixture (`crates/auro/tests/hot_fixture.rs`, run by CI with the `hot-reload`
   feature) mounts the view, swaps the boundary implementation, and asserts the new output is
   rendered while opted-in state survives. It does not load a patch dylib; the snapshot roundtrip

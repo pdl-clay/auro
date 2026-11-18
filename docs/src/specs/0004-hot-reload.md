@@ -306,7 +306,10 @@ with `Missing linker args for fat link of 'auro_hot_template2'. The tip crate li
 through linker interception for this build`; dx 0.7.10's fat-link interception requires the default
 linker, so lld is not a usable lever for the Windows patch path. Adding `/OPT:REF` and `/OPT:ICF`
 to the MSVC link measured 765/817/848/767 ms save-to-render (N=4, median 767; patch_took
-641-727 ms), no improvement over the 748 ms codegen-units series.
+641-727 ms), no improvement over the 748 ms codegen-units series. The host-code restart path was
+also exercised on Windows with the latest CLI: a `ui/src/lib.rs` save stopped dx and the app,
+rebuilt in 5.91 s, launched a new pid and restored the snapshot; a following `data` edit
+hot-patched in 910 ms (11 ms patch-to-render).
 
 **macOS measurement (2026-11-18, GitHub macOS 26 arm64 runner).** There is no local Apple host,
 but the manual `Hot reload macOS benchmark` workflow ran the guarded four-crate scaffold with the
@@ -498,8 +501,10 @@ rendered the edited button and a following `data` edit hot-patched in 978 ms wit
 patch-to-render. Editor swap files beside the source produced no restart. A host rebuild with a
 syntax error stopped the old app before the build, printed `auro: host rebuild failed; no app is
 running until the next successful build`, and the fixed save rebuilt in 2.79 s and restored the
-snapshot. This is the state-preserving restart path required by D4/D7, not a reload; unlike a
-boundary build error, a failed host rebuild has no previous process to keep.
+snapshot. The same host restart was verified on Windows: a `ui/src/lib.rs` save rebuilt in 5.91 s,
+launched a new pid, restored the snapshot and the next `data` edit patched in 910 ms. This is the
+state-preserving restart path required by D4/D7, not a reload; unlike a boundary build error, a
+failed host rebuild has no previous process to keep.
 
 ### D5 - Compatibility is enforced, not assumed
 

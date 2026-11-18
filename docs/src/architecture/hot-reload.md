@@ -193,8 +193,10 @@ and left the previous values on screen.
   patches at 719-735 ms (one 1293 ms outlier), not enough to reach the target. `rust-lld` linked a
   plain cargo build but dx 0.7.10 rejected the hot patch with `Missing linker args for fat link`;
   its fat-link interception requires the default linker, so lld is not a usable lever. `/OPT:REF`
-  plus `/OPT:ICF` measured a 767 ms median save-to-render (N=4), no gain. The data boundary is the
-  reloadable unit; Windows cannot patch element-returning code.
+  plus `/OPT:ICF` measured a 767 ms median save-to-render (N=4), no gain. A `ui/src/lib.rs` save
+  restarted the devserver/app in 5.91 s with a new pid and restored snapshot; a following `data`
+  edit patched in 910 ms. The data boundary is the reloadable unit; Windows cannot patch
+  element-returning code.
 - **macOS:** no local Apple host, but a manual workflow (`Hot reload macOS benchmark`) measured the
   guarded scaffold on a shared `macos-26-arm64` runner with the prebuilt dx 0.7.10: six warm-up
   edits then twelve measured, save-to-render
@@ -215,9 +217,9 @@ as a single global claim.
 | Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **813 ms** median, N=9 (752-897) | Guarded four-crate scaffold, `auro dev` trace, same pid/window; still above target (a plain-boundary series measured 1168 ms) |
 | macOS arm64 (`macos-26-arm64` runner) | Opt-in, measured in CI | **509.5 ms** median, N=12 after 6 warm-up (372-1071) | Shared GitHub runner; first cold run 515 ms; no local Apple hardware, signing or hardened-runtime test |
 
-The host-code restart path is verified on Linux. The Windows and macOS rows cover boundary patches,
-build failure and recovery; the restart path has not been re-run on those hosts, so this PR does not
-claim it there.
+The host-code restart path is verified on Linux and Windows. The macOS row covers boundary patches,
+build failure and recovery; the restart path has not been run on macOS, so this PR does not claim it
+there.
 
 ## Mechanism and layout
 
