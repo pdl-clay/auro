@@ -214,9 +214,9 @@ is reported per platform, never as a single global claim.
 
 | Platform | Hot mode | Save-to-render (warm) | Evidence |
 |---|---|---|---|
-| Linux x86_64, niri/Wayland | Opt-in, verified | **368 ms** median, N=12 (325-394) | Four-crate scaffold, `desktop-dev`, boundary edits, same pid/window/state |
-| Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **813 ms** median, N=9 (752-897) | Guarded four-crate scaffold, `auro dev` trace, same pid/window; still above target (a plain-boundary series measured 1168 ms) |
-| macOS arm64 (`macos-26-arm64` runner) | Opt-in, measured in CI | **509.5 / 837.0 ms** medians, two runs, N=12 after 6 warm-up | Shared GitHub runner; host restart and snapshot restore verified; no local Apple hardware, signing or hardened-runtime test |
+| Linux x86_64, niri/Wayland | Opt-in, verified | **368 ms** median, N=12 (p95 394, 325-394) | Four-crate scaffold, `desktop-dev`, boundary edits, same pid/window/state |
+| Windows 11 x86_64, MSVC | Opt-in, verified in interactive session | **813 ms** median, N=9 (p95 897, 752-897) | Guarded four-crate scaffold, `auro dev` trace, same pid/window; still above target (a plain-boundary series measured 1168 ms) |
+| macOS arm64 (`macos-26-arm64` runner) | Opt-in, measured in CI | **509.5 / 837.0 ms** medians, two runs, N=12 after 6 warm-up (p95 1071/2096) | Shared GitHub runner; host restart and snapshot restore verified; no local Apple hardware, signing or hardened-runtime test |
 
 The host-code restart path is verified on Linux, Windows and macOS CI. macOS local hardware,
 signing and hardened-runtime behaviour remain unverified.

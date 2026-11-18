@@ -38,19 +38,19 @@ impl HotData {
 
     pub fn encode(data: &ViewData) -> Self {
         let mut bytes = [0u8; FRAME_BYTES];
-        let title = data.title.as_bytes();
-        let len = title.len().min(TITLE_BYTES);
-        bytes[..4].copy_from_slice(&(len as u32).to_le_bytes());
-        bytes[4..4 + len].copy_from_slice(&title[..len]);
+        let overflow = data.title.len() > TITLE_BYTES;
+        // An oversized title is rejected by `decode`. Do not slice it to the frame size: a
+        // byte-sized cut can land inside a multi-byte UTF-8 character and panic in the boundary
+        // before the host gets a chance to reject the frame.
+        if !overflow {
+            let title = data.title.as_bytes();
+            bytes[..4].copy_from_slice(&(title.len() as u32).to_le_bytes());
+            bytes[4..4 + title.len()].copy_from_slice(title);
+        }
         let accent_at = 4 + TITLE_BYTES;
         bytes[accent_at..accent_at + 4].copy_from_slice(&data.accent.to_le_bytes());
-        let overflow = if data.title.len() > TITLE_BYTES {
-            OVERFLOW
-        } else {
-            0
-        };
         Self {
-            schema: Self::SCHEMA | overflow,
+            schema: Self::SCHEMA | if overflow { OVERFLOW } else { 0 },
             bytes,
         }
     }
@@ -99,6 +99,15 @@ mod tests {
         let mut frame = HotData::encode(&ViewData::default());
         frame.schema = HotData::SCHEMA + 1;
         assert!(frame.decode().is_err());
+    }
+
+    #[test]
+    fn rejects_an_unaligned_oversized_title_without_panicking() {
+        let data = ViewData {
+            title: format!("a{}", "é".repeat(100)),
+            accent: 0,
+        };
+        assert!(HotData::encode(&data).decode().is_err());
     }
 
     #[test]
