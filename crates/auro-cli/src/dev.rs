@@ -1028,31 +1028,16 @@ mod tests {
 
     #[test]
     fn ignores_build_and_editor_artifacts() {
-        let app = Path::new("/tmp/demo");
+        let app = Path::new("demo");
         assert!(is_ignored_build_event(
-            Path::new("/tmp/demo/target/debug/demo"),
+            Path::new("demo/target/debug/demo"),
             app
         ));
-        assert!(is_ignored_build_event(
-            Path::new("/tmp/demo/.git/index"),
-            app
-        ));
-        assert!(is_ignored_build_event(
-            Path::new("/tmp/demo/src/main.rs~"),
-            app
-        ));
-        assert!(is_ignored_build_event(
-            Path::new("/tmp/demo/src/.#main.rs"),
-            app
-        ));
-        assert!(!is_ignored_build_event(
-            Path::new("/tmp/demo/src/main.rs"),
-            app
-        ));
-        assert!(!is_ignored_build_event(
-            Path::new("/tmp/demo/Auro.toml"),
-            app
-        ));
+        assert!(is_ignored_build_event(Path::new("demo/.git/index"), app));
+        assert!(is_ignored_build_event(Path::new("demo/src/main.rs~"), app));
+        assert!(is_ignored_build_event(Path::new("demo/src/.#main.rs"), app));
+        assert!(!is_ignored_build_event(Path::new("demo/src/main.rs"), app));
+        assert!(!is_ignored_build_event(Path::new("demo/Auro.toml"), app));
     }
 
     #[test]
