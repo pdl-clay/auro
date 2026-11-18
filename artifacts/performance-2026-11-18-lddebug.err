@@ -1,0 +1,8 @@
+   2468626:	
+   2468626:	runtime linker statistics:
+   2468626:	  total startup time in dynamic loader: 755007 cycles
+   2468626:	            time needed for relocation: 218064 cycles (28.8%)
+   2468626:	                 number of relocations: 871
+   2468626:	      number of relocations from cache: 68
+   2468626:	        number of relative relocations: 31655
+   2468626:	           time needed to load objects: 460161 cycles (60.9%)

@@ -1,0 +1,35 @@
+ File  .text     Size Crate
+ 7.9%  18.8%   2.1MiB gpui
+ 6.4%  15.3%   1.7MiB zbus
+ 4.9%  11.7%   1.3MiB naga
+ 2.7%   6.5% 753.1KiB std
+ 1.9%   4.6% 528.7KiB rustybuzz
+ 1.6%   3.8% 438.0KiB oo7
+ 1.4%   3.4% 389.4KiB skrifa
+ 1.3%   3.1% 357.3KiB usvg
+ 1.0%   2.4% 277.5KiB swash
+ 1.0%   2.3% 261.8KiB ttf_parser
+ 0.7%   1.8% 202.5KiB taffy
+ 0.5%   1.3% 150.3KiB read_fonts
+ 0.5%   1.2% 143.2KiB zvariant
+ 0.5%   1.2% 135.2KiB auro_core
+ 0.5%   1.1% 124.9KiB wayland_client
+ 0.4%   1.0% 117.2KiB ashpd
+ 0.4%   1.0% 115.4KiB blade_graphics
+ 0.4%   1.0% 113.6KiB cosmic_text
+ 0.4%   1.0% 113.3KiB x11rb_protocol
+ 0.3%   0.7%  76.6KiB wayland_protocols
+ 0.3%   0.6%  74.7KiB zeno
+ 0.3%   0.6%  72.8KiB ash
+ 0.3%   0.6%  71.2KiB fontconfig_parser
+ 0.2%   0.6%  66.1KiB fontdb
+ 0.2%   0.6%  65.2KiB serde_core
+ 0.2%   0.5%  53.4KiB toml
+ 0.2%   0.5%  53.3KiB xim_parser
+ 0.2%   0.5%  53.2KiB zvariant_utils
+ 0.2%   0.4%  51.3KiB auro
+ 0.2%   0.4%  49.4KiB autocfg
+ 4.4%  10.4%   1.2MiB And 189 more crates. Use -n N to show more.
+41.9% 100.0%  11.2MiB .text section size, the file size is 26.8MiB
+
+Note: numbers above are a result of guesswork. They are not 100% correct and never will be.
