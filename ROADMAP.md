@@ -339,14 +339,41 @@ policy (spec 0030).
 **Benchmark harness (2026-11-18):** `auro bench` measures spawn-to-first-frame-request, idle RSS
 and stripped binary size; `examples/hello` is the no-toolkit fixture. A local 5-run Linux/Wayland
 result (154.9 ms, 105.3 MB, 15.6 MB) is recorded in the performance budget, not as a published
-baseline or comparison.
+baseline or comparison. The report now includes min/median/p95/max and raw samples in `--json`;
+there is still no committed baseline or CI regression gate.
+
+**Package rollback (2026-11-18):** `Updater::stage_rollback_from_path` and `download_rollback`
+verify and stage a signed, strictly older artifact, closing the gap between the updater's downgrade
+refusal and the explicit `LinuxPackageInstaller::rollback`; equal or newer offers are `NotOlder`.
+An `ApplyPlan` can also carry a `PackageRollback`: if the elevated package manager fails with
+`InstallerFailed`, the helper re-verifies the older package, requires it to be strictly older, runs
+the downgrade, marks the journal `RolledBack` and relaunches without overwriting that state. It
+does not run on a declined authorization or a verification failure, and Auro still does not
+discover or retain a previous package. The policy is opt-in and caller-supplied (spec 0030,
+ADR 0021).
+
+**macOS notarization verification (2026-11-18):** `MacNotarizer::verify` runs `stapler validate`
+and the matching `spctl --assess` check; `.app` bundles are archived with `ditto --keepParent` for
+submission; `[bundle.macos] notarize-profile` opts `auro bundle` into post-bundle notarization and
+verification. Real Apple credentials, a real notarization and macOS execution remain unavailable on
+this host, and the DMG-ordering caveat is documented (spec 0032).
+
+**Accessibility and IME audit (2026-11-18):** GPUI 0.2.2 has no AccessKit or accessibility tree;
+IME plumbing exists upstream on macOS (`NSTextInputClient`), Windows (`WM_IME_*`), Wayland
+(`zwp_text_input_v3`) and X11 (XIM), but Auro ships no text-input primitive and has not verified
+composition end to end. Recorded in
+[Text input, IME and accessibility](docs/src/architecture/accessibility.md); the accessibility pass
+remains blocked upstream.
 
 **Phase 2 technical status (2026-11-18):** bundling; signed manifests, staging and Linux AppImage
-apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
-`auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
-automatic Linux package rollback/downgrade policy, macOS `.pkg` runtime verification/notarization
-credentials, and AccessKit/IME. The exit criterion also needs
-three real apps and published benchmarks; it is not met by the workspace alone.
+apply; explicit Linux package rollback staging; platform services (autostart, notifications,
+keychain, global shortcuts, tray, deep links); `auro-perms`; Button keyboard activation; and
+notarization submission/verification are implemented, including an opt-in helper rollback after a
+failed Linux package apply. Remaining technical work: macOS `.pkg` runtime verification and
+notarization credentials (no Apple host here), AccessKit (no upstream API), IME end-to-end
+verification (upstream plumbing, no Auro surface), and a rollback policy that obtains the previous
+package without the caller (deliberately out of scope). The exit criterion also needs three real
+apps and published benchmarks; it is not met by the workspace alone.
 
 **Alpha candidate (2026-11-17):** the workspace and internal requirements are
 `0.1.0-alpha.1`; every crate has a README, homepage and discovery metadata; the facade's services

@@ -74,16 +74,30 @@ installable `auro-cli` yet.
   verification and notarization remain (spec 0031, ADR 0019).
 - `auro-update`: `LinuxPackageInstaller::rollback` installs a caller-supplied older `.deb`
   (`dpkg --force-downgrade -i`) or `.rpm` (`rpm -U --oldpackage`) through the same optional
-  `pkexec` elevation and held-descriptor path; this is an explicit manual rollback policy, not
-  automatic failure recovery (spec 0030, ADR 0018).
+  `pkexec` elevation and held-descriptor path; the artifact remains caller-supplied (spec 0030,
+  ADR 0018).
+- `auro-update`: `Updater::stage_rollback_from_path` and `download_rollback` verify and stage a
+  signed artifact that is strictly older than the running version, closing the gap between the
+  updater (which refuses downgrades) and the explicit package rollback API. Equal or newer offers
+  are `UpdateError::NotOlder`; the normal update path still rejects older manifests (spec 0030).
+- `auro-update`: a `.deb`/`.rpm` `ApplyPlan` can carry a `PackageRollback` (`ApplyPlan::
+  with_package_rollback`). When the package manager fails with `InstallerFailed`, the restart
+  helper re-verifies the caller-supplied older package, requires it to be strictly older, runs the
+  elevated downgrade, marks the journal `RolledBack` and relaunches without overwriting that state.
+  It does not roll back on `ElevationFailed`, a verification failure or a non-package apply; the
+  older package is never discovered or retained by Auro (spec 0030, ADR 0021).
 - `auro-cli`: `auro notarize --artifact <path> --profile <keychain-profile>` submits through
-  `xcrun notarytool` and staples with `xcrun stapler` unless `--skip-staple` is set. The command is
-  shell-free and requires an existing macOS keychain profile; credentials, runtime verification and
-  automatic bundling integration remain release/CI work (spec 0032, ADR 0020).
-- `auro-cli`: `auro bench --dir <app>` builds the release binary and reports median startup to the
-  first-frame marker, idle RSS and binary size, with `--json` output. The `examples/hello` fixture
-  is the no-toolkit benchmark app; a local 5-run Linux measurement is recorded as 154.9 ms,
-  105.3 MB RSS and 15.6 MB stripped, explicitly not a published baseline.
+  `xcrun notarytool`, staples with `xcrun stapler` and validates the ticket unless `--skip-staple`
+  is set. `.app` bundles are archived with `ditto --keepParent` before submission; a bare zip
+  requires `--skip-staple`. `--verify` runs `stapler validate` plus the matching `spctl --assess`
+  check without resubmitting. `[bundle.macos] notarize-profile` makes `auro bundle` notarize and
+  verify the produced `.app`/`.dmg`; Apple credentials and real macOS execution remain unavailable
+  on this host (spec 0032, ADR 0020).
+- `auro-cli`: `auro bench --dir <app>` builds the release binary and reports min/median/p95/max
+  for startup to the first-frame marker and idle RSS, plus the binary size, with raw samples in
+  `--json` output. The `examples/hello` fixture is the no-toolkit benchmark app; a local 5-run
+  Linux measurement is recorded as 154.9 ms median, 105.3 MB RSS and 15.6 MB stripped, explicitly
+  not a published baseline.
 - `auro-update`: manifest v2 adds signed delta (bsdiff-compatible base-bound patch) and deterministic
   rollout metadata. `download_delta`/`stage_delta_from_path` verify base, patch and full artifact;
   `with_rollout_key` gates partial releases. CLI gains `auro delta` and `--rollout-percentage`/
@@ -355,6 +369,10 @@ installable `auro-cli` yet.
 
 ### Changed
 
+- Elevated Linux package failures now follow `pkexec`'s exit-code contract: `126`/`127` (or no
+  code) remain `ElevationFailed`, while other non-zero codes are the package manager's status and
+  are `InstallerFailed`. This is what lets the opt-in package rollback distinguish a declined
+  authorization from a failed `dpkg`/`rpm` transaction (spec 0029).
 - Phase 2 is in progress: the bundler slice is in tree and Linux packaging is verified. Phase 1 is
   closed; README/README.pt-BR/book status reflect both.
 - Phase 1 is closed: the toolkit seam, lifecycle events, typed events, command schemas, window

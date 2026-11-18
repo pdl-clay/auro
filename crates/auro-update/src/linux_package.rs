@@ -171,7 +171,11 @@ impl LinuxPackageInstaller {
         drop(held);
         if code == Some(0) {
             Ok(kind)
-        } else if self.elevation == LinuxElevation::Pkexec {
+        } else if self.elevation == LinuxElevation::Pkexec
+            && (code.is_none() || matches!(code, Some(126 | 127)))
+        {
+            // `pkexec` reserves 126 for a failed authorization/execution and 127 for an
+            // invalid authorization; other non-zero codes are the package manager's status.
             Err(UpdateError::ElevationFailed { program, code })
         } else {
             Err(UpdateError::InstallerFailed {
@@ -466,6 +470,18 @@ mod tests {
                 code: Some(126),
                 ..
             })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn elevated_package_manager_failure_is_an_installer_failure() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let staged = staged(&temp, "deb");
+        let installer = LinuxPackageInstaller::with_runner(MockRunner::with_code(1)).elevated();
+        assert!(matches!(
+            installer.install(&staged),
+            Err(UpdateError::InstallerFailed { code: Some(1), .. })
         ));
     }
 

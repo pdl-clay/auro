@@ -12,6 +12,8 @@ hand off after it exits, and relaunch the replacement. This spec fixes that hand
 - `ApplyKind`: `None`, `AppImage`, `WindowsInstaller`, `MacApp`, `MacPkg`, `DebPackage`, `RpmPackage`.
 - States: `Prepared`, `Applied`, `RebootRequired`, `Failed`, `RolledBack`, `Restarted`.
 - Helper-side platform apply for a prepared journal, using the installers from specs 0014/0025.
+- An optional caller-supplied older `.deb`/`.rpm` in the journal; the helper reinstalls it when the
+  primary package apply fails with `InstallerFailed` ([spec 0030](0030-linux-package-rollback.md)).
 - `Relaunch`: executable, arguments and working directory for the replacement process.
 - `ApplyJournal::spawn_helper`: locks the exit handoff and starts the same executable in helper
   mode.
@@ -131,6 +133,7 @@ pub struct ApplyPlan {
     pub target: Option<PathBuf>,
     pub manifest: Manifest,
     pub public_key: PublicKey,
+    pub rollback: Option<PackageRollback>,
 }
 
 impl ApplyPlan {
@@ -141,6 +144,7 @@ impl ApplyPlan {
         manifest: Manifest,
         public_key: PublicKey,
     ) -> Self;
+    pub fn with_package_rollback(self, rollback: PackageRollback) -> Self;
 }
 
 pub struct Relaunch {
@@ -183,6 +187,7 @@ impl ApplyJournal {
     pub fn path(&self) -> &Path;
     pub fn state(&self) -> ApplyState;
     pub fn backup(&self) -> Option<&Path>;
+    pub fn rollback_artifact(&self) -> Option<&Path>;
     pub fn set_backup(&mut self, backup: impl Into<PathBuf>) -> Result<(), UpdateError>;
     pub fn reconcile(&self, current_version: &str) -> Result<Recovery, UpdateError>;
     pub fn finalize(self) -> Result<(), UpdateError>;
@@ -252,13 +257,16 @@ until `spawn_helper` returns; the lock is retained by the helper module.
    backup, journal and lock, while refusing an unrelated backup
    (`classifies_recovery_actions`, `finalizes_backup_journal_and_lock`,
    `refuses_to_finalize_an_unrelated_backup`, `refuses_to_finalize_a_backup_without_a_target`).
-7. A missing relaunch executable is rejected and recorded (`helper_records_a_launch_failure`).
-8. A missing, malformed, old-format or non-sibling-lock journal is typed
+7. A rollback plan survives the journal round trip and is rejected for a non-package apply
+   (`round_trips_a_package_rollback_plan`,
+   `rejects_a_rollback_plan_for_a_non_package_apply`).
+8. A missing relaunch executable is rejected and recorded (`helper_records_a_launch_failure`).
+9. A missing, malformed, old-format or non-sibling-lock journal is typed
    (`rejects_a_missing_or_unknown_journal`, `rejects_malformed_json`,
    `reports_an_old_format_before_schema_fields`, `rejects_a_non_sibling_lock_path`).
-9. `App::try_run` enters helper mode from `RESTART_HELPER_ENV` before config/GPUI (compile-time
+10. `App::try_run` enters helper mode from `RESTART_HELPER_ENV` before config/GPUI (compile-time
    façade check).
-10. `cargo fmt --all --check`,
+11. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, `cargo check -p auro --features updater --locked`, and
    `mdbook build docs` pass.

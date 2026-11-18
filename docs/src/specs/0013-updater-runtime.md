@@ -43,8 +43,10 @@ parses both versions as semantic versions. It returns one of three decisions:
 | `Downgrade` | offered version is older | refuses |
 
 A signed older manifest can be replayed, so downgrade is a decision for a caller that has an
-explicit rollback policy; the default runtime never stages it. A malformed version is a typed
-error, not a lexical comparison.
+explicit rollback policy; the default runtime never stages it. The explicit rollback entry points
+are `stage_rollback_from_path`/`download_rollback` in
+[spec 0030](0030-linux-package-rollback.md), which require a strictly older signed version. A
+malformed version is a typed error, not a lexical comparison.
 
 *Rejected:* comparing version strings. `1.10.0` sorts before `1.9.0` lexically. *Rejected:*
 accepting a manifest for another platform and letting the installer fail later.

@@ -36,7 +36,7 @@ direction as later phases land.
 | `auro-perms` | capability manifests, runtime enforcement for plugin and content boundaries | guard code that the compiler already guards |
 | `auro-plugins` | plugin manifests, in-process `cdylib` hosts, out-of-process RPC | assume plugin code is trusted |
 | `auro-services` | platform services: autostart, notifications, keychain, global shortcuts, tray, deep links (specs 0017-0022) | perform OS work the app did not ask for |
-| `auro-bundle`, `auro-update`, `auro-sign` | packaging per platform, signed manifests, staged downloads and Linux AppImage apply, key handling | run inside the app's main loop |
+| `auro-bundle`, `auro-update`, `auro-sign` | packaging per platform, signed manifests, staged downloads, platform apply/rollback and notarization tooling, key handling | run inside the app's main loop |
 
 ## Data flow of one interaction
 

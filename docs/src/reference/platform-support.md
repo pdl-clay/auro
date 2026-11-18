@@ -16,15 +16,19 @@ Tier 1 means: builds in CI, tests run, a maintainer uses it, regressions are rel
 
 ## Current status
 
-Measured against CI run `43776830848` (push of `5a5d389`, 2026-11-15). "Not verified" still means
-no maintainer has exercised a real desktop session.
+Measured against CI run `44249665963` (push of `e8dd79e`, 2026-11-18): CI, Docs and Bundle smoke
+all succeeded. "Not verified" still means no maintainer has exercised a real desktop session.
 
 | Platform | Builds | Tests | Manually used | Notes |
 |---|---|---|---|---|
-| macOS | CI clippy green | CI tests green | - | Format step runs only on the Linux leg; no desktop-session verification |
-| Linux (X11) | `ubuntu-latest` and `ubuntu-22.04` CI green | `ubuntu-latest` fmt, clippy and tests green | local only | `libxkbcommon-x11-dev` added to CI Linux dependencies after a `-lxkbcommon-x11` link failure at `25da81f`; no desktop-session verification |
-| Linux (Wayland) | unverified | unverified | - | Requires a compositor; not testable in CI |
-| Windows | CI clippy green | CI tests green | - | No desktop-session verification |
+| macOS | CI clippy green | CI tests green | - | Format step runs only on the Linux leg; no desktop-session verification; notarization and `.pkg` execution unverified |
+| Linux (X11) | `ubuntu-latest` and `ubuntu-22.04` CI green | `ubuntu-latest` fmt, clippy and tests green | - | No desktop-session verification |
+| Linux (Wayland) | unverified in CI | unverified in CI | local only (niri) | Phase 0/1 demos, hot-reload measurements and `auro bench` were run locally on niri/Wayland; no CI compositor job |
+| Windows | CI clippy green | CI tests green | - | No desktop-session verification; MSI/NSIS install was exercised manually on Windows 11 earlier in Phase 2, the gate run does not install |
+
+Text input, IME and accessibility have their own audit in
+[Text input, IME and accessibility](../architecture/accessibility.md): GPUI 0.2.2 has IME plumbing
+on all three platforms but no AccessKit, and Auro has no text-input primitive.
 
 ## Linux system dependencies
 
@@ -32,9 +36,10 @@ The CI job installs exactly this set to build the workspace
 (`.github/workflows/ci.yml`):
 
 ```bash
-sudo apt-get install -y \
+sudo apt-get install -y --no-install-recommends \
   libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
-  libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config
+  libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config \
+  libgtk-3-dev libayatana-appindicator3-dev
 ```
 
 Contributors on other distributions need the equivalent packages; there is no per-distribution

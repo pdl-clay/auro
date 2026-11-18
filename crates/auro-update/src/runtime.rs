@@ -161,15 +161,17 @@ impl Updater {
     /// downloading them. A previously staged file that still verifies is reused.
     pub fn download(&self, manifest: &Manifest) -> Result<StagedUpdate, UpdateError> {
         self.require_available(manifest)?;
-        let target = self.artifact_path(manifest);
-        if target.is_file() && manifest.verify_artifact(&target, &self.key).is_ok() {
-            return Ok(StagedUpdate::new(manifest.clone(), target));
-        }
+        self.staged_or_download(manifest)
+    }
 
-        fs::create_dir_all(&self.staging_dir)?;
-        let mut response = self.agent.get(&manifest.url).call()?;
-        self.write_artifact(manifest, response.body_mut().as_reader(), &target)?;
-        Ok(StagedUpdate::new(manifest.clone(), target))
+    /// Downloads, verifies and stages an older artifact for an explicit rollback.
+    ///
+    /// The manifest must be signed, for this platform, and strictly older than the running
+    /// version. Auro does not choose or authorize a downgrade; the caller decides that an older
+    /// release is the correct target and supplies its signed manifest and URL.
+    pub fn download_rollback(&self, manifest: &Manifest) -> Result<StagedUpdate, UpdateError> {
+        self.require_older(manifest)?;
+        self.staged_or_download(manifest)
     }
 
     /// Verifies a local artifact and copies it into the staging directory.
@@ -182,6 +184,40 @@ impl Updater {
         artifact: &Path,
     ) -> Result<StagedUpdate, UpdateError> {
         self.require_available(manifest)?;
+        self.staged_or_copy(manifest, artifact)
+    }
+
+    /// Verifies and stages a caller-supplied older artifact for an explicit rollback.
+    ///
+    /// This is the staging counterpart of an explicit package rollback: the manifest and artifact
+    /// must verify exactly like a normal update, and the offered version must be strictly older.
+    /// Auro never discovers, retains or downloads a previous package on its own.
+    pub fn stage_rollback_from_path(
+        &self,
+        manifest: &Manifest,
+        artifact: &Path,
+    ) -> Result<StagedUpdate, UpdateError> {
+        self.require_older(manifest)?;
+        self.staged_or_copy(manifest, artifact)
+    }
+
+    fn staged_or_download(&self, manifest: &Manifest) -> Result<StagedUpdate, UpdateError> {
+        let target = self.artifact_path(manifest);
+        if target.is_file() && manifest.verify_artifact(&target, &self.key).is_ok() {
+            return Ok(StagedUpdate::new(manifest.clone(), target));
+        }
+
+        fs::create_dir_all(&self.staging_dir)?;
+        let mut response = self.agent.get(&manifest.url).call()?;
+        self.write_artifact(manifest, response.body_mut().as_reader(), &target)?;
+        Ok(StagedUpdate::new(manifest.clone(), target))
+    }
+
+    fn staged_or_copy(
+        &self,
+        manifest: &Manifest,
+        artifact: &Path,
+    ) -> Result<StagedUpdate, UpdateError> {
         let target = self.artifact_path(manifest);
         if target.is_file() && manifest.verify_artifact(&target, &self.key).is_ok() {
             return Ok(StagedUpdate::new(manifest.clone(), target));
@@ -314,6 +350,19 @@ impl Updater {
                 version: manifest.version.clone(),
             }),
             UpdateDecision::Downgrade | UpdateDecision::UpToDate => Err(UpdateError::NotNewer {
+                current: self.current_version.to_string(),
+                offered: manifest.version.clone(),
+            }),
+        }
+    }
+
+    fn require_older(&self, manifest: &Manifest) -> Result<(), UpdateError> {
+        match self.check(manifest)? {
+            UpdateDecision::Downgrade => Ok(()),
+            UpdateDecision::HeldBack => Err(UpdateError::HeldBack {
+                version: manifest.version.clone(),
+            }),
+            UpdateDecision::Available | UpdateDecision::UpToDate => Err(UpdateError::NotOlder {
                 current: self.current_version.to_string(),
                 offered: manifest.version.clone(),
             }),
@@ -702,6 +751,124 @@ mod tests {
         manifest
             .verify_artifact(staged.path(), &key.public_key())
             .expect("artifact");
+    }
+
+    #[test]
+    fn stages_a_signed_older_artifact_for_rollback() {
+        let key = SigningKey::generate();
+        let (temp, updater) = updater(&key, "1.0.0");
+        let source = temp.path().join("older.deb");
+        fs::write(&source, BYTES).expect("write");
+        let manifest = signed_manifest(
+            &key,
+            BYTES,
+            "0.9.0",
+            "linux-x86_64",
+            "https://example.test/older.deb",
+        );
+
+        let staged = updater
+            .stage_rollback_from_path(&manifest, &source)
+            .expect("stage rollback");
+        manifest
+            .verify_artifact(staged.path(), &key.public_key())
+            .expect("artifact");
+        assert_eq!(staged.manifest().version, "0.9.0");
+
+        // A staged file that still verifies is reused instead of copied again.
+        let again = updater
+            .stage_rollback_from_path(&manifest, &source)
+            .expect("reuse");
+        assert_eq!(again.path(), staged.path());
+    }
+
+    #[test]
+    fn rollback_staging_rejects_newer_equal_and_tampered_offers() {
+        let key = SigningKey::generate();
+        let (temp, updater) = updater(&key, "1.0.0");
+        let source = temp.path().join("package.deb");
+        fs::write(&source, BYTES).expect("write");
+
+        let newer = signed_manifest(
+            &key,
+            BYTES,
+            "1.1.0",
+            "linux-x86_64",
+            "https://example.test/package.deb",
+        );
+        assert!(matches!(
+            updater.stage_rollback_from_path(&newer, &source),
+            Err(UpdateError::NotOlder { .. })
+        ));
+
+        let equal = signed_manifest(
+            &key,
+            BYTES,
+            "1.0.0",
+            "linux-x86_64",
+            "https://example.test/package.deb",
+        );
+        assert!(matches!(
+            updater.stage_rollback_from_path(&equal, &source),
+            Err(UpdateError::NotOlder { .. })
+        ));
+
+        let older = signed_manifest(
+            &key,
+            BYTES,
+            "0.9.0",
+            "linux-x86_64",
+            "https://example.test/package.deb",
+        );
+        fs::write(&source, b"tampered bytes").expect("tamper");
+        assert!(matches!(
+            updater.stage_rollback_from_path(&older, &source),
+            Err(UpdateError::ArtifactHash)
+        ));
+
+        let other_platform = signed_manifest(
+            &key,
+            BYTES,
+            "0.9.0",
+            "windows-x86_64",
+            "https://example.test/package.deb",
+        );
+        fs::write(&source, BYTES).expect("restore");
+        assert!(matches!(
+            updater.stage_rollback_from_path(&other_platform, &source),
+            Err(UpdateError::PlatformMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn downloads_a_signed_rollback_artifact() {
+        let key = SigningKey::generate();
+        let (_temp, updater) = updater(&key, "1.0.0");
+        let (url, server) = serve_once(BYTES);
+        let manifest = signed_manifest(&key, BYTES, "0.9.0", "linux-x86_64", &url);
+
+        let staged = updater.download_rollback(&manifest).expect("rollback");
+        manifest
+            .verify_artifact(staged.path(), &key.public_key())
+            .expect("artifact");
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn refuses_a_rollback_download_before_the_network() {
+        let key = SigningKey::generate();
+        let (_temp, updater) = updater(&key, "1.0.0");
+        let manifest = signed_manifest(
+            &key,
+            BYTES,
+            "1.2.3",
+            "linux-x86_64",
+            "http://127.0.0.1:9/unreachable",
+        );
+        assert!(matches!(
+            updater.download_rollback(&manifest),
+            Err(UpdateError::NotOlder { .. })
+        ));
     }
 
     fn signed_with_rollout(key: &SigningKey, bytes: &[u8], percentage: u8) -> Manifest {
