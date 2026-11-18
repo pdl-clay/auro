@@ -304,7 +304,9 @@ MSVC compile/link of the boundary and bin, not the repaint, the incremental sess
 count. `rust-lld` linked a plain `cargo build` successfully, but `dx serve --hot-patch` refused
 with `Missing linker args for fat link of 'auro_hot_template2'. The tip crate likely did not run
 through linker interception for this build`; dx 0.7.10's fat-link interception requires the default
-linker, so lld is not a usable lever for the Windows patch path.
+linker, so lld is not a usable lever for the Windows patch path. Adding `/OPT:REF` and `/OPT:ICF`
+to the MSVC link measured 765/817/848/767 ms save-to-render (N=4, median 767; patch_took
+641-727 ms), no improvement over the 748 ms codegen-units series.
 
 **macOS measurement (2026-11-18, GitHub macOS 26 arm64 runner).** There is no local Apple host,
 but the manual `Hot reload macOS benchmark` workflow ran the guarded four-crate scaffold with the

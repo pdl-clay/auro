@@ -192,8 +192,9 @@ and left the previous values on screen.
   the project/cargo/rustup directories are recommended, but in this run they left four steady
   patches at 719-735 ms (one 1293 ms outlier), not enough to reach the target. `rust-lld` linked a
   plain cargo build but dx 0.7.10 rejected the hot patch with `Missing linker args for fat link`;
-  its fat-link interception requires the default linker, so lld is not a usable lever. The data
-  boundary is the reloadable unit; Windows cannot patch element-returning code.
+  its fat-link interception requires the default linker, so lld is not a usable lever. `/OPT:REF`
+  plus `/OPT:ICF` measured a 767 ms median save-to-render (N=4), no gain. The data boundary is the
+  reloadable unit; Windows cannot patch element-returning code.
 - **macOS:** no local Apple host, but a manual workflow (`Hot reload macOS benchmark`) measured the
   guarded scaffold on a shared `macos-26-arm64` runner with the prebuilt dx 0.7.10: six warm-up
   edits then twelve measured, save-to-render
