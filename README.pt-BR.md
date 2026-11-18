@@ -26,8 +26,11 @@ compilar e experimentar o framework a partir de um checkout (veja
 [CONTRIBUTING.md](CONTRIBUTING.md)). As fatias da fase 2 no repositório cobrem empacotamento,
 updates assinados com caminhos de aplicação por plataforma e serviços de plataforma; submissão e
 verificação local de notarização no macOS são ferramentas de release, não um fluxo de usuário
-testado. Hot reload está medido, não GA: o scaffold opt-in de quatro crates fica abaixo da meta de
-500 ms no Linux e acima no Windows e em um runner macOS compartilhado.
+testado. Hot reload está medido, não GA, e só para a fronteira de dados do scaffold opt-in de
+quatro crates: no Linux, edições em `data/src` (a fronteira `view_data() -> HotData`) ficam abaixo
+da meta de 500 ms; no Windows e em um runner macOS compartilhado, acima. Edições em `ui`/`Render`,
+layout, `types`, dependências ou configuração exigem rebuild do host e restart do processo (com
+restauração de snapshot quando compatível); não são reload de view no mesmo processo.
 
 | Fase | Codinome | Estado |
 |---|---|---|
@@ -136,13 +139,17 @@ chamada Rust. Erro de tipo é erro de compilação.
 | Cold start | < 80 ms | 154,9 ms mediana, requisição do primeiro frame (Linux) |
 | RAM idle | < 40 MB | 105,3 MB (Linux) |
 | Binário hello-world | < 6 MB (stripped) | 15,6 MB (Linux) |
-| Editar e ver | < 500 ms | 368 ms mediana, p95 394 ms, hot mode opt-in, N=12 (Linux); 813 ms mediana, p95 897 ms (Windows); 509,5-956,0 ms medianas, p95 até 2096 ms, três runs com seis warm-ups (runner macOS compartilhado) |
+| Editar e ver (só fronteira de dados) | < 500 ms | 368 ms mediana, p95 394 ms para edições em `data/src` (`view_data() -> HotData`), hot mode opt-in, N=12 (Linux); 813 ms mediana, p95 897 ms (Windows); 509,5-956,0 ms medianas, p95 até 2096 ms, três runs com seis warm-ups (runner macOS compartilhado) |
 | Plataformas | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland e X11) | Linux verificado em runtime local; macOS e Windows compilam e testam no CI |
 
 São medições alpha, não uma baseline 1.0, e o gate de regressão no CI ainda não existe: o harness
 existe e o método está no [budget de performance](docs/src/reference/performance-budget.md). O
-resultado de editar e ver é o caminho opt-in de hot reload com o scaffold de quatro crates; hot
-reload está medido, não GA. O status por plataforma está na
+resultado de editar e ver cobre só a fronteira de dados do caminho opt-in de hot reload com o
+scaffold de quatro crates; hot reload está medido, não GA. Uma mudança em `ui`/`Render`, layout,
+`types`, dependências ou configuração é código de host: `auro dev` recompila e reinicia o
+processo, restaura o estado opt-in a partir do snapshot quando a versão é compatível e rotula o
+resultado como `restarted (state restored)` ou `restarted (state reset: <reason>)`. Esse caminho
+nunca é reportado como reload. O status por plataforma está na
 [matriz de suporte](docs/src/reference/platform-support.md).
 
 ## Roadmap

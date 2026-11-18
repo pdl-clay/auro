@@ -442,15 +442,21 @@ installable `auro-cli` yet.
 
 ### Changed
 
+- Hot-reload communication narrowed to what was measured: the 368 ms Linux median is save-to-render
+  for edits in the scaffold's `data/src` boundary (`view_data() -> HotData`), not a general view
+  reload. `README.md`, `README.pt-BR.md` and the performance budget now state that changes to
+  `ui`/`Render`, layout, `types`, dependencies or configuration rebuild the host and restart the
+  process, restoring the snapshot when compatible and labelling the outcome `restarted (state
+  restored)` or `restarted (state reset: <reason>)`.
 - `auro-update`: `ApplyJournal::load`, `save` and the restart-helper lock open now validate the
-  journal's local trust boundary fail-closed (`UpdateError::JournalTrust`). Unix rejects symlinks,
-  requires the file and immediate directory to be owned by the current user, refuses group/other
-  write bits, checks ancestors (allowing a root-owned sticky ancestor such as `/tmp`), and creates
-  new directories `0700` and files `0600`. Windows rejects reparse points and requires the
-  owner/DACL write ACEs to belong to the current user, `SYSTEM`, `Administrators` or the
-  creator-owner SIDs. The Windows junction/DACL/symlink tests pass on GitHub Actions
-  `windows-latest` (the symlink test skips without the privilege); Windows ancestors are not
-  walked. Spec 0033 and ADR 0023 record the contract and limits; RFC 0001 proposes metadata
+  journal's local trust boundary fail-closed (`UpdateError::JournalTrust`). Unix opens the journal
+  and lock with `O_NOFOLLOW`, requires the file and immediate directory to be owned by the current
+  user, refuses group/other write bits, checks ancestors (allowing a root-owned sticky ancestor
+  such as `/tmp`), and creates new directories `0700` and files `0600`. Windows rejects reparse
+  points and requires the owner/DACL write ACEs to belong to the current user, `SYSTEM`,
+  `Administrators` or the creator-owner SIDs. The Linux, Windows and macOS tests pass; macOS opens
+  parent directories with `O_DIRECTORY` and validates the resolved target. Windows ancestors are
+  not walked. Spec 0033 and ADR 0023 record the contract and limits; RFC 0001 proposes metadata
   expiry, generation, rotation and revocation without changing the manifest format.
 - `auro new` writes a 512x512 placeholder `icons/icon.png` and sets `[bundle] icon`, so a fresh
   scaffold passes the AppImage preflight instead of failing the first `auro bundle`. Replace the
