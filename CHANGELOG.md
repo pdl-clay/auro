@@ -46,6 +46,10 @@ installable `auro-cli` yet.
   `.rpm` through `/usr/bin/rpm -U` using the shell-free runner and helper journal
   (`ApplyKind::DebPackage`/`RpmPackage`). Elevation and rollback remain package-manager policy
   (spec 0027).
+- `auro-cli`: `auro bench --dir <app>` builds the release binary and reports median startup to the
+  first-frame marker, idle RSS and binary size, with `--json` output. The `examples/hello` fixture
+  is the no-toolkit benchmark app; a local 5-run Linux measurement is recorded as 154.9 ms,
+  105.3 MB RSS and 15.6 MB stripped, explicitly not a published baseline.
 - `auro-perms`: deny-by-default capability `Policy` with `fs`/`net`/`shell`/`clipboard`/
   `notification`/`keychain` grants, compiled glob scopes for the scoped capabilities, typed
   `Denied` errors, and `auro::perms` re-exports (spec 0016).

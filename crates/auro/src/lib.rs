@@ -63,7 +63,7 @@ pub mod update {
 #[cfg(feature = "hot-reload")]
 pub mod hot;
 
-pub use app::{App, emit};
+pub use app::{App, STARTUP_TRACE_ENV, emit};
 
 /// The implementation surface the macros expand against. Not a user-facing module.
 #[doc(hidden)]

@@ -310,6 +310,11 @@ deny-by-default grants and compiled glob scopes; the plugin host that consumes i
 Space (spec 0023). AccessKit is absent from GPUI 0.2.2, so the screen-reader/IME portion of the
 accessibility pass remains blocked upstream.
 
+**Benchmark harness (2026-11-18):** `auro bench` measures spawn-to-first-frame-request, idle RSS
+and stripped binary size; `examples/hello` is the no-toolkit fixture. A local 5-run Linux/Wayland
+result (154.9 ms, 105.3 MB, 15.6 MB) is recorded in the performance budget, not as a published
+baseline or comparison.
+
 **Phase 2 technical status (2026-11-18):** bundling; signed manifests, staging and Linux AppImage
 apply; platform services (autostart, notifications, keychain, global shortcuts, tray, deep links);
 `auro-perms`; and Button keyboard activation are implemented. Remaining technical work:
@@ -353,7 +358,7 @@ Tauri and Electron.
 - API freeze, semver from here on, LTS policy.
 - Security policy, external audit, contributor guide, RFC process.
 - **Performance budget in CI:** startup, first paint, RAM, binary size. Regressions fail the
-  build.
+  build. (Local harness exists; no baseline/gate yet.)
 - Launch: docs, three flagship example apps, benchmarks page, announcement.
 
 ---

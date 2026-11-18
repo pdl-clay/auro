@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+mod bench;
 mod dev;
 mod doctor;
 mod project;
@@ -81,6 +82,21 @@ enum Command {
         #[arg(long)]
         published_at: String,
     },
+    /// Measure startup, idle RSS and binary size for an app
+    Bench {
+        /// App directory (defaults to the current one)
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Number of process runs
+        #[arg(long, default_value_t = 5)]
+        runs: u32,
+        /// Seconds to wait before sampling idle RSS
+        #[arg(long, default_value_t = 5)]
+        idle_seconds: u64,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Report toolchain, config and platform status
     Doctor {
         /// App directory (defaults to the current one)
@@ -118,6 +134,12 @@ fn main() {
             platform.as_deref(),
             &published_at,
         ),
+        Command::Bench {
+            dir,
+            runs,
+            idle_seconds,
+            json,
+        } => bench::run(&dir.unwrap_or_else(current), runs, idle_seconds, json),
         Command::Doctor { dir } => doctor::run(&dir.unwrap_or_else(current)),
     };
 

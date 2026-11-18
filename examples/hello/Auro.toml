@@ -1,0 +1,13 @@
+[app]
+identifier = "com.example.hello"
+product-name = "Hello"
+version = "0.1.0"
+description = "Minimal Auro app used as the benchmark fixture"
+authors = ["The Auro Authors"]
+license = "MIT OR Apache-2.0"
+
+[[app.windows]]
+label = "main"
+title = "Hello"
+width = 480
+height = 320

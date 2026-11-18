@@ -85,6 +85,9 @@ impl Global for EventBus {}
 /// Set by `auro dev`; the app then reports when each window's first repaint is requested.
 const TRACE_ENV: &str = "AURO_DEV_TRACE";
 
+/// Set by `auro bench`; the app prints when the first frame is requested.
+pub const STARTUP_TRACE_ENV: &str = "AURO_STARTUP_TRACE";
+
 /// The application builder.
 ///
 /// Windows and identity come from `Auro.toml`; the builder attaches a root view to a window label.
@@ -349,7 +352,26 @@ impl App {
             // Register before setups/Ready so a handler that closes a window still gets the close
             // path; the registry fills in as windows open.
             observe_closes(cx, Rc::clone(&lifecycle), Rc::clone(&open_windows));
-            open_all(cx, &config, setups, roots, lifecycle, open_windows);
+            open_all(
+                cx,
+                &config,
+                setups,
+                roots,
+                lifecycle,
+                Rc::clone(&open_windows),
+            );
+            if std::env::var_os(STARTUP_TRACE_ENV).is_some() {
+                let handles: Vec<_> = open_windows
+                    .borrow()
+                    .iter()
+                    .map(|(handle, _)| *handle)
+                    .collect();
+                for handle in handles {
+                    let _ = handle.update(cx, |_, window, _| {
+                        window.on_next_frame(|_, _| println!("auro:startup"));
+                    });
+                }
+            }
             cx.activate(true);
         });
 
