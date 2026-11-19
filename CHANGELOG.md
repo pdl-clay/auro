@@ -10,6 +10,13 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Added
+
+- Documentation site: a task-oriented landing page, a new **Start here** guide, and a responsive
+  light/dark theme. The landing page states the alpha limits and the hot-reload boundary up front;
+  the guide covers the published `0.1.0-alpha.1` CLI, the four-crate scaffold, the default
+  rebuild-and-restart loop, and the opt-in hot path.
+
 ## [0.1.0-alpha.1] - 2026-11-18
 
 ### Added

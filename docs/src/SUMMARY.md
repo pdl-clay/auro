@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](introduction.md)
+[Start here](start.md)
 
 # Architecture
 
