@@ -6,16 +6,16 @@ use std::process::Command;
 
 use auro_core::{AuroError, Config};
 
-const CARGO_TOML: &str = include_str!("../templates/Cargo.toml");
+const CARGO_TOML: &str = include_str!("../templates/Cargo.toml.in");
 const AURO_TOML: &str = include_str!("../templates/Auro.toml");
 const DIOXUS_TOML: &str = include_str!("../templates/Dioxus.toml");
 const MAIN_RS: &str = include_str!("../templates/main.rs");
-const UI_CARGO_TOML: &str = include_str!("../templates/ui/Cargo.toml");
+const UI_CARGO_TOML: &str = include_str!("../templates/ui/Cargo.toml.in");
 const UI_LIB_RS: &str = include_str!("../templates/ui/lib.rs");
 const SERVICE_RS: &str = include_str!("../templates/ui/services.rs");
-const DATA_CARGO_TOML: &str = include_str!("../templates/data/Cargo.toml");
+const DATA_CARGO_TOML: &str = include_str!("../templates/data/Cargo.toml.in");
 const DATA_LIB_RS: &str = include_str!("../templates/data/lib.rs");
-const TYPES_CARGO_TOML: &str = include_str!("../templates/types/Cargo.toml");
+const TYPES_CARGO_TOML: &str = include_str!("../templates/types/Cargo.toml.in");
 const TYPES_LIB_RS: &str = include_str!("../templates/types/lib.rs");
 const ICON_PNG: &[u8] = include_bytes!("../templates/icon.png");
 const GITIGNORE: &str = "/target\n";

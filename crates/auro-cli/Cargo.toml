@@ -11,6 +11,9 @@ keywords = ["gui", "desktop", "cli", "scaffold", "dev"]
 categories = ["command-line-utilities", "development-tools"]
 authors.workspace = true
 publish = ["crates-io"]
+# `src/project.rs` embeds these with include_str!/include_bytes!. They live outside
+# `src/`, so Cargo's default package list omits them unless named here.
+include = ["src/**", "templates/**/*", "templates/*", "README.md"]
 
 [[bin]]
 name = "auro"

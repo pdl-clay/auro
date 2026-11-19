@@ -354,6 +354,10 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ### Fixed
 
+- `auro-cli` packages its `templates/` directory; `src/project.rs` embeds those files with
+  `include_str!`/`include_bytes!`, and Cargo's default package list omitted them, so a crates.io
+  install could not compile the CLI. The nested template manifests use a `.in` suffix so Cargo
+  does not treat them as separate packages and exclude the directory.
 - `auro-ui` pins `libc = "=0.2.189"` so GPUI 0.2.2's `xattr 0.2.3` dependency compiles for
   crates.io consumers; libc 0.2.190 removed `ENOATTR` on Linux, and a published crate cannot rely
   on the workspace's `[patch.crates-io]`.
