@@ -1,6 +1,7 @@
 # 0024 - Alpha release and crates.io
 
-**Status:** Draft (alpha candidate prepared; no crate is published)
+**Status:** Implemented (2026-11-18; all eleven crates and the `v0.1.0-alpha.1` tag are published.
+Rate-limit waits were not retained as a log; final README copy and screenshots remain follow-ups.)
 
 The first public alpha publishes the workspace crates as `0.1.0-alpha.1`. This spec collects the
 release contract that is not owned by an earlier feature spec: versioning, publish order, crate
@@ -107,8 +108,17 @@ ordinary feature PR.
   the README.
 - `auro-macros`, `auro-ipc`, `auro-sign`, `auro-perms` and `auro-services` package and verify.
   `auro-perms` completed `cargo publish --dry-run` with the release switch locally enabled.
-- Remaining: final metadata review, release switch (`publish = ["crates-io"]`), tag, and the actual
-  ordered upload with rate-limit waits.
+- Release switch, tag and ordered upload completed; see the publication record below.
+
+### Publication (2026-11-18)
+
+- Tag `v0.1.0-alpha.1` points at `ac4d996` (the merge of the release-preparation changes).
+- All eleven crates report `0.1.0-alpha.1` as their maximum published version on crates.io:
+  `auro-macros`, `auro-ipc`, `auro-sign`, `auro-perms`, `auro-services`, `auro-core`,
+  `auro-update`, `auro-ui`, `auro-bundle`, `auro`, `auro-cli`.
+- The crates.io listing is the publication evidence. The rate-limit waits were not retained as a
+  repository log, so acceptance item 6 is satisfied for the tag and versions, not for a retained
+  wait log.
 
 ## Open questions
 
