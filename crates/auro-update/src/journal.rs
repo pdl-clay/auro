@@ -1936,6 +1936,25 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn windows_accepts_a_private_journal_directory() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let private = temp.path().join("private");
+        std::fs::create_dir(&private).expect("private");
+        let result = trust::validate_parent(&private.join("apply.json"));
+        let acl = std::process::Command::new("icacls")
+            .arg("C:\\")
+            .output()
+            .ok()
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+            .unwrap_or_else(|| "icacls unavailable".to_owned());
+        assert!(
+            result.is_ok(),
+            "private journal should be accepted: {result:?}\nC:\\ ACL:\n{acl}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn windows_rejects_a_permissive_journal_dacl() {
         let temp = tempfile::tempdir().expect("tempdir");
         let status = std::process::Command::new("icacls")
@@ -1952,6 +1971,32 @@ mod tests {
         }
         assert!(matches!(
             trust::validate_parent(&temp.path().join("apply.json")),
+            Err(UpdateError::JournalTrust { .. })
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_a_permissive_ancestor_dacl() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let shared = temp.path().join("shared");
+        let private = shared.join("private");
+        std::fs::create_dir(&shared).expect("shared");
+        std::fs::create_dir(&private).expect("private");
+        let status = std::process::Command::new("icacls")
+            .arg(&shared)
+            .args(["/grant", "*S-1-1-0:(OI)(CI)M"])
+            .status();
+        let Ok(status) = status else {
+            eprintln!("skipping ancestor DACL test: icacls unavailable");
+            return;
+        };
+        if !status.success() {
+            eprintln!("skipping ancestor DACL test: icacls failed");
+            return;
+        }
+        assert!(matches!(
+            trust::validate_parent(&private.join("apply.json")),
             Err(UpdateError::JournalTrust { .. })
         ));
     }

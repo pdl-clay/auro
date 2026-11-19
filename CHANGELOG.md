@@ -17,6 +17,14 @@ breaking change bumps the minor version; the patch version is for compatible fix
   the guide covers the published `0.1.0-alpha.1` CLI, the four-crate scaffold, the default
   rebuild-and-restart loop, and the opt-in hot path.
 
+### Fixed
+
+- `auro-update`: Windows journal trust validation now walks the ancestor chain. It rejects reparse
+  points at every level and refuses ancestors that grant delete, rename or ACL-change rights to an
+  untrusted principal; inherit-only ACEs are checked on the child where they become effective. The
+  default `C:\` ACL no longer causes a false rejection of every user-profile path. Windows tests
+  cover a private path and a permissive shared ancestor on `windows-latest`.
+
 ## [0.1.0-alpha.1] - 2026-11-18
 
 ### Added

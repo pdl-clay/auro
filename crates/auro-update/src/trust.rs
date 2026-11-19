@@ -197,13 +197,15 @@ mod platform {
     use std::ptr::null_mut;
 
     use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE, HLOCAL, LocalFree};
-    use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
+    use windows::Win32::Security::Authorization::{
+        ConvertStringSidToSidW, GetSecurityInfo, SE_FILE_OBJECT,
+    };
     use windows::Win32::Security::{
         ACCESS_ALLOWED_ACE, ACL, ACL_SIZE_INFORMATION, AclSizeInformation, CreateWellKnownSid,
         DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetAclInformation, GetLengthSid,
-        GetTokenInformation, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY,
-        TOKEN_USER, TokenUser, WinBuiltinAdministratorsSid, WinCreatorOwnerRightsSid,
-        WinCreatorOwnerSid, WinLocalSystemSid,
+        GetTokenInformation, INHERIT_ONLY_ACE, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+        PSID, TOKEN_QUERY, TOKEN_USER, TokenUser, WinBuiltinAdministratorsSid,
+        WinCreatorOwnerRightsSid, WinCreatorOwnerSid, WinLocalSystemSid,
     };
     use windows::Win32::Storage::FileSystem::{
         DELETE, FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY, FILE_APPEND_DATA,
@@ -232,6 +234,30 @@ mod platform {
         | 0x4000_0000 // GENERIC_WRITE
         | 0x1000_0000; // GENERIC_ALL
 
+    /// Rights on an ancestor that can replace a child entry.
+    ///
+    /// Add-file/add-subdirectory only create siblings; they do not let another user rename or
+    /// delete the journal directory that this user already owns. DELETE_CHILD, DELETE, WRITE_DAC,
+    /// WRITE_OWNER and GENERIC_ALL do, so an ancestor that grants any of them to another principal
+    /// is not a trust anchor.
+    const ANCESTOR_WRITE_ACCESS: u32 =
+        FILE_DELETE_CHILD.0 | DELETE.0 | WRITE_DAC.0 | WRITE_OWNER.0 | 0x1000_0000; // GENERIC_ALL
+
+    #[derive(Clone, Copy)]
+    enum PathKind {
+        Journal,
+        Ancestor,
+    }
+
+    struct Principals {
+        user: Vec<u8>,
+        system: Vec<u8>,
+        administrators: Vec<u8>,
+        creator_owner: Vec<u8>,
+        creator_owner_rights: Vec<u8>,
+        trusted_installer: Vec<u8>,
+    }
+
     pub(super) fn open_file(
         path: &Path,
         read: bool,
@@ -251,7 +277,7 @@ mod platform {
     pub(super) fn validate_file(file: &File, path: &Path) -> Result<(), UpdateError> {
         let handle = HANDLE(file.as_raw_handle());
         reject_reparse(handle, path)?;
-        validate_owner_and_dacl(handle, path)
+        validate_owner_and_dacl(handle, path, PathKind::Journal)
     }
 
     pub(super) fn validate_parent(path: &Path) -> Result<(), UpdateError> {
@@ -259,14 +285,28 @@ mod platform {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
+        validate_directory(parent, PathKind::Journal)?;
+
+        let mut current = parent;
+        while let Some(ancestor) = current.parent() {
+            if ancestor.as_os_str().is_empty() || ancestor == current {
+                break;
+            }
+            validate_directory(ancestor, PathKind::Ancestor)?;
+            current = ancestor;
+        }
+        Ok(())
+    }
+
+    fn validate_directory(path: &Path, kind: PathKind) -> Result<(), UpdateError> {
         let mut options = OpenOptions::new();
         options
             .read(true)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0);
-        let directory = options.open(parent).map_err(UpdateError::Io)?;
+        let directory = options.open(path).map_err(UpdateError::Io)?;
         let handle = HANDLE(directory.as_raw_handle());
-        reject_reparse(handle, parent)?;
-        validate_owner_and_dacl(handle, parent)
+        reject_reparse(handle, path)?;
+        validate_owner_and_dacl(handle, path, kind)
     }
 
     fn reject_reparse(handle: HANDLE, path: &Path) -> Result<(), UpdateError> {
@@ -287,12 +327,23 @@ mod platform {
         Ok(())
     }
 
-    fn validate_owner_and_dacl(handle: HANDLE, path: &Path) -> Result<(), UpdateError> {
-        let user = current_user_sid()?;
-        let system = well_known_sid(WinLocalSystemSid)?;
-        let administrators = well_known_sid(WinBuiltinAdministratorsSid)?;
-        let creator_owner = well_known_sid(WinCreatorOwnerSid)?;
-        let creator_owner_rights = well_known_sid(WinCreatorOwnerRightsSid)?;
+    fn validate_owner_and_dacl(
+        handle: HANDLE,
+        path: &Path,
+        kind: PathKind,
+    ) -> Result<(), UpdateError> {
+        let principals = Principals {
+            user: current_user_sid()?,
+            system: well_known_sid(WinLocalSystemSid)?,
+            administrators: well_known_sid(WinBuiltinAdministratorsSid)?,
+            creator_owner: well_known_sid(WinCreatorOwnerSid)?,
+            creator_owner_rights: well_known_sid(WinCreatorOwnerRightsSid)?,
+            trusted_installer: trusted_installer_sid()?,
+        };
+        let write_access = match kind {
+            PathKind::Journal => WRITE_ACCESS,
+            PathKind::Ancestor => ANCESTOR_WRITE_ACCESS,
+        };
 
         let mut owner = PSID(null_mut());
         let mut dacl: *mut ACL = null_mut();
@@ -315,11 +366,12 @@ mod platform {
         }
         // SAFETY: the descriptor owns the memory until LocalFree; the pointers above point into it.
         let result = (|| {
-            if !sid_is_principal(owner, &user)
-                && !sid_is_principal(owner, &system)
-                && !sid_is_principal(owner, &administrators)
-                && !sid_is_principal(owner, &creator_owner)
-                && !sid_is_principal(owner, &creator_owner_rights)
+            if !sid_is_principal(owner, &principals.user)
+                && !sid_is_principal(owner, &principals.system)
+                && !sid_is_principal(owner, &principals.administrators)
+                && !sid_is_principal(owner, &principals.creator_owner)
+                && !sid_is_principal(owner, &principals.creator_owner_rights)
+                && !sid_is_principal(owner, &principals.trusted_installer)
             {
                 return Err(trust_error(
                     path,
@@ -329,15 +381,7 @@ mod platform {
             if dacl.is_null() {
                 return Err(trust_error(path, "journal path has no DACL"));
             }
-            validate_dacl(
-                dacl,
-                path,
-                &user,
-                &system,
-                &administrators,
-                &creator_owner,
-                &creator_owner_rights,
-            )
+            validate_dacl(dacl, path, write_access, kind, &principals)
         })();
         // SAFETY: GetSecurityInfo allocated the descriptor; the owner/dacl pointers are borrowed.
         unsafe {
@@ -349,11 +393,9 @@ mod platform {
     fn validate_dacl(
         dacl: *mut ACL,
         path: &Path,
-        user: &[u8],
-        system: &[u8],
-        administrators: &[u8],
-        creator_owner: &[u8],
-        creator_owner_rights: &[u8],
+        write_access: u32,
+        kind: PathKind,
+        principals: &Principals,
     ) -> Result<(), UpdateError> {
         let mut info = ACL_SIZE_INFORMATION::default();
         // SAFETY: dacl is a valid ACL returned by GetSecurityInfo and info matches the class.
@@ -377,20 +419,29 @@ mod platform {
             }
             // SAFETY: GetAce returned an ACE whose first field is ACE_HEADER.
             let header = unsafe { &*(ace as *const windows::Win32::Security::ACE_HEADER) };
+            // An inherit-only ACE on an ancestor applies to its children, not to the ancestor
+            // itself. Each child on the path is validated as the walk descends, so checking the
+            // flag on the ancestor's own object would reject the default `C:\` ACL for no gain.
+            if matches!(kind, PathKind::Ancestor)
+                && u32::from(header.AceFlags) & INHERIT_ONLY_ACE.0 != 0
+            {
+                continue;
+            }
             match u32::from(header.AceType) {
                 ACCESS_ALLOWED_ACE_TYPE => {
                     // SAFETY: an allowed ACE has the ACCESS_ALLOWED_ACE layout.
                     let allowed = unsafe { &*(ace as *const ACCESS_ALLOWED_ACE) };
-                    if allowed.Mask & WRITE_ACCESS == 0 {
+                    if allowed.Mask & write_access == 0 {
                         continue;
                     }
                     // SAFETY: SidStart is the first bytes of the variable-length SID.
                     let sid = PSID(&allowed.SidStart as *const u32 as *mut c_void);
-                    if !sid_is_principal(sid, user)
-                        && !sid_is_principal(sid, system)
-                        && !sid_is_principal(sid, administrators)
-                        && !sid_is_principal(sid, creator_owner)
-                        && !sid_is_principal(sid, creator_owner_rights)
+                    if !sid_is_principal(sid, &principals.user)
+                        && !sid_is_principal(sid, &principals.system)
+                        && !sid_is_principal(sid, &principals.administrators)
+                        && !sid_is_principal(sid, &principals.creator_owner)
+                        && !sid_is_principal(sid, &principals.creator_owner_rights)
+                        && !sid_is_principal(sid, &principals.trusted_installer)
                     {
                         return Err(trust_error(
                             path,
@@ -463,6 +514,37 @@ mod platform {
         }
         // SAFETY: sid is valid for `length` bytes.
         Ok(unsafe { std::slice::from_raw_parts(sid.0 as *const u8, length) }.to_vec())
+    }
+
+    /// The TrustedInstaller service SID is not a `WELL_KNOWN_SID_TYPE` constant in the bindings,
+    /// but Windows commonly assigns it ownership of protected system directories such as
+    /// `C:\Windows`. It is not a local user, so it is a valid ancestor owner.
+    fn trusted_installer_sid() -> Result<Vec<u8>, UpdateError> {
+        const SID: &str = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+        let wide: Vec<u16> = SID.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut sid = PSID(null_mut());
+        // SAFETY: wide is NUL-terminated and sid receives an allocated SID on success.
+        unsafe { ConvertStringSidToSidW(windows::core::PCWSTR(wide.as_ptr()), &mut sid) }
+            .map_err(|_| trust_error(Path::new("."), "cannot build the TrustedInstaller SID"))?;
+        // SAFETY: sid is valid until the LocalFree below.
+        let length = unsafe { GetLengthSid(sid) } as usize;
+        if length == 0 {
+            // SAFETY: sid was allocated by ConvertStringSidToSidW.
+            unsafe {
+                let _ = LocalFree(Some(HLOCAL(sid.0)));
+            }
+            return Err(trust_error(
+                Path::new("."),
+                "the TrustedInstaller SID has no length",
+            ));
+        }
+        // SAFETY: sid points to a SID of `length` bytes.
+        let bytes = unsafe { std::slice::from_raw_parts(sid.0 as *const u8, length) }.to_vec();
+        // SAFETY: ConvertStringSidToSidW allocated the SID; it is copied into `bytes`.
+        unsafe {
+            let _ = LocalFree(Some(HLOCAL(sid.0)));
+        }
+        Ok(bytes)
     }
 
     fn well_known_sid(
