@@ -82,4 +82,5 @@
 
 - [Platform support](reference/platform-support.md)
 - [Performance budget](reference/performance-budget.md)
+- [GPUI 0.3 spike](reference/gpui-0.3-spike.md)
 - [Repository standards](reference/repository-standards.md)
