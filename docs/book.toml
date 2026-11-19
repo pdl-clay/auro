@@ -19,9 +19,13 @@ edition = "2021"
 git-repository-url = "https://github.com/pdl-clay/auro"
 edit-url-template = "https://github.com/pdl-clay/auro/edit/main/docs/src/{path}"
 site-url = "/auro/"
-default-theme = "ayu"
-preferred-dark-theme = "ayu"
+default-theme = "light"
+preferred-dark-theme = "navy"
 no-section-label = true
+additional-css = ["theme/auro.css"]
+additional-js = ["theme/auro.js"]
+favicon-svg = "theme/favicon.svg"
+git-repository-icon = "fa-github"
 
 [output.html.fold]
 enable = true
