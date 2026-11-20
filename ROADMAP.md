@@ -413,6 +413,11 @@ the Linux tray backend that needs no GTK, the typed Wayland startup failure and 
 ancestor validation. The Phase 2 exit still needs three shipped apps and published comparison
 benchmarks.
 
+**Alpha.3 published (2026-11-20):** all eleven crates are `0.1.0-alpha.3` on crates.io, carrying
+the twenty bug fixes from #28-#47 (single-instance framing, command panic containment, deep-link
+and autostart escaping, updater preflight/journal ordering, CLI binary/config resolution, and
+config/window validation) plus the same-app Tauri/Electron benchmark harness.
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 
