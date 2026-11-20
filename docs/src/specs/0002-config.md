@@ -33,6 +33,12 @@ Merge is recursive for tables and **replacing** for arrays: a platform file that
 config systems become unreadable. The rule is JSON Merge Patch (RFC 7396) minus the `null`-deletes
 case, which TOML cannot express.
 
+`auro dev --config` parses the right-hand side as JSON when it is valid (`800`, `true`, `["a"]`),
+otherwise as a string. Numeric path segments index arrays. Because a merge patch replaces arrays
+wholesale, an indexed path seeds its array from the resolved config before changing one element, so
+`app.windows.0.width=800` keeps that window's `label` and the other windows. `null` is rejected:
+TOML has no null value.
+
 In Phase 0 the file is read at runtime. Bundled apps embed it in Phase 2.
 
 ### D3 - Windows are a list
@@ -53,7 +59,7 @@ It is never read at runtime and never affects behaviour.
 |---|---|---|---|
 | `identifier` | string | required | reverse-DNS, `[A-Za-z0-9.-]`, no leading/trailing dot; becomes the bundle id |
 | `product-name` | string | required | window-title default and bundle display name |
-| `version` | string | required | SemVer; must match `Cargo.toml`'s `package.version` or the build fails |
+| `version` | string | required | SemVer; must match Cargo's concrete `package.version` (including `version.workspace = true`) or the build fails |
 | `description` | string | `""` | one line, used by the bundle metadata |
 | `authors` | array of string | `[]` | `"Name <email>"` |
 | `homepage` | string | `""` | URL |
@@ -97,7 +103,7 @@ Validated in Phase 0 and consumed by `auro bundle` (spec 0010) in Phase 2. Nothi
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `active` | bool | `true` | |
-| `targets` | array of string \| `"all"` | `"all"` | `app`, `dmg`, `msi`, `nsis`, `appimage`, `deb`, `rpm`; unsupported per host is an error, not a skip |
+| `targets` | array of string \| `"all"` | `"all"` | `app`, `dmg`, `msi`, `nsis`, `appimage`, `deb`, `rpm`; the list must be non-empty; unsupported per host is an error, not a skip |
 | `icon` | array of string | `[]` | first existing format wins per platform |
 | `resources` | array of string | `[]` | glob patterns, relative to the app dir |
 | `category` | string | `"DeveloperTool"` | Apple/XDG category name |
@@ -148,10 +154,12 @@ Failures are `AuroError::Config { path, key, message }` and abort before a windo
 5. `bundle.targets` naming a package format the host cannot produce: error listing the valid set
    for that host. The known formats are `app`, `dmg`, `msi`, `nsis`, `appimage`, `deb` and `rpm`;
    the host sets are macOS `app`/`dmg`, Windows `msi`/`nsis`, and Linux `appimage`/`deb`/`rpm`.
+   An explicit list that is empty is rejected; use `"all"` to request the host set.
 6. Relative `watch`, `icon`, `license-file`, `resources` or `bundle.macos.entitlements` paths
    escaping the app directory: error.
 7. Window `width`/`height` must be greater than zero; a set `min-width`/`min-height`/
-   `max-width`/`max-height` must be greater than zero, and a minimum must not exceed its maximum.
+   `max-width`/`max-height` must be greater than zero, a minimum must not exceed its maximum, and
+   the initial size must lie inside the configured bounds.
 8. A window declared in `app.windows` without a matching `App::root`/`App::root_with` is a typed
    `AuroError::Window` before the event loop starts, not a headless process.
 

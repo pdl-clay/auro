@@ -105,10 +105,13 @@ impl AppLinks {
 }
 
 fn validate_scheme(scheme: &str) -> Result<(), DeepLinkError> {
-    if scheme.is_empty()
-        || !scheme
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+    // RFC 3986: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ). `_` is not allowed, `+` is.
+    let mut characters = scheme.chars();
+    let starts_with_letter = characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic());
+    if !starts_with_letter
+        || !characters.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.'))
     {
         return Err(DeepLinkError::InvalidScheme(scheme.to_owned()));
     }
@@ -237,10 +240,7 @@ fn register_linux(scheme: &str, executable: &std::path::Path) -> Result<(), Deep
 
     let desktop_name = format!("auro-{scheme}.desktop");
     let desktop_path = applications.join(&desktop_name);
-    let exec = executable.to_string_lossy().replace('"', "\\\"");
-    let entry = format!(
-        "[Desktop Entry]\nType=Application\nName=Auro {scheme}\nExec=\"{exec}\" %u\nTerminal=false\nMimeType=x-scheme-handler/{scheme};\n"
-    );
+    let entry = linux_desktop_entry(scheme, executable)?;
     std::fs::write(&desktop_path, entry)
         .map_err(|error| DeepLinkError::Register(error.to_string()))?;
 
@@ -258,6 +258,18 @@ fn register_linux(scheme: &str, executable: &std::path::Path) -> Result<(), Deep
         ));
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_desktop_entry(
+    scheme: &str,
+    executable: &std::path::Path,
+) -> Result<String, DeepLinkError> {
+    let exec = crate::desktop_entry::quote_exec_arg(&executable.to_string_lossy())
+        .map_err(DeepLinkError::Register)?;
+    Ok(format!(
+        "[Desktop Entry]\nType=Application\nName=Auro {scheme}\nExec={exec} %u\nTerminal=false\nMimeType=x-scheme-handler/{scheme};\n"
+    ))
 }
 
 #[cfg(test)]
@@ -308,13 +320,25 @@ mod tests {
 
     #[test]
     fn rejects_an_empty_or_bad_scheme() {
-        assert!(matches!(
-            register_scheme("", std::path::Path::new("/tmp/app")),
-            Err(DeepLinkError::InvalidScheme(_))
-        ));
-        assert!(matches!(
-            register_scheme("auro /x", std::path::Path::new("/tmp/app")),
-            Err(DeepLinkError::InvalidScheme(_))
-        ));
+        for scheme in ["", "auro /x", "1bad", "bad_scheme"] {
+            assert!(validate_scheme(scheme).is_err(), "{scheme}");
+        }
+    }
+
+    #[test]
+    fn accepts_a_scheme_with_a_plus() {
+        validate_scheme("probe+app").expect("+ is legal in a scheme");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_linux_desktop_entry_escapes_field_codes_and_rejects_newlines() {
+        let entry = linux_desktop_entry("probe", std::path::Path::new("/opt/100%fapp"))
+            .expect("desktop entry");
+        assert!(entry.contains("Exec=\"/opt/100%%fapp\" %u"), "{entry}");
+
+        assert!(
+            linux_desktop_entry("probe", std::path::Path::new("/opt/evil\nHidden=true")).is_err()
+        );
     }
 }

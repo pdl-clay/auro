@@ -38,6 +38,21 @@ async fn noop() -> Result<(), AuroError> {
     Ok(())
 }
 
+#[auro::command]
+async fn optional(value: Option<u64>) -> Result<Option<u64>, AuroError> {
+    Ok(value)
+}
+
+#[auro::command]
+async fn async_boom() -> Result<(), AuroError> {
+    panic!("async command panicked")
+}
+
+#[auro::command]
+fn sync_boom() -> Result<(), AuroError> {
+    panic!("sync command panicked")
+}
+
 fn handler() -> CommandHandler {
     auro::generate_handler![increment, double, read_counter, greet, original]
 }
@@ -171,6 +186,53 @@ fn describes_a_unit_output_as_null() {
     let handler = auro::generate_handler![noop];
     let schema = handler.schema("noop").expect("schema");
     assert_eq!(schema.output["type"], "null");
+}
+
+#[test]
+fn an_optional_argument_is_not_required_in_the_schema() {
+    let handler = auro::generate_handler![optional];
+    let schema = handler.schema("optional").expect("schema");
+    assert!(schema.input.get("required").is_none(), "{}", schema.input);
+    assert_eq!(
+        schema.input["properties"]["value"]["type"],
+        serde_json::json!(["integer", "null"])
+    );
+}
+
+#[test]
+fn a_panicking_async_command_becomes_an_error_response() {
+    let states = Arc::new(StateStore::new());
+    let handler = auro::generate_handler![async_boom, noop];
+    let invoke = invoke(&states, "async_boom", serde_json::json!({}));
+    let response = auro::ipc::runtime::runtime().block_on(handler.dispatch(invoke));
+    match response {
+        Response::Err { kind, message } => {
+            assert_eq!(kind, "command");
+            assert!(message.contains("panicked"), "{message}");
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_panicking_sync_command_becomes_an_error_response() {
+    let states = Arc::new(StateStore::new());
+    let handler = auro::generate_handler![sync_boom, noop];
+    let invoke = invoke(&states, "sync_boom", serde_json::json!({}));
+    let response = auro::ipc::runtime::runtime().block_on(handler.dispatch(invoke));
+    match response {
+        Response::Err { kind, message } => {
+            assert_eq!(kind, "command");
+            assert!(message.contains("panicked"), "{message}");
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
+}
+
+#[test]
+#[should_panic(expected = "duplicate command registration")]
+fn duplicate_commands_are_rejected_when_the_handler_is_built() {
+    let _ = auro::generate_handler![noop, noop];
 }
 
 #[test]

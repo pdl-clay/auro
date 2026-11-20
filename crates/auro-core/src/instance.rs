@@ -10,7 +10,7 @@
 #[cfg(unix)]
 use std::fs;
 use std::fs::{File, OpenOptions, TryLockError};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
 
@@ -25,8 +25,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::AuroError;
 
-/// Maximum bytes read from one forwarding connection.
-const MAX_MESSAGE_BYTES: u64 = 64 * 1024;
+/// Maximum JSON payload one forwarding connection may carry.
+///
+/// Launch arguments are bounded rather than silently truncated: a message over the limit is
+/// rejected by [`AppInstance::forward`] before it is written, so the secondary can report the
+/// failure instead of exiting as if the primary had received it.
+const MAX_MESSAGE_BYTES: u64 = 1024 * 1024;
+
+/// Big-endian byte length of the frame that precedes each JSON payload.
+const LENGTH_PREFIX_BYTES: usize = 8;
 
 /// The message a secondary instance sends to the primary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,8 +139,18 @@ impl AppInstance {
                 format!("cannot connect to the primary instance: {error}"),
             )
         })?;
-        serde_json::to_writer(&mut stream, message)?;
-        stream.write_all(b"\n")?;
+        let payload = serde_json::to_vec(message)?;
+        let length = payload.len() as u64;
+        if length > MAX_MESSAGE_BYTES {
+            return Err(AuroError::instance(
+                &self.name,
+                format!(
+                    "launch message is {length} bytes; the primary accepts at most {MAX_MESSAGE_BYTES}"
+                ),
+            ));
+        }
+        stream.write_all(&length.to_be_bytes())?;
+        stream.write_all(&payload)?;
         Ok(())
     }
 
@@ -179,13 +196,31 @@ impl AppInstance {
                             continue;
                         }
                     };
-                    let mut reader = BufReader::new(stream).take(MAX_MESSAGE_BYTES);
-                    let mut line = String::new();
-                    if let Err(error) = reader.read_line(&mut line) {
+                    let mut reader = BufReader::new(stream);
+                    let mut header = [0u8; LENGTH_PREFIX_BYTES];
+                    match reader.read_exact(&mut header) {
+                        Ok(()) => {}
+                        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => continue,
+                        Err(error) => {
+                            tracing::warn!(%error, "instance listener read failed");
+                            continue;
+                        }
+                    }
+                    let length = u64::from_be_bytes(header);
+                    if length > MAX_MESSAGE_BYTES {
+                        tracing::warn!(
+                            length,
+                            limit = MAX_MESSAGE_BYTES,
+                            "instance listener rejected an oversized message"
+                        );
+                        continue;
+                    }
+                    let mut payload = vec![0u8; length as usize];
+                    if let Err(error) = reader.read_exact(&mut payload) {
                         tracing::warn!(%error, "instance listener read failed");
                         continue;
                     }
-                    match serde_json::from_str::<InstanceMessage>(line.trim()) {
+                    match serde_json::from_slice::<InstanceMessage>(&payload) {
                         Ok(message) => handler(message),
                         Err(error) => {
                             tracing::warn!(%error, "instance listener received invalid JSON");
@@ -298,7 +333,13 @@ fn sanitized_name(name: &str, limit: usize) -> String {
 }
 
 fn lock_path(name: &str) -> Result<PathBuf, AuroError> {
-    Ok(lock_dir(name)?.join(format!("auro-{}.lock", sanitized_name(name, 128))))
+    // Truncation alone makes two long identifiers share a lock; append the same stable hash the
+    // socket name uses so the lock is unique for the full identifier.
+    Ok(lock_dir(name)?.join(format!(
+        "auro-{}-{:016x}.lock",
+        sanitized_name(name, 128),
+        stable_hash(name)
+    )))
 }
 
 /// The directory that holds the lock and socket.
@@ -462,7 +503,66 @@ mod tests {
     fn path_is_sanitised() {
         let path = lock_path("../com.example/app").expect("lock dir");
         let file = path.file_name().and_then(|name| name.to_str()).unwrap();
-        assert_eq!(file, "auro-..-com.example-app.lock");
+        assert_eq!(
+            file,
+            format!(
+                "auro-..-com.example-app-{:016x}.lock",
+                stable_hash("../com.example/app")
+            )
+        );
+    }
+
+    #[test]
+    fn long_identifiers_with_the_same_prefix_do_not_share_a_lock() {
+        let common = format!("com.example.{}", "a".repeat(140));
+        let first = AppInstance::acquire(&format!("{common}.one")).expect("first");
+        assert!(first.is_primary());
+        let second = AppInstance::acquire(&format!("{common}.two")).expect("second");
+        assert!(
+            second.is_primary(),
+            "a different identifier must not share the lock file"
+        );
+        assert_ne!(first.path(), second.path());
+    }
+
+    #[test]
+    fn a_large_but_bounded_message_is_delivered() {
+        let name = unique_name();
+        let (tx, rx) = mpsc::channel();
+        let primary = AppInstance::acquire(&name).expect("primary");
+        let _listener = primary
+            .listen(move |message| {
+                let _ = tx.send(message);
+            })
+            .expect("listener");
+
+        let secondary = AppInstance::acquire(&name).expect("secondary");
+        let message = InstanceMessage::new(vec!["a".repeat(70 * 1024)], "/tmp");
+        secondary.forward(&message).expect("forward");
+
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).expect("message"),
+            message
+        );
+    }
+
+    #[test]
+    fn an_oversized_message_is_rejected_before_it_is_written() {
+        let name = unique_name();
+        let (tx, _rx) = mpsc::channel();
+        let primary = AppInstance::acquire(&name).expect("primary");
+        let _listener = primary
+            .listen(move |message| {
+                let _ = tx.send(message);
+            })
+            .expect("listener");
+
+        let secondary = AppInstance::acquire(&name).expect("secondary");
+        let message = InstanceMessage::new(vec!["a".repeat(1024 * 1024)], "/tmp");
+        assert!(matches!(
+            secondary.forward(&message),
+            Err(AuroError::Instance { .. })
+        ));
     }
 
     #[cfg(unix)]

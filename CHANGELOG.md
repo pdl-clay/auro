@@ -18,6 +18,35 @@ breaking change bumps the minor version; the patch version is for compatible fix
   Electron 421 ms / 291 MB / 274 MB. Startup is spawn-to-content-ready, not a painted frame, and
   the machine was not fully idle; raw samples and caveats are committed with the harness.
 
+### Fixed
+
+- `auro-core`: `AppInstance` lock files now include a stable hash of the full identifier, so long
+  identifiers sharing a 128-character prefix no longer share one lock. Forwarded launch messages
+  are length-prefixed and accepted up to 1 MiB; `forward` returns a typed error for an oversized
+  message instead of silently truncating it.
+- `auro-core`: a failed `Autosave::tick`/`flush` write keeps the change pending for retry. Window
+  `width`/`height` must now lie inside the configured `min`/`max` bounds, and an explicit empty
+  `[bundle] targets = []` is rejected.
+- `auro-macros`/`auro-ipc`: panics in async and blocking command bodies become a
+  `Response::Err { kind: "command" }` at the command boundary instead of unwinding into the caller.
+  `Option<T>` arguments are omitted from the schema's `required` list. Duplicate command names are
+  rejected (typed `try_command` plus a panic from the builders), and a `rename_all` that collapses
+  two arguments into one JSON key is a compile error.
+- `auro-services`: deep-link scheme validation follows RFC 3986 (leading letter; `+` accepted,
+  `_` rejected), the Linux desktop entry escapes `Exec` field codes and rejects control characters,
+  and `register_scheme` is re-exported from `auro-services` and `auro::services`. Autostart uses
+  `$APPIMAGE` on Linux, quotes the executable and arguments for the XDG entry, and rejects an
+  `app_name` that could escape the autostart directory.
+- `auro-update`: `create_for_apply` preflights the target, artifact signature/size/hash, and
+  manifest version/platform before the app exits. `finalize` removes the journal before the backup,
+  so a failed cleanup cannot delete the only rollback copy.
+- `auro-cli`: `auro dev` selects the app's own `[[bin]]` artifact instead of the last one cargo
+  emitted; `binary_name` honours a single explicit `[[bin]]` and rejects ambiguity; workspace
+  inherited package versions are accepted; `--config` values are typed and support array indices
+  without dropping the rest of the array; `auro bundle` errors when no artifact is produced.
+- `auro`: `App::validate_roots` rejects duplicate root labels instead of silently rendering the
+  first registration.
+
 ## [0.1.0-alpha.2] - 2026-11-19
 
 ### Added

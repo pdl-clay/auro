@@ -39,6 +39,16 @@ impl CommandHandler {
         name: &'static str,
         dispatch: impl Fn(Invoke) -> ResponseFuture + Send + Sync + 'static,
     ) -> Self {
+        self.try_command(name, dispatch)
+            .unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    /// Registers a command, rejecting a duplicate name instead of shadowing the first one.
+    pub fn try_command(
+        self,
+        name: &'static str,
+        dispatch: impl Fn(Invoke) -> ResponseFuture + Send + Sync + 'static,
+    ) -> Result<Self, AuroError> {
         self.push(name, dispatch, None)
     }
 
@@ -50,6 +60,18 @@ impl CommandHandler {
         input: Value,
         output: Value,
     ) -> Self {
+        self.try_command_with_schema(name, dispatch, input, output)
+            .unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    /// Registers a command with schemas, rejecting a duplicate name.
+    pub fn try_command_with_schema(
+        self,
+        name: &'static str,
+        dispatch: impl Fn(Invoke) -> ResponseFuture + Send + Sync + 'static,
+        input: Value,
+        output: Value,
+    ) -> Result<Self, AuroError> {
         let schema = CommandSchema {
             name,
             input,
@@ -63,13 +85,18 @@ impl CommandHandler {
         name: &'static str,
         dispatch: impl Fn(Invoke) -> ResponseFuture + Send + Sync + 'static,
         schema: Option<CommandSchema>,
-    ) -> Self {
+    ) -> Result<Self, AuroError> {
+        if self.contains(name) {
+            return Err(AuroError::Message(format!(
+                "duplicate command registration `{name}`"
+            )));
+        }
         self.entries.push(Entry {
             name,
             dispatch: Arc::new(dispatch),
             schema,
         });
-        self
+        Ok(self)
     }
 
     pub fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
@@ -120,5 +147,24 @@ impl Default for CommandHandler {
 impl std::fmt::Debug for CommandHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(self.names()).finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn noop(_: Invoke) -> ResponseFuture {
+        Box::pin(async { Response::ok(()) })
+    }
+
+    #[test]
+    fn a_duplicate_name_is_rejected_instead_of_shadowing_the_first() {
+        let handler = CommandHandler::new().command("save", noop);
+        let error = handler
+            .try_command("save", noop)
+            .expect_err("duplicate command");
+        assert!(error.to_string().contains("duplicate command"), "{error}");
+        assert!(error.to_string().contains("save"), "{error}");
     }
 }

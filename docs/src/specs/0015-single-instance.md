@@ -44,9 +44,11 @@ is racy. *Rejected:* a TCP listener; a local socket has no ports, firewall rules
 
 ### D2 - The lock lives in a per-user runtime directory
 
-The path is `auro-<sanitised-id>.lock`. The identifier is sanitised to ASCII alphanumerics, `.`, `-`
-and `_`, truncated to 128 characters, so it cannot escape the directory. On Unix the file is created
-with mode `0600`. The directory is `XDG_RUNTIME_DIR` when it is a real directory owned by this user
+The path is `auro-<sanitised-id>-<hash>.lock`. The identifier is sanitised to ASCII alphanumerics,
+`.`, `-` and `_` and truncated to 128 characters, so it cannot escape the directory; a stable
+16-hex-digit FNV-1a hash of the full identifier follows the truncation, so two identifiers that
+share their first 128 characters use different locks. On Unix the file is created with mode
+`0600`. The directory is `XDG_RUNTIME_DIR` when it is a real directory owned by this user
 with no group/other permission bits; otherwise the process uses a private `auro-<uid>` subdirectory
 of the temporary directory, created with mode `0700` and re-validated (ownership, owner-only mode,
 not a symlink) before use. The identifier is normally `app.identifier` from `Auro.toml`.
@@ -81,15 +83,20 @@ The lock and listener are acquired after config load and before `Application::ne
 held until `try_run` returns. Dropping the guard closes the lock; dropping the listener detaches the
 forwarding thread and the process exit releases the socket. Neither is stored in managed state.
 
-### D6 - Local socket, one JSON line per message
+### D6 - Local socket, one length-prefixed JSON frame per message
 
 On Unix the primary binds a filesystem socket in the per-user runtime directory selected by D2 (name
 derived from a short sanitised prefix plus a stable hash of the full identifier, so long
 reverse-DNS identifiers sharing a prefix cannot collide and the path stays inside `sun_path`); Linux applies
 mode `0600`, and macOS uses the private directory under its per-user `$TMPDIR`. Windows uses a
-named pipe with the same label. The listener accepts connections in a background thread, reads one
-JSON line capped at 64 KiB, and sends the decoded `InstanceMessage` to the app's `EventSender`. The
-secondary writes the same JSON line and closes the connection.
+named pipe with the same label. The secondary writes an 8-byte big-endian length followed by the
+JSON `InstanceMessage`, and closes the connection. The listener accepts connections in a background
+thread, reads the frame, and sends the decoded message to the app's `EventSender`.
+
+The payload limit is 1 MiB. `forward` serialises first and returns `AuroError::Instance` for an
+oversized message instead of writing a truncated frame and exiting as if delivery succeeded; the
+listener independently rejects an oversized declared length. Framing replaces the former
+newline-delimited 64 KiB read, which silently truncated and dropped long launch arguments.
 
 This avoids an abstract Linux socket, which has no filesystem permissions: a different local user
 could otherwise inject messages. `ListenerOptions::try_overwrite` handles a stale socket name; the

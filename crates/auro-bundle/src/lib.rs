@@ -40,6 +40,12 @@ pub fn package_types(config: &Config) -> Result<Vec<PackageType>, AuroError> {
         BundleTargets::List(list) => list.clone(),
     };
 
+    if requested.is_empty() {
+        return Err(AuroError::bundle(
+            "bundle.targets resolves to no package formats; use \"all\" or list at least one",
+        ));
+    }
+
     requested
         .iter()
         .map(|name| {
@@ -274,6 +280,13 @@ resources = ["assets/**"]
             package_types(&config).expect("types"),
             [PackageType::from_short_name(name).expect("known target")]
         );
+    }
+
+    #[test]
+    fn an_empty_explicit_list_is_rejected() {
+        let (_temp, mut config) = config("");
+        config.bundle.targets = auro_core::BundleTargets::List(Vec::new());
+        assert!(package_types(&config).is_err());
     }
 
     #[test]

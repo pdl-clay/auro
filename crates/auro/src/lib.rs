@@ -23,7 +23,7 @@ pub mod services {
     pub use auro_services::{
         AppLinks, AppPath, Autostart, AutostartError, CredentialStore, DeepLink, DeepLinkError,
         Keychain, KeychainError, Notifications, NotificationsBackend, NotificationsError,
-        ShortcutBackend, Shortcuts, ShortcutsError,
+        ShortcutBackend, Shortcuts, ShortcutsError, register_scheme,
     };
 
     #[cfg(feature = "tray")]
@@ -72,6 +72,7 @@ pub mod ipc {
     pub use auro_ipc::AuroError;
     pub use auro_ipc::handler::CommandHandler;
     pub use auro_ipc::invoke::{Invoke, InvokeMessage};
+    pub use auro_ipc::panic::catch_command_panic;
     pub use auro_ipc::response::{Response, ResponseFuture};
     pub use auro_ipc::runtime;
     pub use auro_ipc::schema::{CommandSchema, input_schema};

@@ -29,6 +29,8 @@ re-export requires the facade's `services` feature.
 
 `AppLinks::new` takes the accepted schemes. `parse` rejects any other scheme, control characters,
 links over 4096 bytes, empty hosts and `.`/`..` path segments. The app sees only links it asked for.
+`register_scheme` validates the RFC 3986 grammar: the first character is ASCII alphabetic and the
+rest are ASCII alphanumerics or `+`, `-`, `.`. A leading digit and `_` are rejected; `+` is accepted.
 
 ### D2 - Registration is per user
 
@@ -39,6 +41,10 @@ links over 4096 bytes, empty hosts and `.`/`..` path segments. The app sees only
 | Windows | `HKCU\Software\Classes\<scheme>` via `reg.exe` |
 | Linux | XDG desktop entry plus `xdg-mime default` |
 | macOS | packager's `CFBundleURLTypes`; the call is a no-op |
+
+The Linux entry's `Exec` value quotes the executable and escapes it for the Desktop Entry spec:
+`%` -> `%%` (field codes expand even inside quotes), `"`/`\`/`` ` ``/`$` are escaped, and control
+characters (including `\n`) are rejected so a path cannot inject another key.
 
 *Rejected:* writing machine-wide registry keys or system desktop files. They need elevation and are
 not appropriate for an app-level link.

@@ -76,10 +76,12 @@ for a PID. It builds commands from paths and behaves differently per platform.
 ### D3 - The helper applies a prepared plan, then relaunches
 
 A `Prepared` journal may carry an `ApplyKind`, the staged manifest and the app-provided public key.
-The helper verifies the manifest signature, artifact size and SHA-256, then requires the manifest
-version to equal the journal version and the manifest platform to equal this host. This catches
-corruption, staging/mixup and wrong-release errors; it is not a defense against a fully forged
-journal, because the key and manifest travel in the same local, user-writable file., records a retained backup for AppImage/macOS, marks the journal
+`create_for_apply` runs the same preflight while the app is still alive: an AppImage/macOS plan
+needs its target, the artifact must exist and verify against the manifest signature, size and
+SHA-256, and the manifest version/platform must match the journal and host. A bad plan is rejected
+before the process handoff; otherwise the helper would reject it after the app exits and never
+relaunch. The helper repeats every check (defense in depth), then records a retained backup for
+AppImage/macOS, marks the journal
 `Applied`, and only then relaunches. An `Applied` journal with `ApplyKind::None` keeps the
 synchronous-apply behavior: the helper just relaunches. A Windows installer that returns
 `3010`/`1641` leaves the journal `RebootRequired` and does not relaunch the old binary as if the
@@ -93,6 +95,11 @@ records any later relaunch/lock failure into the journal before returning.
 *Rejected:* a second platform-apply implementation inside the helper. The helper reuses the same
 `AppImageInstaller`, `WindowsInstaller` and `MacAppInstaller` code. *Rejected:* automatic elevation.
 It is still a separate privilege/contract problem.
+
+`finalize` removes the journal before the backup. If the journal cannot be removed (read-only
+directory, permission error), the backup it names is still the rollback copy and must survive; an
+orphaned backup after a successful journal removal is preferable to a journal pointing at a deleted
+recovery file.
 
 ### D4 - The helper removes its own trigger and detaches
 

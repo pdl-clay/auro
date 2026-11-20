@@ -49,6 +49,13 @@ pub enum ApplyKind {
     MacPkg,
 }
 
+impl ApplyKind {
+    /// Whether the helper needs a platform target path to apply this kind.
+    fn requires_target(self) -> bool {
+        matches!(self, ApplyKind::AppImage | ApplyKind::MacApp)
+    }
+}
+
 /// A caller-supplied older package to reinstall if the primary package apply fails.
 ///
 /// The artifact and manifest use the same contract as a normal update: the helper verifies the
@@ -284,6 +291,8 @@ impl ApplyJournal {
         {
             return Err(UpdateError::RollbackPlanUnsupported { kind: plan.kind });
         }
+        let version = version.into();
+        Self::preflight_plan(&version, &plan)?;
         let rollback = plan.rollback.map(|rollback| RollbackData {
             artifact: rollback.artifact,
             manifest: rollback.manifest,
@@ -302,6 +311,60 @@ impl ApplyJournal {
                 relaunch,
             },
         )
+    }
+
+    /// Runs the helper's validation while the app is still alive.
+    ///
+    /// The helper repeats every check after the handoff (defense in depth), but a plan that fails
+    /// here must not close the app: the helper would mark the journal `Failed` and never relaunch.
+    fn preflight_plan(version: &str, plan: &ApplyPlan) -> Result<(), UpdateError> {
+        if plan.kind.requires_target() && plan.target.is_none() {
+            return Err(UpdateError::ApplyTargetMissing { kind: plan.kind });
+        }
+        plan.manifest
+            .verify_artifact(&plan.artifact, &plan.public_key)?;
+        if plan.manifest.version != version {
+            return Err(UpdateError::JournalVersionMismatch {
+                journal: version.to_owned(),
+                manifest: plan.manifest.version.clone(),
+            });
+        }
+        let host = crate::current_platform();
+        if plan.manifest.platform != host {
+            return Err(UpdateError::JournalPlatformMismatch {
+                expected: host,
+                actual: plan.manifest.platform.clone(),
+            });
+        }
+        if let Some(rollback) = &plan.rollback {
+            rollback
+                .manifest
+                .verify_artifact(&rollback.artifact, &rollback.public_key)?;
+            if rollback.manifest.platform != crate::current_platform() {
+                return Err(UpdateError::PlatformMismatch {
+                    expected: crate::current_platform(),
+                    actual: rollback.manifest.platform.clone(),
+                });
+            }
+            let failed =
+                semver::Version::parse(version).map_err(|_| UpdateError::InvalidVersion {
+                    field: "journal version",
+                    value: version.to_owned(),
+                })?;
+            let older = semver::Version::parse(&rollback.manifest.version).map_err(|_| {
+                UpdateError::InvalidVersion {
+                    field: "rollback manifest version",
+                    value: rollback.manifest.version.clone(),
+                }
+            })?;
+            if older >= failed {
+                return Err(UpdateError::RollbackVersionNotOlder {
+                    failed: failed.to_string(),
+                    rollback: older.to_string(),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn create_with(
@@ -517,7 +580,7 @@ impl ApplyJournal {
     /// Call this only after [`Self::reconcile`] returned [`Recovery::Complete`]. A backup must be
     /// beside the target it replaced; other paths are rejected. Missing files are ignored.
     pub fn finalize(self) -> Result<(), UpdateError> {
-        if let Some(backup) = self.data.backup.as_deref() {
+        let backup = if let Some(backup) = self.data.backup.as_deref() {
             let Some(target) = self.data.target.as_deref() else {
                 return Err(UpdateError::JournalBackupTargetMissing {
                     backup: backup.to_path_buf(),
@@ -529,12 +592,20 @@ impl ApplyJournal {
                     target: target.to_path_buf(),
                 });
             }
-            remove_path(backup)?;
-        }
+            Some(backup.to_path_buf())
+        } else {
+            None
+        };
+
+        // Remove the journal first. If that fails, the backup is still the rollback copy the
+        // journal names; an orphaned backup is preferable to a journal pointing at a deleted one.
         match std::fs::remove_file(&self.path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
+        }
+        if let Some(backup) = backup {
+            remove_path(&backup)?;
         }
         let _ = std::fs::remove_file(&self.data.lock_file);
         Ok(())
@@ -1200,6 +1271,135 @@ mod tests {
         assert!(backup.exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn finalize_keeps_the_backup_when_the_journal_cannot_be_removed() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let journal_dir = temp.path().join("journal");
+        std::fs::create_dir(&journal_dir).expect("journal dir");
+        let target = temp.path().join("App.AppImage");
+        std::fs::write(&target, b"new").expect("target");
+        let backup = temp.path().join("App.AppImage.bak");
+        std::fs::write(&backup, b"old").expect("backup");
+
+        let mut journal = ApplyJournal::create(
+            journal_dir.join("apply.json"),
+            "1.2.3",
+            temp.path().join("artifact"),
+            Some(target),
+            relaunch(),
+        )
+        .expect("journal");
+        journal.set_backup(&backup).expect("set backup");
+        let journal_path = journal.path().to_path_buf();
+
+        std::fs::set_permissions(&journal_dir, std::fs::Permissions::from_mode(0o500))
+            .expect("read-only journal dir");
+        let result = journal.finalize();
+        std::fs::set_permissions(&journal_dir, std::fs::Permissions::from_mode(0o700))
+            .expect("writable journal dir");
+
+        assert!(result.is_err());
+        assert!(backup.exists(), "the rollback copy must survive");
+        assert!(journal_path.exists());
+    }
+
+    #[test]
+    fn create_for_apply_rejects_a_plan_the_helper_would_reject() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("new.AppImage");
+        std::fs::write(&artifact, b"new appimage").expect("artifact");
+        let target = temp.path().join("App.AppImage");
+        let manifest = |version: &str, platform: &str| {
+            Manifest::for_artifact(
+                &artifact,
+                version,
+                platform,
+                "https://example.test/App.AppImage",
+                "",
+                "2026-11-18T00:00:00Z",
+            )
+            .expect("manifest")
+            .sign(&key)
+            .expect("sign")
+        };
+
+        let plan = ApplyPlan::new(
+            ApplyKind::AppImage,
+            &artifact,
+            None,
+            manifest("1.2.3", &crate::current_platform()),
+            key.public_key(),
+        );
+        assert!(matches!(
+            ApplyJournal::create_for_apply(
+                temp.path().join("apply.json"),
+                "1.2.3",
+                plan,
+                relaunch(),
+            ),
+            Err(UpdateError::ApplyTargetMissing {
+                kind: ApplyKind::AppImage
+            })
+        ));
+
+        let plan = ApplyPlan::new(
+            ApplyKind::AppImage,
+            &artifact,
+            Some(target.clone()),
+            manifest("9.9.9", &crate::current_platform()),
+            key.public_key(),
+        );
+        assert!(matches!(
+            ApplyJournal::create_for_apply(
+                temp.path().join("apply.json"),
+                "1.2.3",
+                plan,
+                relaunch(),
+            ),
+            Err(UpdateError::JournalVersionMismatch { .. })
+        ));
+
+        let plan = ApplyPlan::new(
+            ApplyKind::AppImage,
+            &artifact,
+            Some(target.clone()),
+            manifest("1.2.3", "not-this-host"),
+            key.public_key(),
+        );
+        assert!(matches!(
+            ApplyJournal::create_for_apply(
+                temp.path().join("apply.json"),
+                "1.2.3",
+                plan,
+                relaunch(),
+            ),
+            Err(UpdateError::JournalPlatformMismatch { .. })
+        ));
+
+        let plan = ApplyPlan::new(
+            ApplyKind::AppImage,
+            temp.path().join("missing.AppImage"),
+            Some(target),
+            manifest("1.2.3", &crate::current_platform()),
+            key.public_key(),
+        );
+        assert!(
+            ApplyJournal::create_for_apply(
+                temp.path().join("apply.json"),
+                "1.2.3",
+                plan,
+                relaunch(),
+            )
+            .is_err()
+        );
+    }
+
     #[test]
     fn records_reboot_state() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -1586,7 +1786,7 @@ mod tests {
         std::fs::write(&target, b"old appimage").expect("target");
         let manifest = Manifest::for_artifact(
             &artifact,
-            "9.9.9",
+            "1.2.3",
             "linux-x86_64",
             "https://example.test/App.AppImage",
             "",
@@ -1595,7 +1795,7 @@ mod tests {
         .expect("manifest")
         .sign(&key)
         .expect("sign");
-        let journal = ApplyJournal::create_for_apply(
+        let mut journal = ApplyJournal::create_for_apply(
             temp.path().join("apply.json"),
             "1.2.3",
             ApplyPlan::new(
@@ -1608,6 +1808,10 @@ mod tests {
             relaunch(),
         )
         .expect("journal");
+        // Simulate a journal written against a different version; the preflight now rejects this
+        // while the app is alive, so rewrite the journal to keep the helper's check covered.
+        journal.data.version = "9.9.9".to_owned();
+        journal.save().expect("save");
 
         assert!(matches!(
             run_restart_helper(journal.path()),
@@ -1627,7 +1831,18 @@ mod tests {
         std::fs::write(&artifact, b"new appimage").expect("artifact");
         let target = temp.path().join("App.AppImage");
         std::fs::write(&target, b"old appimage").expect("target");
-        let manifest = Manifest::for_artifact(
+        let valid = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            "linux-x86_64",
+            "https://example.test/App.AppImage",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let other_platform = Manifest::for_artifact(
             &artifact,
             "1.2.3",
             "windows-x86_64",
@@ -1638,19 +1853,23 @@ mod tests {
         .expect("manifest")
         .sign(&key)
         .expect("sign");
-        let journal = ApplyJournal::create_for_apply(
+        let mut journal = ApplyJournal::create_for_apply(
             temp.path().join("apply.json"),
             "1.2.3",
             ApplyPlan::new(
                 ApplyKind::AppImage,
                 &artifact,
                 Some(target.clone()),
-                manifest,
+                valid,
                 key.public_key(),
             ),
             relaunch(),
         )
         .expect("journal");
+        // The preflight rejects this while the app is alive; swap it in afterwards to keep the
+        // helper's platform check covered.
+        journal.data.manifest = Some(other_platform);
+        journal.save().expect("save");
 
         assert!(matches!(
             run_restart_helper(journal.path()),

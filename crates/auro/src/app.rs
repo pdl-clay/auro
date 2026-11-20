@@ -2,7 +2,7 @@
 
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -267,6 +267,15 @@ impl App {
     /// without a registered root. Failing here turns a headless, apparently hung app into a named
     /// configuration error.
     fn validate_roots(&self, config: &Config) -> Result<(), AuroError> {
+        let mut labels = HashSet::new();
+        for (label, _) in &self.roots {
+            if !labels.insert(*label) {
+                return Err(AuroError::window(
+                    *label,
+                    "duplicate root view; each window label must have exactly one root",
+                ));
+            }
+        }
         for window in &config.app.windows {
             if !self.roots.iter().any(|(label, _)| *label == window.label) {
                 return Err(AuroError::window(
@@ -706,6 +715,18 @@ mod tests {
             .validate_roots(&two_windows)
             .expect_err("the second window has no root");
         assert!(matches!(error, AuroError::Window { ref label, .. } if label == "secondary"));
+    }
+
+    #[test]
+    fn duplicate_root_labels_are_reported_before_the_event_loop() {
+        let config = config(None);
+        let error = App::new()
+            .root::<Blank>("main")
+            .root::<Blank>("main")
+            .validate_roots(&config)
+            .expect_err("one root per window label");
+        assert!(matches!(error, AuroError::Window { ref label, .. } if label == "main"));
+        assert!(error.to_string().contains("duplicate"), "{error}");
     }
 
     #[test]
