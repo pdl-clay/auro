@@ -10,6 +10,14 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Added
+
+- Performance: a same-app Auro/Tauri/Electron harness (`tools/comparison/bench.py`) and the first
+  measured Linux comparison, published in the README and performance budget. One 480x320 window
+  with one label: Auro 190 ms / 99 MB PSS / 14.9 MB payload, Tauri 417 ms / 315 MB / 6.7 MB,
+  Electron 421 ms / 291 MB / 274 MB. Startup is spawn-to-content-ready, not a painted frame, and
+  the machine was not fully idle; raw samples and caveats are committed with the harness.
+
 ## [0.1.0-alpha.2] - 2026-11-19
 
 ### Added

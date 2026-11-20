@@ -55,10 +55,16 @@ Electron and Tauri both ship a browser to draw a button.
 | App model | minimal | **excellent** | Tauri's |
 | Renderer | Chromium | system webview | **GPU, native** |
 | Frontend language | JS/TS | JS/TS | **Rust** |
-| Idle RAM (hello world) | ~180 MB | ~90 MB | target **< 40 MB** |
-| Cold start | ~900 ms | ~400 ms | target **< 80 ms** |
-| Binary | ~120 MB | ~3-10 MB | target **< 6 MB** |
+| Idle RAM (hello world, measured) | 291 MB | 315 MB | **99 MB** |
+| Cold start (content-ready, measured) | 421 ms | 417 ms | **190 ms** |
+| Payload (uncompressed, measured) | 274 MB | **6.7 MB** | 14.9 MB |
 | Text/IME/selection | browser | browser | inherited from an editor |
+
+Measured on Linux/Wayland (niri), 2026-11-19: one 480x320 window with one label, process-tree PSS
+after 5 s idle, spawn to content-ready (not a painted frame), uncompressed payload. Electron's
+payload includes Chromium; Auro and Tauri use the system webview/GPU stack. Method and raw samples:
+[performance budget](docs/src/reference/performance-budget.md) and
+[`tools/comparison/baseline.json`](tools/comparison/baseline.json).
 
 Tauri got the hard, boring part right: capabilities, a plugin system, bundling for seven package
 formats, a signed updater. What it gets wrong, for people who want *native*, is that the app is

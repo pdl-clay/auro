@@ -17,7 +17,8 @@ Raw samples land in `tools/comparison/baseline.json`. Fixtures and build trees l
 | Metric | Method |
 |---|---|
 | Startup | spawn to the content-ready marker, median of `--runs` after `--warmup` runs |
-| Idle RSS | sum of the process tree's `VmRSS` after `--idle` seconds (default 5) |
+| Idle RSS | sum of the process tree's `VmRSS` after `--idle` seconds (default 5); shared pages count per process |
+| Idle PSS | sum of the process tree's `Pss` after the same idle period; shared pages split across users, the fairer cross-framework number |
 | Payload | uncompressed runtime payload: app binary for Auro and Tauri; Electron `dist` plus app files |
 
 Markers are the nearest available "first content ready" signal, not a guaranteed painted frame:

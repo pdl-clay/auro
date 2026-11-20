@@ -238,10 +238,16 @@ def electron_command(scratch: Path) -> tuple[list[str], dict[str, str]]:
     return [str(directory / "node_modules" / ".bin" / "electron"), str(directory)], os.environ.copy()
 
 
-def process_tree_rss_kb(root_pid: int) -> int:
-    """Sums VmRSS for the process and all of its descendants."""
+def process_tree_memory_kb(root_pid: int) -> tuple[int, int]:
+    """Sums VmRSS and Pss for the process and all of its descendants.
+
+    VmRSS counts every mapped page in every process, so shared pages in a multi-process runtime
+    appear more than once. Pss splits each shared page across its users and is the fairer
+    cross-framework number; RSS stays recorded for comparability with the single-process budget.
+    """
     parent_of: dict[int, int] = {}
     rss_of: dict[int, int] = {}
+    pss_of: dict[int, int] = {}
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -258,8 +264,17 @@ def process_tree_rss_kb(root_pid: int) -> int:
             if line.startswith("VmRSS:"):
                 rss_of[pid] = int(line.split()[1])
                 break
+        try:
+            rollup = (entry / "smaps_rollup").read_text()
+        except OSError:
+            rollup = ""
+        for line in rollup.splitlines():
+            if line.startswith("Pss:"):
+                pss_of[pid] = int(line.split()[1])
+                break
 
-    total = rss_of.get(root_pid, 0)
+    rss = rss_of.get(root_pid, 0)
+    pss = pss_of.get(root_pid, 0)
     changed = True
     descendants = {root_pid}
     while changed:
@@ -267,26 +282,32 @@ def process_tree_rss_kb(root_pid: int) -> int:
         for pid, parent in parent_of.items():
             if parent in descendants and pid not in descendants:
                 descendants.add(pid)
-                total += rss_of.get(pid, 0)
+                rss += rss_of.get(pid, 0)
+                pss += pss_of.get(pid, 0)
                 changed = True
-    return total
+    return rss, pss
 
 
-def wait_for_marker(proc: subprocess.Popen[str], marker: str, timeout: float) -> float:
+def wait_for_marker(
+    proc: subprocess.Popen[str], marker: str, timeout: float, started: float
+) -> float:
     assert proc.stdout is not None
     selector = selectors.DefaultSelector()
     selector.register(proc.stdout, selectors.EVENT_READ)
-    started = time.perf_counter()
+    recent: list[str] = []
     try:
         while True:
             remaining = timeout - (time.perf_counter() - started)
             if remaining <= 0:
-                raise TimeoutError(f"no `{marker}` within {timeout:.0f}s")
+                raise TimeoutError(f"no `{marker}` within {timeout:.0f}s: {''.join(recent)}")
             if not selector.select(remaining):
                 continue
             line = proc.stdout.readline()
             if not line:
-                raise RuntimeError(f"process exited before `{marker}`")
+                raise RuntimeError(
+                    f"process exited before `{marker}`: {''.join(recent).strip()}"
+                )
+            recent = (recent + [line])[-5:]
             if marker in line:
                 return (time.perf_counter() - started) * 1000.0
     finally:
@@ -313,31 +334,41 @@ def measure(
     command: list[str],
     env: dict[str, str],
     marker: str,
+    cwd: Path,
     runs: int,
     warmup: int,
     idle: float,
 ) -> dict[str, object]:
     startup: list[float] = []
     rss: list[float] = []
+    pss: list[float] = []
     for iteration in range(warmup + runs):
+        started = time.perf_counter()
         proc = subprocess.Popen(
             command,
+            cwd=cwd,
             env=env,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
             text=True,
             start_new_session=True,
         )
         try:
-            millis = wait_for_marker(proc, marker, READY_TIMEOUT)
+            millis = wait_for_marker(proc, marker, READY_TIMEOUT, started)
             if iteration >= warmup:
                 time.sleep(idle)
-                rss.append(process_tree_rss_kb(proc.pid) / 1024.0)
+                rss_kb, pss_kb = process_tree_memory_kb(proc.pid)
+                rss.append(rss_kb / 1024.0)
+                pss.append(pss_kb / 1024.0)
                 startup.append(millis)
-                print(f"  {name} run {len(startup)}: {millis:.1f} ms, {rss[-1]:.1f} MB", flush=True)
+                print(
+                    f"  {name} run {len(startup)}: {millis:.1f} ms, "
+                    f"{rss[-1]:.1f} MB RSS, {pss[-1]:.1f} MB PSS",
+                    flush=True,
+                )
         finally:
             stop(proc)
-    return {"startup_ms": startup, "rss_mb": rss}
+    return {"startup_ms": startup, "rss_mb": rss, "pss_mb": pss}
 
 
 def percentile(values: list[float], fraction: float) -> float:
@@ -385,6 +416,7 @@ def environment() -> dict[str, str]:
         "os": output("uname", "-srm"),
         "session": os.environ.get("XDG_SESSION_TYPE", "unknown"),
         "compositor": os.environ.get("WAYLAND_DISPLAY", os.environ.get("DISPLAY", "unknown")),
+        "loadavg": " ".join(f"{value:.2f}" for value in os.getloadavg()),
         "rustc": output("rustc", "--version"),
         "tauri": TAURI_VERSION,
         "tauri_build": TAURI_BUILD_VERSION,
@@ -431,9 +463,9 @@ def main() -> int:
         return 0
 
     targets = {
-        "auro": (*auro_command(), AURO_MARKER),
-        "tauri": (*tauri_command(scratch), BENCH_MARKER),
-        "electron": (*electron_command(scratch), BENCH_MARKER),
+        "auro": (*auro_command(), AURO_MARKER, HELLO),
+        "tauri": (*tauri_command(scratch), BENCH_MARKER, tauri_dir(scratch)),
+        "electron": (*electron_command(scratch), BENCH_MARKER, electron_dir(scratch)),
     }
     results: dict[str, object] = {
         "environment": environment(),
@@ -443,21 +475,24 @@ def main() -> int:
             "warmup": arguments.warmup,
             "idle_seconds": arguments.idle,
             "startup": "spawn to content-ready marker; not a painted-frame measurement",
-            "rss": "sum of the process tree after the idle period",
+            "rss": "sum of the process tree's VmRSS after the idle period; shared pages count per process",
+            "pss": "sum of the process tree's Pss after the idle period; shared pages split across users",
             "payload": "uncompressed runtime payload: app binary (Auro/Tauri) or Electron dist plus app files",
         },
         "targets": {},
     }
-    for name, (command, env, marker) in targets.items():
+    for name, (command, env, marker, cwd) in targets.items():
         print(f"measuring {name}", flush=True)
         samples = measure(
-            name, command, env, marker, arguments.runs, arguments.warmup, arguments.idle
+            name, command, env, marker, cwd, arguments.runs, arguments.warmup, arguments.idle
         )
         results["targets"][name] = {
             "startup_ms": samples["startup_ms"],
             "startup_summary": summarize(samples["startup_ms"]),
             "rss_mb": samples["rss_mb"],
             "rss_summary": summarize(samples["rss_mb"]),
+            "pss_mb": samples["pss_mb"],
+            "pss_summary": summarize(samples["pss_mb"]),
             "payload_mb": payload_bytes(scratch, name) / (1024.0 * 1024.0),
         }
 
@@ -465,14 +500,15 @@ def main() -> int:
     arguments.json.write_text(json.dumps(results, indent=2) + "\n")
 
     print()
-    print("| Target | Startup median | p95 | Idle RSS | Payload |")
-    print("|---|---:|---:|---:|---:|")
+    print("| Target | Startup median | p95 | Idle RSS | Idle PSS | Payload |")
+    print("|---|---:|---:|---:|---:|---:|")
     for name, target in results["targets"].items():
         target = dict(target)
         print(
             f"| {name} | {target['startup_summary']['median']:.1f} ms | "
             f"{target['startup_summary']['p95']:.1f} ms | "
-            f"{target['rss_summary']['median']:.1f} MB | {target['payload_mb']:.1f} MB |"
+            f"{target['rss_summary']['median']:.1f} MB | "
+            f"{target['pss_summary']['median']:.1f} MB | {target['payload_mb']:.1f} MB |"
         )
     print(f"\nraw samples: {arguments.json}", flush=True)
     return 0

@@ -60,8 +60,24 @@ measure a binary rather than a function.
 
 The same-app comparison runs through [`tools/comparison/bench.py`](https://github.com/pdl-clay/auro/blob/main/tools/comparison/bench.py):
 one 480x320 window with a single line of text, built in release mode for Auro, Tauri and Electron
-on the same machine, measured with the same spawn-to-content-ready, process-tree-RSS and
+on the same machine, measured with the same spawn-to-content-ready, process-tree-RSS/PSS and
 uncompressed-payload method. The marker is the nearest available "first content ready" signal
 (first frame request for Auro, page parsed for Tauri, `ready-to-show` for Electron), not a
 guaranteed painted frame. Electron's payload includes Chromium; Auro and Tauri use the system
 webview/GPU stack. Installer compression is excluded for all three.
+
+Measured 2026-11-19, Linux 7.3.4 x86_64, niri/Wayland, rustc 1.99.1, five runs after one warm-up,
+5 s idle. The desktop was not fully idle (Windows VM and browser running; load average 3.5 at
+start), so treat the absolute numbers as a provisional baseline, not an idle-machine record:
+
+| Target | Startup median | p95 | Idle RSS | Idle PSS | Payload |
+|---|---:|---:|---:|---:|---:|
+| Auro (GPUI) | 189.5 ms | 205.3 ms | 105.9 MB | 98.6 MB | 14.9 MB |
+| Tauri 2.12.7 (WebKitGTK 2.54.2) | 417.4 ms | 507.6 ms | 500.7 MB | 314.5 MB | 6.7 MB |
+| Electron 45.4.1 | 420.5 ms | 451.9 ms | 589.2 MB | 291.1 MB | 273.7 MB |
+
+Raw samples: [`tools/comparison/baseline.json`](https://github.com/pdl-clay/auro/blob/main/tools/comparison/baseline.json).
+The Tauri result reflects this host's WebKitGTK build; do not generalize it to other webview
+versions. RSS sums shared pages per process and overstates multi-process runtimes; PSS is the
+comparison number. Auro's payload is larger than Tauri's and above the 6 MB 1.0 target; its startup
+and idle memory are the measured advantage here.

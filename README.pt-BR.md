@@ -55,10 +55,16 @@ Electron e Tauri embarcam um navegador inteiro para desenhar um botão.
 | Modelo de app | mínimo | **excelente** | o do Tauri |
 | Renderer | Chromium | webview do sistema | **GPU, nativo** |
 | Linguagem do frontend | JS/TS | JS/TS | **Rust** |
-| RAM idle (hello world) | ~180 MB | ~90 MB | meta **< 40 MB** |
-| Cold start | ~900 ms | ~400 ms | meta **< 80 ms** |
-| Binário | ~120 MB | ~3-10 MB | meta **< 6 MB** |
+| RAM idle (hello world, medido) | 291 MB | 315 MB | **99 MB** |
+| Cold start (conteúdo pronto, medido) | 421 ms | 417 ms | **190 ms** |
+| Payload (não comprimido, medido) | 274 MB | **6,7 MB** | 14,9 MB |
 | Texto/IME/seleção | do navegador | do navegador | herdado de um editor |
+
+Medido em Linux/Wayland (niri), 2026-11-19: uma janela 480x320 com um label, PSS da árvore de
+processos após 5 s idle, spawn até conteúdo pronto (não é frame pintado), payload não comprimido.
+O payload do Electron inclui o Chromium; Auro e Tauri usam o webview/GPU do sistema. Método e
+amostras cruas: [performance budget](docs/src/reference/performance-budget.md) e
+[`tools/comparison/baseline.json`](tools/comparison/baseline.json).
 
 O Tauri acertou a parte chata e difícil: capabilities, sistema de plugins, empacotamento em sete
 formatos, updater assinado. O que ele erra, para quem quer *nativo*, é que o app continua sendo
