@@ -49,9 +49,11 @@ The CI job installs exactly this set to build the workspace
 ```bash
 sudo apt-get install -y --no-install-recommends \
   libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
-  libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config \
-  libgtk-3-dev libayatana-appindicator3-dev
+  libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config
 ```
+
+The tray service talks StatusNotifierItem over D-Bus, so it needs no GTK or AppIndicator
+development libraries.
 
 Contributors on other distributions need the equivalent packages; there is no per-distribution
 script yet.

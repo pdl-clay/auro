@@ -19,6 +19,11 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ### Fixed
 
+- `auro-services`: the Linux tray backend now uses StatusNotifierItem over D-Bus (`tray-icon`'s
+  `ksni` backend) instead of GTK AppIndicator. `Tray::new()` no longer panics when `gtk::init` was
+  not called, needs no GTK event-loop pump beside GPUI's loop, and removes the
+  `libgtk-3-dev`/`libayatana-appindicator3-dev` build dependency. Menus and icons can be replaced
+  after creation; primary and secondary activation arrive as left and middle up-clicks.
 - `auro-update`: Windows journal trust validation now walks the ancestor chain. It rejects reparse
   points at every level and refuses ancestors that grant delete, rename or ACL-change rights to an
   untrusted principal; inherit-only ACEs are checked on the child where they become effective. The

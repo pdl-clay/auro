@@ -22,7 +22,8 @@ hot-reload = ["dep:subsecond", "dep:dioxus-devtools"]
 updater = ["dep:auro-update"]
 # Platform services. Off by default so the facade does not pull OS integrations.
 services = ["dep:auro-services"]
-# Tray icon support requires the platform services and GTK/AppIndicator on Linux.
+# Tray icon support requires the platform services. On Linux it speaks StatusNotifierItem over
+# D-Bus and needs no GTK.
 tray = ["services", "auro-services/tray"]
 
 [dependencies]

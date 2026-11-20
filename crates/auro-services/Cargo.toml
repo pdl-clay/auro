@@ -25,7 +25,9 @@ global-hotkey = "0.10"
 keyring = "4"
 notify-rust = "4"
 thiserror.workspace = true
-tray-icon = { version = "0.26", optional = true }
+# The KSNI backend talks StatusNotifierItem over D-Bus on its own thread. It needs no GTK
+# initialization and no GTK event loop, which an app embedding GPUI cannot provide.
+tray-icon = { version = "0.26", optional = true, default-features = false, features = ["ksni"] }
 
 [dev-dependencies]
 tempfile.workspace = true

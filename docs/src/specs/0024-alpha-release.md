@@ -57,9 +57,9 @@ services = ["dep:auro-services"]
 tray = ["services", "auro-services/tray"]
 ```
 
-`services` is off by default. `tray` is off by default even when services are enabled, because
-`tray-icon` pulls GTK/AppIndicator development libraries on Linux. Users who need a tray enable
-`tray` explicitly.
+`services` is off by default. `tray` is off by default even when services are enabled, because it
+adds a D-Bus status-notifier backend and platform event handlers to apps that do not need them.
+Users who need a tray enable `tray` explicitly.
 
 ### D4 - Scaffold emits the right dependency
 
@@ -87,8 +87,9 @@ ordinary feature PR.
    lacking a registry version.
 2. `cargo package -p <leaf>` succeeds for each leaf crate, and `cargo publish --dry-run -p <leaf>`
    succeeds after the release switch.
-3. `cargo tree -p auro -e normal` contains no `tray-icon` and no `libappindicator` in the default
-   feature set; `--features services` adds the service crates; `--features tray` adds `tray-icon`.
+3. `cargo tree -p auro -e normal` contains no `tray-icon` in the default feature set;
+   `--features services` adds the service crates; `--features tray` adds `tray-icon`. No feature
+   set pulls GTK or `libappindicator`.
 4. `cargo test -p auro-cli` covers the in-repo path and installed-version scaffold modes.
 5. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
@@ -101,7 +102,7 @@ ordinary feature PR.
 - Workspace version and all internal dependency requirements are `0.1.0-alpha.1`; `auro --version`
   reports it.
 - `auro` features `services` and `tray` are in place; default `cargo tree -p auro` contains no
-  `tray-icon`/`libappindicator`.
+  `tray-icon`, and no feature set pulls GTK or `libappindicator`.
 - `auro new` emits the workspace path in this checkout and the CLI's version when installed from a
   registry; both modes are tested.
 - Every crate has a crate-root README, homepage, keywords and categories; `cargo package` includes

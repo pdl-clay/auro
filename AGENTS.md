@@ -148,9 +148,11 @@ Linux build dependencies (same set CI installs):
 ```bash
 sudo apt-get install -y --no-install-recommends \
   libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
-  libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config \
-  libgtk-3-dev libayatana-appindicator3-dev
+  libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config
 ```
+
+The tray service uses StatusNotifierItem over D-Bus; no GTK or AppIndicator development libraries
+are needed.
 
 CI runs those gates on Linux, macOS and Windows plus an `ubuntu-22.04` floor job, and
 `mdbook build docs`. `Cargo.lock` is committed and CI passes `--locked`.

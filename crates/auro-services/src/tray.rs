@@ -290,13 +290,11 @@ impl Tray {
     }
 
     /// Replaces the context menu.
-    ///
-    /// On Linux AppIndicator the menu can be installed only once; call this during startup.
     pub fn set_menu(&self, items: &[TrayMenuItem]) -> Result<(), TrayError> {
         self.backend.set_menu(items.to_vec())
     }
 
-    /// Replaces or clears the icon. On Linux AppIndicator this is set after creation.
+    /// Replaces or clears the icon.
     pub fn set_icon(&self, icon: Option<TrayIcon>) -> Result<(), TrayError> {
         self.backend.set_icon(icon)
     }
