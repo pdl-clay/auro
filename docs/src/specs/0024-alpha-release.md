@@ -1,7 +1,7 @@
 # 0024 - Alpha release and crates.io
 
-**Status:** Implemented (2026-11-18; all eleven crates and the `v0.1.0-alpha.1` tag are published.
-Rate-limit waits were not retained as a log; final README copy and screenshots remain follow-ups.)
+**Status:** Implemented (2026-11-18 for `v0.1.0-alpha.1`; 2026-11-19 for `v0.1.0-alpha.2`). All
+eleven crates are published; final README copy and screenshots remain follow-ups.
 
 The first public alpha publishes the workspace crates as `0.1.0-alpha.1`. This spec collects the
 release contract that is not owned by an earlier feature spec: versioning, publish order, crate
@@ -30,7 +30,7 @@ metadata, facade features, and the scaffold's dependency mode.
 
 The first public version is `0.1.0-alpha.1` for every crate. The workspace version and every
 internal dependency version move together; a workspace-local skew is a bug. `0.0.0` is a build
-placeholder and is never published.
+placeholder and is never published. `0.1.0-alpha.2` follows the same rule for the second alpha.
 
 ### D2 - Publish leaves first
 
@@ -120,6 +120,14 @@ ordinary feature PR.
 - The crates.io listing is the publication evidence. The rate-limit waits were not retained as a
   repository log, so acceptance item 6 is satisfied for the tag and versions, not for a retained
   wait log.
+
+### Publication (2026-11-19) - `0.1.0-alpha.2`
+
+- Workspace version and internal requirements are `0.1.0-alpha.2`; all eleven crates report it as
+  their maximum published version on crates.io.
+- The release carries the StatusNotifierItem tray backend (no GTK), the typed Wayland startup
+  failure (`AuroError::Platform`) and the Windows journal ancestor validation.
+- Tag `v0.1.0-alpha.2` points at the release commit.
 
 ## Open questions
 

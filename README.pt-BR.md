@@ -21,9 +21,9 @@ O frontend é Rust. Não existe HTML, nem engine de CSS, nem JavaScript no runti
 ## Status
 
 **Pré-alpha. Projetando em público.** O workspace já existe, as fases 0 e 1 estão concluídas e a
-fase 2 está em andamento. `0.1.0-alpha.1` é o primeiro alpha publicado no crates.io; ainda não há
+fase 2 está em andamento. `0.1.0-alpha.2` é o alpha atual publicado no crates.io; ainda não há
 release estável nem CLI estável. Instale o CLI alpha com
-`cargo install auro-cli --version 0.1.0-alpha.1`, ou compile e experimente o framework a partir de
+`cargo install auro-cli --version 0.1.0-alpha.2`, ou compile e experimente o framework a partir de
 um checkout (veja [CONTRIBUTING.md](CONTRIBUTING.md)). As fatias da fase 2 no repositório cobrem empacotamento,
 updates assinados com caminhos de aplicação por plataforma e serviços de plataforma; submissão e
 verificação local de notarização no macOS são ferramentas de release, não um fluxo de usuário

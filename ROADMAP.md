@@ -408,6 +408,11 @@ and tray are opt-in features; and an installed `auro-cli` scaffolds a versioned 
 The leaf crates package and verify, and `auro-perms` passes `cargo publish --dry-run` with the
 release switch enabled. Actual publication, the release tag and the ordered upload remain.
 
+**Alpha.2 published (2026-11-19):** all eleven crates are `0.1.0-alpha.2` on crates.io, carrying
+the Linux tray backend that needs no GTK, the typed Wayland startup failure and the Windows journal
+ancestor validation. The Phase 2 exit still needs three shipped apps and published comparison
+benchmarks.
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 

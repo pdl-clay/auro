@@ -6,15 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0. Before 1.0, a
 breaking change bumps the minor version; the patch version is for compatible fixes.
 
-**`0.1.0-alpha.1` is published on crates.io.** No stable release has been tagged.
+**`0.1.0-alpha.2` is published on crates.io.** No stable release has been tagged.
 
 ## [Unreleased]
+
+## [0.1.0-alpha.2] - 2026-11-19
 
 ### Added
 
 - Documentation site: a task-oriented landing page, a new **Start here** guide, and a responsive
   light/dark theme. The landing page states the alpha limits and the hot-reload boundary up front;
-  the guide covers the published `0.1.0-alpha.1` CLI, the four-crate scaffold, the default
+  the guide covers the published `0.1.0-alpha.2` CLI, the four-crate scaffold, the default
   rebuild-and-restart loop, and the opt-in hot path.
 
 ### Fixed
