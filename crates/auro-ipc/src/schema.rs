@@ -15,8 +15,10 @@ pub struct CommandSchema {
 
 /// Builds a command input schema from named argument schemas.
 ///
-/// Every argument is required. Per-argument `$defs`/`definitions` are hoisted to the root so
-/// `#/$defs/...` references resolve; colliding definition names are last-wins in this slice.
+/// Arguments whose schema accepts `null` (the shape `schemars` emits for `Option<T>`) are optional
+/// and omitted from `required`; every other argument is required. Per-argument
+/// `$defs`/`definitions` are hoisted to the root so `#/$defs/...` references resolve; colliding
+/// definition names are last-wins in this slice.
 pub fn input_schema(args: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
     let mut properties = Map::new();
     let mut required = Vec::new();
@@ -32,8 +34,11 @@ pub fn input_schema(args: impl IntoIterator<Item = (&'static str, Value)>) -> Va
                 legacy_defs.extend(found);
             }
         }
+        let optional = accepts_null(&schema);
         properties.insert(name.to_owned(), schema);
-        required.push(Value::String(name.to_owned()));
+        if !optional {
+            required.push(Value::String(name.to_owned()));
+        }
     }
 
     let mut root = Map::new();
@@ -49,6 +54,18 @@ pub fn input_schema(args: impl IntoIterator<Item = (&'static str, Value)>) -> Va
         root.insert("definitions".to_owned(), Value::Object(legacy_defs));
     }
     Value::Object(root)
+}
+
+/// Whether `serde_json` can deserialize `null` into this type, as it can for `Option<T>`.
+fn accepts_null(schema: &Value) -> bool {
+    match schema.get("type") {
+        Some(Value::String(kind)) => kind == "null",
+        Some(Value::Array(kinds)) => kinds.iter().any(|kind| kind == "null"),
+        _ => schema
+            .get("anyOf")
+            .and_then(Value::as_array)
+            .is_some_and(|variants| variants.iter().any(accepts_null)),
+    }
 }
 
 #[cfg(test)]
@@ -69,6 +86,13 @@ mod tests {
         assert_eq!(schema["required"], json!(["user"]));
         assert_eq!(schema["$defs"]["Name"]["type"], "string");
         assert_eq!(schema["properties"]["user"]["$defs"], Value::Null);
+    }
+
+    #[test]
+    fn a_nullable_argument_is_not_required() {
+        let optional = json!({ "type": ["integer", "null"] });
+        let schema = input_schema([("value", optional), ("other", json!({ "type": "string" }))]);
+        assert_eq!(schema["required"], json!(["other"]));
     }
 
     #[test]

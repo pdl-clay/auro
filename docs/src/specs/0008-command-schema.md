@@ -47,9 +47,12 @@ Input is a JSON Schema object:
 }
 ```
 
-Property names use the command's `rename_all` setting. Every non-state argument is required; Auro
-has no optional-argument marker yet, so `Option<T>` is still a required property that accepts null.
-Per-argument `$defs`/`definitions` are hoisted to the root so `#/$defs/...` references resolve;
+Property names use the command's `rename_all` setting. An argument whose schema accepts null (the
+shape `schemars` emits for `Option<T>`) is optional and omitted from `required`; every other
+non-state argument is required. A `rename_all` that maps two arguments to one key is a compile
+error. Registering two commands with the same name is rejected (`try_command` returns a typed
+error; the builder and `generate_handler!` panic with the name). Per-argument
+`$defs`/`definitions` are hoisted to the root so `#/$defs/...` references resolve;
 duplicate definition names are last-wins in this slice. Schemas are computed once when the handler
 is built, not reflected at dispatch time.
 
@@ -112,7 +115,7 @@ impl CommandHandler {
 ## Acceptance
 
 1. A command with a primitive argument stores an input schema with that property under
-   `properties`, listed in `required`.
+   `properties`, listed in `required`; an `Option<T>` argument is not listed in `required`.
 2. `State<T>` arguments do not appear in the input schema.
 3. `rename_all = "camelCase"` changes the property key.
 4. The output schema is derived from the `Ok` type; `()` becomes a null schema.

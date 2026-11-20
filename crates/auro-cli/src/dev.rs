@@ -29,7 +29,7 @@ enum ChildEvent {
 pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     let dir = dir.canonicalize()?;
     let config = crate::project::load_checked(&dir)?;
-    let patch = overrides_json(overrides)?;
+    let patch = overrides_json(overrides, &serde_json::to_value(&config)?)?;
 
     if config.dev.hot {
         return run_hot(&dir, &config, patch.as_deref());
@@ -723,6 +723,7 @@ fn strip_ansi(line: &str) -> String {
 }
 
 fn build(dir: &Path, config: &Config) -> Result<PathBuf, AuroError> {
+    let expected = crate::project::binary_name(dir)?;
     let mut command = Command::new("cargo");
     command
         .arg("build")
@@ -744,19 +745,45 @@ fn build(dir: &Path, config: &Config) -> Result<PathBuf, AuroError> {
         )));
     }
 
-    let mut binary = None;
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
+    select_binary(&String::from_utf8_lossy(&output.stdout), &expected)
+}
+
+/// Picks the artifact for the app's own binary, not whichever artifact cargo emitted last.
+fn select_binary(output: &str, expected: &str) -> Result<PathBuf, AuroError> {
+    let mut built = Vec::new();
+    for line in output.lines() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        if value["reason"] == "compiler-artifact"
+        if value["reason"] != "compiler-artifact" {
+            continue;
+        }
+        let target = &value["target"];
+        let is_binary = target["kind"]
+            .as_array()
+            .is_some_and(|kinds| kinds.iter().any(|kind| kind == "bin"));
+        let Some(name) = target["name"].as_str() else {
+            continue;
+        };
+        if is_binary {
+            built.push(name.to_owned());
+        }
+        if is_binary
+            && name == expected
             && let Some(executable) = value["executable"].as_str()
         {
-            binary = Some(PathBuf::from(executable));
+            return Ok(PathBuf::from(executable));
         }
     }
 
-    binary.ok_or_else(|| AuroError::Message("cargo produced no binary to run".to_owned()))
+    Err(AuroError::Message(format!(
+        "cargo produced no `{expected}` binary to run{}",
+        if built.is_empty() {
+            String::new()
+        } else {
+            format!(" (built: {})", built.join(", "))
+        }
+    )))
 }
 
 /// Path the app is launched from.
@@ -924,10 +951,22 @@ fn kill_process(pid: u32) {
 }
 
 /// `app.product-name=Demo` becomes `{"app":{"product-name":"Demo"}}`.
-fn overrides_json(overrides: &[String]) -> Result<Option<String>, AuroError> {
+///
+/// Arrays are replaced wholesale by the merge patch, so an indexed path starts its patch array
+/// from the resolved config: `app.windows.0.width=800` keeps the window's `label` and other
+/// fields instead of replacing the array with one partial element.
+fn overrides_json(
+    overrides: &[String],
+    base: &serde_json::Value,
+) -> Result<Option<String>, AuroError> {
     if overrides.is_empty() {
         return Ok(None);
     }
+
+    // The patch must deserialize as TOML, which has no null; drop null-valued optional fields
+    // from the base clone. Missing fields fall back to their config defaults.
+    let mut base = base.clone();
+    remove_nulls(&mut base);
 
     let mut root = serde_json::Value::Object(serde_json::Map::new());
 
@@ -941,28 +980,124 @@ fn overrides_json(overrides: &[String]) -> Result<Option<String>, AuroError> {
                 "--config expects KEY=VALUE, got `{entry}`"
             )));
         }
-        set_path(
-            &mut root,
-            &parts,
-            serde_json::Value::String(value.to_owned()),
-        );
+        let parsed = serde_json::from_str::<serde_json::Value>(value)
+            .unwrap_or_else(|_| serde_json::Value::String(value.to_owned()));
+        if parsed.is_null() {
+            return Err(AuroError::Message(
+                "--config does not support `null`; TOML has no null value".to_owned(),
+            ));
+        }
+        set_path(&mut root, &parts, parsed, &base);
     }
 
     Ok(Some(root.to_string()))
 }
 
-fn set_path(node: &mut serde_json::Value, path: &[&str], value: serde_json::Value) {
+/// Applies one `--config` path, creating objects or arrays as the segments require.
+fn set_path(
+    node: &mut serde_json::Value,
+    path: &[&str],
+    value: serde_json::Value,
+    base: &serde_json::Value,
+) {
     let Some((last, parents)) = path.split_last() else {
         return;
     };
     let mut node = node;
+    let mut base = Some(base);
     for part in parents {
-        if !node[*part].is_object() {
-            node[*part] = serde_json::Value::Object(serde_json::Map::new());
-        }
-        node = &mut node[*part];
+        node = child(node, base, part);
+        base = base.and_then(|base| base_part(base, part));
     }
-    node[*last] = value;
+    if let Ok(index) = last.parse::<usize>() {
+        let array = array_for(node, base);
+        if array.len() <= index {
+            array.resize(index + 1, serde_json::Value::Null);
+        }
+        array[index] = value;
+    } else {
+        ensure_object(node).insert((*last).to_owned(), value);
+    }
+}
+
+fn child<'a>(
+    node: &'a mut serde_json::Value,
+    base: Option<&serde_json::Value>,
+    part: &str,
+) -> &'a mut serde_json::Value {
+    if let Ok(index) = part.parse::<usize>() {
+        let array = array_for(node, base);
+        if array.len() <= index {
+            array.resize(index + 1, serde_json::Value::Null);
+        }
+        if array[index].is_null()
+            && let Some(element) = base
+                .and_then(|base| base.as_array())
+                .and_then(|base| base.get(index))
+        {
+            array[index] = element.clone();
+        }
+        &mut array[index]
+    } else {
+        ensure_object(node)
+            .entry(part.to_owned())
+            .or_insert(serde_json::Value::Null)
+    }
+}
+
+/// Removes `null` values recursively so the patch can be represented as TOML.
+fn remove_nulls(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            object.retain(|_, value| {
+                remove_nulls(value);
+                !value.is_null()
+            });
+        }
+        serde_json::Value::Array(array) => {
+            for value in array.iter_mut() {
+                remove_nulls(value);
+            }
+            array.retain(|value| !value.is_null());
+        }
+        _ => {}
+    }
+}
+
+/// The patch array for an indexed path, seeded from the resolved config on first use.
+fn array_for<'a>(
+    node: &'a mut serde_json::Value,
+    base: Option<&serde_json::Value>,
+) -> &'a mut Vec<serde_json::Value> {
+    let array = ensure_array(node);
+    if array.is_empty()
+        && let Some(base) = base.and_then(|base| base.as_array())
+    {
+        array.clone_from(base);
+    }
+    array
+}
+
+fn base_part<'a>(base: &'a serde_json::Value, part: &str) -> Option<&'a serde_json::Value> {
+    if let Ok(index) = part.parse::<usize>() {
+        base.as_array().and_then(|array| array.get(index))
+    } else {
+        base.get(part)
+    }
+}
+
+fn ensure_object(node: &mut serde_json::Value) -> &mut serde_json::Map<String, serde_json::Value> {
+    if !node.is_object() {
+        *node = serde_json::Value::Object(serde_json::Map::new());
+    }
+    node.as_object_mut().expect("just replaced with an object")
+}
+
+fn ensure_array(node: &mut serde_json::Value) -> &mut Vec<serde_json::Value> {
+    if !node.is_array() {
+        *node = serde_json::Value::Array(Vec::new());
+    }
+    node.as_array_mut().expect("just replaced with an array")
 }
 
 #[cfg(test)]
@@ -995,10 +1130,13 @@ mod tests {
 
     #[test]
     fn builds_a_merge_patch_from_flags() {
-        let patch = overrides_json(&[
-            "app.product-name=Demo".to_owned(),
-            "app.version=1.2.3".to_owned(),
-        ])
+        let patch = overrides_json(
+            &[
+                "app.product-name=Demo".to_owned(),
+                "app.version=1.2.3".to_owned(),
+            ],
+            &serde_json::json!({}),
+        )
         .expect("patch")
         .expect("some");
 
@@ -1009,7 +1147,89 @@ mod tests {
 
     #[test]
     fn rejects_a_flag_without_a_value() {
-        assert!(overrides_json(&["app".to_owned()]).is_err());
+        assert!(overrides_json(&["app".to_owned()], &serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn types_override_values_and_indexes_arrays() {
+        let base = serde_json::json!({
+            "app": {
+                "product-name": "Repro",
+                "windows": [
+                    { "label": "main", "width": 960, "max-width": 1600 },
+                    { "label": "secondary", "width": 640 }
+                ]
+            }
+        });
+        let patch = overrides_json(
+            &[
+                "app.windows.0.width=800".to_owned(),
+                "dev.hot=true".to_owned(),
+                "app.product-name=Demo".to_owned(),
+                "app.authors=[\"Ana\"]".to_owned(),
+            ],
+            &base,
+        )
+        .expect("patch")
+        .expect("some");
+
+        let value: serde_json::Value = serde_json::from_str(&patch).expect("json");
+        assert_eq!(value["app"]["windows"][0]["width"], 800);
+        assert_eq!(
+            value["app"]["windows"][0]["label"], "main",
+            "the sibling fields must survive an indexed override"
+        );
+        assert_eq!(value["app"]["windows"][0]["max-width"], 1600);
+        assert_eq!(value["app"]["windows"][1]["label"], "secondary");
+        assert_eq!(value["dev"]["hot"], true);
+        assert_eq!(value["app"]["product-name"], "Demo");
+        assert_eq!(value["app"]["authors"], serde_json::json!(["Ana"]));
+    }
+
+    #[test]
+    fn a_patch_with_an_indexed_path_is_valid_toml() {
+        let base = serde_json::json!({
+            "app": {
+                "windows": [{ "label": "main", "title": null, "width": 960 }]
+            }
+        });
+        let patch = overrides_json(&["app.windows.0.width=800".to_owned()], &base)
+            .expect("patch")
+            .expect("some");
+        assert!(!patch.contains("null"), "{patch}");
+        serde_json::from_str::<toml::Value>(&patch)
+            .expect("the patch must deserialize as the TOML value the child reads");
+    }
+
+    #[test]
+    fn rejects_a_null_override_with_a_clear_error() {
+        let error = overrides_json(
+            &["app.default-window=null".to_owned()],
+            &serde_json::json!({}),
+        )
+        .expect_err("TOML has no null");
+        assert!(error.to_string().contains("null"), "{error}");
+    }
+
+    #[test]
+    fn selects_the_app_binary_not_the_last_artifact() {
+        let output = concat!(
+            r#"{"reason":"compiler-artifact","target":{"name":"app","kind":["bin"]},"executable":"/tmp/app"}"#,
+            "\n",
+            r#"{"reason":"compiler-artifact","target":{"name":"helper","kind":["bin"]},"executable":"/tmp/helper"}"#,
+        );
+        assert_eq!(
+            select_binary(output, "app").expect("app"),
+            Path::new("/tmp/app")
+        );
+    }
+
+    #[test]
+    fn reports_when_the_expected_binary_is_absent() {
+        let output = r#"{"reason":"compiler-artifact","target":{"name":"helper","kind":["bin"]},"executable":"/tmp/helper"}"#;
+        let error = select_binary(output, "app").expect_err("missing app");
+        assert!(error.to_string().contains("app"), "{error}");
+        assert!(error.to_string().contains("helper"), "{error}");
     }
 
     #[test]

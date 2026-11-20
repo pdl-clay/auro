@@ -87,6 +87,11 @@ pub fn bundle(dir: &Path) -> Result<(), AuroError> {
         println!("notarizing macOS artifacts with profile `{profile}`");
         auro_bundle::MacNotarizer::new().notarize_artifacts(&artifacts, profile)?;
     }
+    if artifacts.is_empty() {
+        return Err(AuroError::bundle(
+            "the bundler produced no artifacts; check [bundle].targets",
+        ));
+    }
     for artifact in artifacts {
         println!("{}", artifact.display());
     }
@@ -163,7 +168,11 @@ fn plain_path(path: PathBuf) -> PathBuf {
     path
 }
 
-/// The executable cargo places in `target/release`: `default-run`, or the package name.
+/// The executable cargo places in `target/release`.
+///
+/// Resolution follows cargo: `package.default-run`, then the single explicit `[[bin]]` name, then
+/// `package.name` for the implicit `src/main.rs` binary. Several explicit binaries without
+/// `default-run` are ambiguous, so they are rejected instead of guessing.
 pub fn binary_name(dir: &Path) -> Result<String, AuroError> {
     let manifest = dir.join("Cargo.toml");
     let text = fs::read_to_string(&manifest)?;
@@ -173,12 +182,36 @@ pub fn binary_name(dir: &Path) -> Result<String, AuroError> {
     let package = value
         .get("package")
         .ok_or_else(|| AuroError::config(&manifest, None, "missing [package]"))?;
-    let name = package
-        .get("default-run")
-        .or_else(|| package.get("name"))
-        .and_then(toml::Value::as_str)
-        .ok_or_else(|| AuroError::config(&manifest, Some("package.name"), "missing name"))?;
-    Ok(name.to_owned())
+
+    if let Some(default_run) = package.get("default-run").and_then(toml::Value::as_str) {
+        return Ok(default_run.to_owned());
+    }
+
+    let bins: Vec<&str> = value
+        .get("bin")
+        .and_then(toml::Value::as_array)
+        .map(|bins| {
+            bins.iter()
+                .filter_map(|bin| bin.get("name").and_then(toml::Value::as_str))
+                .collect()
+        })
+        .unwrap_or_default();
+    match bins.as_slice() {
+        [] => package
+            .get("name")
+            .and_then(toml::Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| AuroError::config(&manifest, Some("package.name"), "missing name")),
+        [only] => Ok((*only).to_owned()),
+        several => Err(AuroError::config(
+            &manifest,
+            Some("package.default-run"),
+            format!(
+                "multiple binary targets ({}); set package.default-run to choose the app binary",
+                several.join(", ")
+            ),
+        )),
+    }
 }
 
 /// Loads `Auro.toml` and rejects a version that disagrees with the manifest (spec 0002).
@@ -197,11 +230,7 @@ pub fn check_version(dir: &Path, config: &Config) -> Result<(), AuroError> {
     let value: toml::Value = toml::from_str(&text).map_err(|error: toml::de::Error| {
         AuroError::config(&manifest, None, format!("invalid Cargo.toml: {error}"))
     })?;
-    let declared = value
-        .get("package")
-        .and_then(|package| package.get("version"))
-        .and_then(|version| version.as_str())
-        .unwrap_or_default();
+    let declared = package_version(dir, &manifest, &value)?;
 
     if declared != config.app.version {
         return Err(AuroError::config(
@@ -214,6 +243,56 @@ pub fn check_version(dir: &Path, config: &Config) -> Result<(), AuroError> {
         ));
     }
     Ok(())
+}
+
+/// The concrete `package.version`, following `version.workspace = true` to the workspace root.
+fn package_version(dir: &Path, manifest: &Path, value: &toml::Value) -> Result<String, AuroError> {
+    let version = value
+        .get("package")
+        .and_then(|package| package.get("version"))
+        .ok_or_else(|| AuroError::config(manifest, Some("package.version"), "missing version"))?;
+
+    if let Some(version) = version.as_str() {
+        return Ok(version.to_owned());
+    }
+    if version
+        .get("workspace")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return inherited_workspace_version(dir).ok_or_else(|| {
+            AuroError::config(
+                manifest,
+                Some("package.version"),
+                "version.workspace = true, but no [workspace.package] version was found",
+            )
+        });
+    }
+    Err(AuroError::config(
+        manifest,
+        Some("package.version"),
+        "must be a string or `{ workspace = true }`",
+    ))
+}
+
+fn inherited_workspace_version(dir: &Path) -> Option<String> {
+    for ancestor in dir.ancestors() {
+        let Ok(text) = fs::read_to_string(ancestor.join("Cargo.toml")) else {
+            continue;
+        };
+        let Ok(value) = toml::from_str::<toml::Value>(&text) else {
+            continue;
+        };
+        if let Some(version) = value
+            .get("workspace")
+            .and_then(|workspace| workspace.get("package"))
+            .and_then(|package| package.get("version"))
+            .and_then(toml::Value::as_str)
+        {
+            return Some(version.to_owned());
+        }
+    }
+    None
 }
 
 /// Whether the app's manifest declares the `hot-reload` feature `dx` enables.
@@ -572,5 +651,64 @@ version = "{manifest_version}"
         )
         .expect("manifest");
         assert_eq!(binary_name(temp.path()).expect("default-run"), "server");
+
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[package]\nname = \"pkg-name\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"custom-app\"\npath = \"src/main.rs\"\n",
+        )
+        .expect("manifest");
+        assert_eq!(
+            binary_name(temp.path()).expect("explicit bin"),
+            "custom-app"
+        );
+    }
+
+    #[test]
+    fn refuses_to_guess_between_several_binaries() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"one\"\npath = \"src/main.rs\"\n\n[[bin]]\nname = \"two\"\npath = \"src/two.rs\"\n",
+        )
+        .expect("manifest");
+        let error = binary_name(temp.path()).expect_err("ambiguous");
+        assert!(error.to_string().contains("one"), "{error}");
+        assert!(error.to_string().contains("two"), "{error}");
+        assert!(error.to_string().contains("default-run"), "{error}");
+    }
+
+    #[test]
+    fn accepts_a_workspace_inherited_package_version() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Auro.toml"),
+            r#"
+[app]
+identifier = "com.example.inherited"
+product-name = "Inherited"
+version = "0.1.0"
+
+[[app.windows]]
+label = "main"
+"#,
+        )
+        .expect("config");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "inherited"
+version.workspace = true
+
+[workspace]
+members = ["."]
+
+[workspace.package]
+version = "0.1.0"
+"#,
+        )
+        .expect("manifest");
+
+        load_checked(temp.path()).expect("workspace version matches");
     }
 }

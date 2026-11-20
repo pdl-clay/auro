@@ -87,15 +87,18 @@ impl Autosave {
         if since.elapsed() < self.debounce {
             return Ok(false);
         }
-        self.pending_since = None;
+        // Keep the change pending until the write succeeds: a read-only directory or a full disk
+        // must not discard the only copy of the state.
         self.write()?;
+        self.pending_since = None;
         Ok(true)
     }
 
     /// Captures and writes immediately, ignoring the debounce.
     pub fn flush(&mut self) -> Result<(), AuroError> {
+        self.write()?;
         self.pending_since = None;
-        self.write()
+        Ok(())
     }
 
     fn write(&mut self) -> Result<(), AuroError> {
@@ -181,6 +184,36 @@ mod tests {
             loaded.restore::<Counter>(),
             Restored::Restored(Counter { count: 0 })
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_write_keeps_the_change_pending_for_retry() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let directory = temp.path().join("snapshots");
+        std::fs::create_dir(&directory).expect("directory");
+        let mut saved = Autosave::new(
+            directory.join("dev-snapshot.json"),
+            "build",
+            Duration::from_millis(10),
+        );
+        saved.watch(|| Counter { count: 7 });
+        saved.mark_dirty();
+        std::thread::sleep(Duration::from_millis(30));
+
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o500))
+            .expect("read-only");
+        assert!(saved.tick().is_err());
+
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+            .expect("writable");
+        assert!(
+            saved.tick().expect("retry"),
+            "a failed write must not clear the pending change"
+        );
+        assert!(saved.path().is_file());
     }
 
     #[test]

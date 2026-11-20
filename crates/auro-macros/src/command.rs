@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::collections::HashMap;
+
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{Block, FnArg, GenericArgument, ItemFn, LitStr, Pat, PathArguments, ReturnType, Type};
@@ -47,6 +49,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
     let mut extracts = Vec::new();
     let mut call_args = Vec::new();
     let mut schema_args = Vec::new();
+    let mut keys = HashMap::new();
 
     for input in &item.sig.inputs {
         let FnArg::Typed(pat_type) = input else {
@@ -75,6 +78,14 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             });
         } else {
             let key = rename_all.apply(&arg.to_string());
+            if let Some(previous) = keys.insert(key.clone(), arg.clone()) {
+                return Err(syn::Error::new_spanned(
+                    pat_type,
+                    format!(
+                        "arguments `{previous}` and `{arg}` both map to the JSON key `{key}`; rename one of them"
+                    ),
+                ));
+            }
             schema_args.push((key.clone(), ty.clone()));
             extracts.push(quote! {
                 let #arg: #ty = match invoke.arg::<#ty>(#key) {
@@ -108,10 +119,13 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
         pub fn #wrapper(invoke: ::auro::ipc::Invoke) -> ::auro::ipc::ResponseFuture {
             Box::pin(async move {
                 #(#extracts)*
-                match #ident(#(#call_args),*).await {
-                    Ok(value) => ::auro::ipc::Response::ok(value),
-                    Err(error) => ::auro::ipc::Response::from_error(&error),
-                }
+                ::auro::ipc::catch_command_panic(#name_const, async move {
+                    match #ident(#(#call_args),*).await {
+                        Ok(value) => ::auro::ipc::Response::ok(value),
+                        Err(error) => ::auro::ipc::Response::from_error(&error),
+                    }
+                })
+                .await
             })
         }
 
@@ -224,5 +238,21 @@ impl RenameAll {
                 out
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_two_arguments_that_rename_to_the_same_key() {
+        let item = quote! {
+            async fn collide(foo_bar: u64, fooBar: u64) -> Result<u64, AuroError> {
+                Ok(foo_bar + fooBar)
+            }
+        };
+        let error = expand(quote!(rename_all = "camelCase"), item).expect_err("collision");
+        assert!(error.to_string().contains("fooBar"), "{error}");
     }
 }

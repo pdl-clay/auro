@@ -436,6 +436,13 @@ impl Config {
         }
 
         if let BundleTargets::List(targets) = &self.bundle.targets {
+            if targets.is_empty() {
+                return Err(AuroError::config(
+                    path,
+                    Some("bundle.targets"),
+                    "must contain at least one package format; use \"all\" or list the formats",
+                ));
+            }
             let host = host_bundle_targets();
             for target in targets {
                 if !BUNDLE_TARGETS.contains(&target.as_str()) {
@@ -585,6 +592,26 @@ fn validate_window_dimensions(path: &Path, window: &WindowConfig) -> Result<(), 
         && min > max
     {
         return reject("min-height", "min-height is greater than max-height");
+    }
+    if let Some(min) = window.min_width
+        && window.width < min
+    {
+        return reject("width", "width is less than min-width");
+    }
+    if let Some(max) = window.max_width
+        && window.width > max
+    {
+        return reject("width", "width is greater than max-width");
+    }
+    if let Some(min) = window.min_height
+        && window.height < min
+    {
+        return reject("height", "height is less than min-height");
+    }
+    if let Some(max) = window.max_height
+        && window.height > max
+    {
+        return reject("height", "height is greater than max-height");
     }
     Ok(())
 }
@@ -737,6 +764,21 @@ width = 320
     }
 
     #[test]
+    fn rejects_an_initial_size_outside_its_own_bounds() {
+        let too_wide = format!("{MINIMAL}\nwidth = 500\nmax-width = 320\n");
+        let error = parse(&too_wide).expect_err("width above max-width");
+        assert!(error.to_string().contains("max-width"), "{error}");
+
+        let too_narrow = format!("{MINIMAL}\nwidth = 100\nmin-width = 320\n");
+        let error = parse(&too_narrow).expect_err("width below min-width");
+        assert!(error.to_string().contains("min-width"), "{error}");
+
+        let too_tall = format!("{MINIMAL}\nheight = 900\nmax-height = 640\n");
+        let error = parse(&too_tall).expect_err("height above max-height");
+        assert!(error.to_string().contains("max-height"), "{error}");
+    }
+
+    #[test]
     fn rejects_a_non_semver_version() {
         let text = MINIMAL.replace("0.1.0", "one");
         assert!(parse(&text).is_err());
@@ -830,6 +872,13 @@ label = "main"
             error.to_string().contains("is not a package format"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn rejects_an_empty_bundle_target_list() {
+        let text = format!("{MINIMAL}\n[bundle]\ntargets = []\n");
+        let error = parse(&text).expect_err("empty target list");
+        assert!(error.to_string().contains("at least one"), "{error}");
     }
 
     #[test]

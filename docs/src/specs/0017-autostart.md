@@ -36,6 +36,13 @@ mode:
 | macOS | `LaunchAgent` | `~/Library/LaunchAgents/<app>.plist` |
 | Windows | `CurrentUser` | `HKCU\...\Run` value |
 
+Auro still owns the input contract: `app_name` must be one file-name component (no separators,
+control characters or `.`/`..`), and on Linux the executable and every argument are quoted for a
+Desktop Entry `Exec` value (`%` -> `%%`, backslash/quote/backtick/`$` escaping, control characters
+rejected) before `auto-launch` interpolates them. Without that, a path with spaces split into
+different arguments and a path with `%f` or a newline changed the launched command or injected
+desktop-entry keys.
+
 *Rejected:* implementing the three mechanisms inside Auro. `auto-launch` is small, MIT licensed,
 and already handles the quirks. *Rejected:* AppleScript login items. They need a macOS GUI session
 and are less deterministic than a Launch Agent.
@@ -47,8 +54,11 @@ otherwise try the system registry and require elevation. A user-level app should
 
 ### D3 - The current executable is a convenience, not a policy
 
-`for_current_app` resolves `std::env::current_exe()` and builds the same service as `new`. It is a
-convenience for the common case. The app name is explicit; the path is the running binary.
+`for_current_app` resolves the running app and builds the same service as `new`. On Linux, a
+non-empty `$APPIMAGE` wins over `std::env::current_exe()`: inside an AppImage the latter points at
+the temporary squashfs mount, which disappears when the process exits, so the autostart entry would
+launch a missing file at the next login. Elsewhere the path is `current_exe()`. The app name is
+explicit; the path is the running binary.
 
 ### D4 - No admin, no silent fallback
 

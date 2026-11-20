@@ -56,11 +56,14 @@ An unknown category or package format is `AuroError::Bundle`, not a bundler pani
 
 `auro bundle` loads and version-checks the config, rejects a config with
 `[bundle] active = false` (`AuroError::Bundle`; bundling is opt-out, not a silent no-op), runs
-`cargo build --release`, resolves the executable name (`package.default-run`, else `package.name`),
-then calls `auro_bundle::bundle_in(dir, &config, &binary, &target)`. The target root is
+`cargo build --release`, resolves the executable name (`package.default-run`, else the single
+explicit `[[bin]]` name, else `package.name`; several explicit binaries without `default-run` are
+an error naming the candidates), then calls
+`auro_bundle::bundle_in(dir, &config, &binary, &target)`. The target root is
 `CARGO_TARGET_DIR` resolved like cargo (relative values under the invocation directory), or
 `<app>/target`; the bundler reads `<target>/release` and artifacts land under
-`<target>/release/bundle/<format>/`. Every produced path is printed, one per line.
+`<target>/release/bundle/<format>/`. Every produced path is printed, one per line; an empty
+artifact list is a typed `AuroError::Bundle`, not a successful no-op.
 
 The app directory is canonicalised, so bundler paths are stable regardless of where the command is
 run.
@@ -98,8 +101,8 @@ auro bundle [--dir <app>]
 2. The manifest metadata reaches the bundler settings: identifier, icons, binary name, category,
    output directory, and package types (`maps_the_manifest_metadata`).
 3. An unknown category is a typed bundle error, not a panic (`rejects_an_unknown_category`).
-4. `binary_name` prefers `package.default-run` and falls back to `package.name`
-   (`auro-cli` test).
+4. `binary_name` prefers `package.default-run`, then the single explicit `[[bin]]` name, then
+   `package.name`, and rejects several candidates without `default-run` (`auro-cli` tests).
 5. `auro bundle` on a real scaffolded app builds release and produces the host's requested
    artifacts, printing their paths. Recorded with host, formats and environment.
 6. `cargo fmt --all --check`,
