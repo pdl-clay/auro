@@ -58,6 +58,10 @@ measure a binary rather than a function.
 
 ## Comparison runs
 
-Tauri and Electron baselines exist only as advertised ranges in the README. Publishing a fair
-comparison requires the same app, the same platform and the same measurement method. Until that
-exists, the comparison table is a target, not a result.
+The same-app comparison runs through [`tools/comparison/bench.py`](https://github.com/pdl-clay/auro/blob/main/tools/comparison/bench.py):
+one 480x320 window with a single line of text, built in release mode for Auro, Tauri and Electron
+on the same machine, measured with the same spawn-to-content-ready, process-tree-RSS and
+uncompressed-payload method. The marker is the nearest available "first content ready" signal
+(first frame request for Auro, page parsed for Tauri, `ready-to-show` for Electron), not a
+guaranteed painted frame. Electron's payload includes Chromium; Auro and Tauri use the system
+webview/GPU stack. Installer compression is excluded for all three.
