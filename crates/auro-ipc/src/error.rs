@@ -30,6 +30,9 @@ pub enum AuroError {
     #[error("bundling failed: {message}")]
     Bundle { message: String },
 
+    #[error("platform error: {message}")]
+    Platform { message: String },
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
@@ -57,6 +60,7 @@ impl AuroError {
             AuroError::Window { .. } => "window",
             AuroError::Instance { .. } => "instance",
             AuroError::Bundle { .. } => "bundle",
+            AuroError::Platform { .. } => "platform",
             AuroError::Io(_) => "io",
             AuroError::Json(_) => "json",
             AuroError::Message(_) => "message",
@@ -87,6 +91,12 @@ impl AuroError {
 
     pub fn bundle(message: impl Into<String>) -> Self {
         AuroError::Bundle {
+            message: message.into(),
+        }
+    }
+
+    pub fn platform(message: impl Into<String>) -> Self {
+        AuroError::Platform {
             message: message.into(),
         }
     }
@@ -122,5 +132,12 @@ mod tests {
         assert_eq!(error.kind(), "instance");
         assert!(error.to_string().contains("com.example.app"));
         assert!(error.to_string().contains("another instance"));
+    }
+
+    #[test]
+    fn platform_errors_have_context_and_kind() {
+        let error = AuroError::platform("the compositor does not provide wl_seat");
+        assert_eq!(error.kind(), "platform");
+        assert!(error.to_string().contains("wl_seat"));
     }
 }

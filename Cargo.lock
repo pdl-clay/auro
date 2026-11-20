@@ -593,6 +593,7 @@ dependencies = [
  "subsecond",
  "tokio",
  "tracing",
+ "wayland-client",
 ]
 
 [[package]]

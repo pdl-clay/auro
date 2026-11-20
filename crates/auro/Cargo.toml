@@ -39,6 +39,10 @@ subsecond = { workspace = true, optional = true }
 tokio.workspace = true
 tracing.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Startup preflight reads the compositor's advertised globals; gpui already pulls this crate.
+wayland-client = "0.31"
+
 [[test]]
 name = "hot"
 required-features = ["hot-reload"]

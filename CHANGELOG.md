@@ -24,6 +24,10 @@ breaking change bumps the minor version; the patch version is for compatible fix
   not called, needs no GTK event-loop pump beside GPUI's loop, and removes the
   `libgtk-3-dev`/`libayatana-appindicator3-dev` build dependency. Menus and icons can be replaced
   after creation; primary and secondary activation arrive as left and middle up-clicks.
+- `auro`: `App::try_run` on Linux checks the Wayland globals GPUI 0.2.2 binds before starting the
+  event loop. A compositor without `wl_seat` (headless weston) or with an outdated
+  `wl_compositor`, `wl_shm`, `xdg_wm_base` or `wl_output` now returns `AuroError::Platform` and
+  exits with code 2 instead of panicking inside gpui.
 - `auro-update`: Windows journal trust validation now walks the ancestor chain. It rejects reparse
   points at every level and refuses ancestors that grant delete, rename or ACL-change rights to an
   untrusted principal; inherit-only ACEs are checked on the child where they become effective. The

@@ -148,9 +148,11 @@ defaults and validation rules: [0002](0002-config.md).
   is no other CLI-to-app channel.
 - `app.version` versus `Cargo.toml` is checked by `auro build` and `auro dev` (which have the
   manifest), not by the running app.
-- `App::run(self)` prints the `AuroError::Config` diagnostic and exits 2; `App::try_run(self) ->
-  Result<(), AuroError>` is the non-exiting entry point (tests drive views through GPUI's
-  `TestAppContext` instead).
+- `App::run(self)` prints the `AuroError` diagnostic (configuration, platform or instance) and
+  exits 2; `App::try_run(self) -> Result<(), AuroError>` is the non-exiting entry point (tests drive
+  views through GPUI's `TestAppContext` instead). On Linux, `try_run` rejects a Wayland compositor
+  that does not advertise the globals GPUI 0.2.2 binds, so a minimal compositor gets a typed error
+  instead of a panic.
 
 Loaded at runtime in Phase 0. Embedded at bundle time in Phase 2, when there is a bundler to embed
 it into.

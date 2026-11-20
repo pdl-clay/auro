@@ -34,6 +34,7 @@ pub mod services {
 }
 
 mod app;
+mod platform;
 pub mod windows;
 
 #[cfg(feature = "updater")]
