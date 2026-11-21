@@ -99,8 +99,10 @@ after the message is queued. A single handler worker drains the queue, so a slow
 stall the listener, delay the acknowledgement, or cause the legacy retry to duplicate a launch. Each
 accepted connection is parsed on its own thread with a 5 s receive timeout where the platform
 supports one, so a sender that dies mid-frame cannot block later launches or their acknowledgement.
-A secondary tries the frame first and, if no acknowledgement arrives within 2 s, reconnects and
-writes the alpha.2 line. This lets alpha.4 forward to an alpha.2
+Each accepted connection carries an accept-order sequence; the dispatcher delivers messages in that
+order, skips a sequence that does not complete within 2 s, and drops a late result rather than
+delivering it out of order. A secondary tries the frame first and, if no acknowledgement arrives
+within 2 s, reconnects and writes the alpha.2 line. This lets alpha.4 forward to an alpha.2
 primary (line fallback) and to an alpha.3 primary (frame accepted, legacy retry discarded), while
 alpha.2 and alpha.3 secondaries can forward to alpha.4. Windows named pipes expose no receive
 timeout, so the Windows secondary uses the legacy line directly.
