@@ -1,8 +1,8 @@
 # 0024 - Alpha release and crates.io
 
 **Status:** Implemented (2026-11-18 for `v0.1.0-alpha.1`; 2026-11-19 for `v0.1.0-alpha.2`;
-2026-11-20 for `v0.1.0-alpha.3`). All eleven crates are published; final README copy and screenshots
-remain follow-ups.
+2026-11-20 for `v0.1.0-alpha.3` and `v0.1.0-alpha.4`). All eleven crates are published; final README
+copy and screenshots remain follow-ups.
 
 The first public alpha publishes the workspace crates as `0.1.0-alpha.1`. This spec collects the
 release contract that is not owned by an earlier feature spec: versioning, publish order, crate
@@ -137,6 +137,13 @@ ordinary feature PR.
 - The release carries the twenty fixes from #28-#47 and the same-app Tauri/Electron benchmark
   harness.
 - Tag `v0.1.0-alpha.3` points at the release commit.
+
+### Publication (2026-11-20) - `0.1.0-alpha.4`
+
+- Workspace version and internal requirements are `0.1.0-alpha.4`; all eleven crates report it as
+  their maximum published version on crates.io.
+- The release carries the eight follow-up fixes from #49-#56.
+- Tag `v0.1.0-alpha.4` points at the release commit.
 
 ## Open questions
 

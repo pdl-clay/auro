@@ -6,9 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0. Before 1.0, a
 breaking change bumps the minor version; the patch version is for compatible fixes.
 
-**`0.1.0-alpha.3` is published on crates.io.** No stable release has been tagged.
+**`0.1.0-alpha.4` is published on crates.io.** No stable release has been tagged.
 
 ## [Unreleased]
+
+## [0.1.0-alpha.4] - 2026-11-20
 
 ### Fixed
 

@@ -418,6 +418,11 @@ the twenty bug fixes from #28-#47 (single-instance framing, command panic contai
 and autostart escaping, updater preflight/journal ordering, CLI binary/config resolution, and
 config/window validation) plus the same-app Tauri/Electron benchmark harness.
 
+**Alpha.4 published (2026-11-20):** all eleven crates are `0.1.0-alpha.4` on crates.io, carrying
+the eight follow-up fixes from #49-#56 (cross-alpha forwarding, complete updater preflight, typed
+`--config` values, `cargo metadata` binary resolution, XDG autostart, `State` path classification
+and unconstrained schema arguments).
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 
