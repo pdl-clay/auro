@@ -28,6 +28,26 @@ breaking change bumps the minor version; the patch version is for compatible fix
 - `auro-services`: `Tray::set_menu` rejects duplicate item ids (#78).
 - `auro`: `always-on-top = true` is a typed config error under GPUI 0.2; `max-*` and `theme` are
   documented as initial-size/toolkit-owned rather than silently applied (#79).
+- `auro-core`: a sequence is assigned only after a complete message is parsed, so an idle or
+  partial forwarding connection cannot delay the next launch (#81).
+- `auro-core`: forwarding connections are handled by a fixed worker pool with a bounded queue;
+  excess clients are closed instead of spawning an unbounded thread each (#82).
+- `auro-update`: preflight canonicalizes the target before checking that its parent is writable
+  (#83).
+- `auro-services`: a failed deep-link re-registration restores the previous desktop handler
+  instead of deleting it (#84).
+- `auro-services`: deep-link hosts are limited to DNS labels or IPv6 literals, rejecting encoded
+  path separators and traversal components (#85).
+- `auro-services`: Linux autostart replaces a symlinked desktop entry atomically instead of
+  writing through it (#86).
+- `auro-services`: deep-link registration rejects a symlinked desktop entry instead of writing
+  through it (#87).
+- `auro-sign`: `SigningKey::save_to` writes a sibling temporary file and renames it into place, so
+  a symlink at the key path never receives the seed (#88).
+- `auro-core`: the Windows named-pipe listener sets an explicit current-user/SYSTEM/Administrators
+  DACL instead of relying on the process token default (#89).
+- `auro-update`: macOS `.app.zip` extraction enforces a 4 GiB expanded-size and 100,000-entry
+  budget (#90).
 
 ## [0.1.0-alpha.7] - 2026-11-21
 

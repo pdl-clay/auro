@@ -138,7 +138,7 @@ impl Autostart {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::write(path, self.linux.entry()?)?;
+            desktop_entry::write_atomic(&path, &self.linux.entry()?)?;
             Ok(())
         }
         #[cfg(not(target_os = "linux"))]
@@ -434,6 +434,35 @@ mod tests {
             "{text}"
         );
         assert!(!entry.exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn enabling_replaces_a_symlink_without_writing_through_it() {
+        use std::os::unix::fs::symlink;
+
+        let name = unique_name();
+        let path = app_path().expect("path");
+        let autostart =
+            Autostart::new(&name, path.to_string_lossy(), &[] as &[&str]).expect("autostart");
+        let directory = linux_autostart_dir().expect("autostart dir");
+        std::fs::create_dir_all(&directory).expect("autostart dir");
+        let entry = directory.join(format!("{name}.desktop"));
+        let victim_dir = tempdir().expect("tempdir");
+        let victim = victim_dir.path().join("victim");
+        std::fs::write(&victim, b"SAFE").expect("victim");
+        symlink(&victim, &entry).expect("symlink");
+
+        autostart.enable().expect("enable");
+        assert_eq!(std::fs::read(&victim).expect("victim"), b"SAFE");
+        assert!(
+            !std::fs::symlink_metadata(&entry)
+                .expect("entry")
+                .file_type()
+                .is_symlink(),
+            "autostart must replace the link with a regular file"
+        );
+        autostart.disable().expect("disable");
     }
 
     #[cfg(target_os = "linux")]

@@ -2,6 +2,72 @@
 
 //! Desktop Entry escaping shared by deep-link registration and autostart.
 
+#[cfg(target_os = "linux")]
+use std::fs;
+#[cfg(target_os = "linux")]
+use std::io;
+#[cfg(target_os = "linux")]
+use std::path::Path;
+
+/// Writes one desktop entry without following a symlink at `path`.
+///
+/// The entry goes to a sibling temporary file and is renamed into place. A pre-created symlink
+/// is replaced, never followed, so `$XDG_CONFIG_HOME`/`$XDG_DATA_HOME` cannot redirect the write
+/// into an arbitrary user file.
+#[cfg(target_os = "linux")]
+pub(crate) fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "desktop path has no file name")
+    })?;
+    for _ in 0..16 {
+        let temporary = parent.join(format!(
+            ".{}.{}.{}.tmp",
+            name.to_string_lossy(),
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o644)
+            .open(&temporary)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        let written = file
+            .write_all(contents.as_bytes())
+            .and_then(|()| file.sync_all());
+        drop(file);
+        if let Err(error) = written {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        match fs::rename(&temporary, path) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                let _ = fs::remove_file(&temporary);
+                return Err(error);
+            }
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "cannot create a unique desktop-entry temporary file",
+    ))
+}
+
 /// Quotes one `Exec` argument and escapes the characters the Desktop Entry spec reserves.
 ///
 /// The value is always quoted, so spaces and empty arguments survive. `%` becomes `%%` because a

@@ -78,11 +78,12 @@ for a PID. It builds commands from paths and behaves differently per platform.
 A `Prepared` journal may carry an `ApplyKind`, the staged manifest and the app-provided public key.
 `create_for_apply` runs the same preflight while the app is still alive: the apply kind must be
 supported on this host; an AppImage target must be an existing file and a macOS `.app` target an
-existing directory, and the target's parent must be writable (the installer creates a sibling
-backup and temporary file); the artifact must exist, verify against the manifest signature, size and
-SHA-256, and match the kind's format (`.msi`/`.exe`, `.deb`, `.rpm`, `.zip` for `MacApp`, `.pkg`;
-an AppImage has no required extension); the manifest version/platform must match the journal and
-host; a package rollback must match the same kind; and a `.deb`/`.rpm` apply requires
+existing directory, and the target's canonical parent must be writable (the installer resolves
+symlinks and creates its backup and temporary file beside the real target); the artifact must
+exist, verify against the manifest signature, size and SHA-256, and match the kind's format
+(`.msi`/`.exe`, `.deb`, `.rpm`, `.zip` for `MacApp`, `.pkg`; an AppImage has no required extension);
+the manifest version/platform must match the journal and host; a package rollback must match the
+same kind; and a `.deb`/`.rpm` apply requires
 `/usr/bin/pkexec` plus `/usr/bin/dpkg` or `/usr/bin/rpm`. A bad plan is rejected before the process
 handoff; otherwise the helper would reject it after the app exits and never relaunch. The helper
 repeats every check (defense in depth), then records a retained backup for AppImage/macOS, marks

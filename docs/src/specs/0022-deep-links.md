@@ -28,7 +28,8 @@ re-export requires the facade's `services` feature.
 ### D1 - A closed scheme list
 
 `AppLinks::new` takes the accepted schemes. `parse` rejects any other scheme, control characters,
-links over 4096 bytes, empty hosts and `.`/`..` path segments. The app sees only links it asked for.
+links over 4096 bytes, empty hosts, `.`/`..` path segments, and hosts that are not a DNS-style label
+sequence or an IPv6 literal. The app sees only links it asked for.
 `register_scheme` validates the RFC 3986 grammar: the first character is ASCII alphabetic and the
 rest are ASCII alphanumerics or `+`, `-`, `.`. A leading digit and `_` are rejected; `+` is accepted.
 
@@ -44,8 +45,10 @@ rest are ASCII alphanumerics or `+`, `-`, `.`. A leading digit and `_` are rejec
 
 The Linux entry's `Exec` value quotes the executable and escapes it for the Desktop Entry spec:
 `%` -> `%%` (field codes expand even inside quotes), `"`/`\`/`` ` ``/`$` are escaped, and control
-characters (including `\n`) are rejected so a path cannot inject another key. If `xdg-mime` is
-missing or fails, the just-written desktop entry is removed before the error is returned.
+characters (including `\n`) are rejected so a path cannot inject another key. Registration writes
+through a sibling temporary file and rename, so a symlink at the desktop path is rejected rather
+than followed. If `xdg-mime` is missing or fails, a first registration removes the file it wrote and
+a re-registration restores the previous handler instead of deleting it.
 
 *Rejected:* writing machine-wide registry keys or system desktop files. They need elevation and are
 not appropriate for an app-level link.

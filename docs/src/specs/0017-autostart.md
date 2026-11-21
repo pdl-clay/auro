@@ -41,8 +41,10 @@ characters or `.`/`..`), and `app_path` must be absolute and exist (on Linux, a 
 one execute bit). On Linux Auro also writes the desktop entry itself: `$XDG_CONFIG_HOME/autostart` when that variable is an absolute
 path, otherwise `$HOME/.config/autostart`, with the executable and every argument quoted for a
 Desktop Entry `Exec` value (`%` -> `%%`, backslash/quote/backtick/`$` escaping, control characters
-rejected). Without that, a path with spaces split into different arguments, a path with `%f` or a
-newline changed the launched command or injected keys, and `XDG_CONFIG_HOME` was ignored.
+rejected). The entry is written to a sibling temporary file and renamed into place, so a pre-created
+symlink at `<app>.desktop` is replaced rather than followed. Without that, a path with spaces split
+into different arguments, a path with `%f` or a newline changed the launched command or injected
+keys, and `XDG_CONFIG_HOME` was ignored.
 
 macOS and Windows keep delegating to `auto-launch`. *Rejected:* AppleScript login items. They need a
 macOS GUI session and are less deterministic than a Launch Agent. *Rejected:* keeping
