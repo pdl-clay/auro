@@ -1,9 +1,9 @@
 # 0024 - Alpha release and crates.io
 
 **Status:** Implemented (2026-11-18 for `v0.1.0-alpha.1`; 2026-11-19 for `v0.1.0-alpha.2`;
-2026-11-20 for `v0.1.0-alpha.3` and `v0.1.0-alpha.4`; 2026-11-21 for `v0.1.0-alpha.5` and
-`v0.1.0-alpha.6`). All eleven crates are published; final README copy and screenshots remain
-follow-ups.
+2026-11-20 for `v0.1.0-alpha.3` and `v0.1.0-alpha.4`; 2026-11-21 for `v0.1.0-alpha.5`,
+`v0.1.0-alpha.6` and `v0.1.0-alpha.7`). All eleven crates are published; final README copy and
+screenshots remain follow-ups.
 
 The first public alpha publishes the workspace crates as `0.1.0-alpha.1`. This spec collects the
 release contract that is not owned by an earlier feature spec: versioning, publish order, crate
@@ -159,6 +159,13 @@ ordinary feature PR.
   their maximum published version on crates.io.
 - The release carries the two follow-up fixes from #64-#65.
 - Tag `v0.1.0-alpha.6` points at the release commit.
+
+### Publication (2026-11-21) - `0.1.0-alpha.7`
+
+- Workspace version and internal requirements are `0.1.0-alpha.7`; all eleven crates report it as
+  their maximum published version on crates.io.
+- The release carries the two follow-up fixes from #67-#68.
+- Tag `v0.1.0-alpha.7` points at the release commit.
 
 ## Open questions
 
