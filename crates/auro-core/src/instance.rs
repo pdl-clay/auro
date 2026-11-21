@@ -41,9 +41,12 @@ const FORWARD_ACK: u8 = 0x06;
 
 /// How long a secondary waits for the primary's acknowledgement before falling back.
 ///
-/// Generous on purpose: a false timeout makes the secondary send the legacy retry, and a loaded
-/// primary may acknowledge late. The frame is still delivered once when it arrives.
-const ACK_TIMEOUT: Duration = Duration::from_secs(2);
+/// Longer than [`ORDER_PATIENCE`] so a message ordered behind a skipped connection still
+/// receives its acknowledgement before the sender retries.
+const ACK_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// How long a parser waits for the ordered dispatcher to accept or reject its message.
+const DECISION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Upper bound on reading one forwarding connection. A sender that dies mid-frame must not block
 /// the listener forever; platforms without receive timeouts fall back to a connection thread.
@@ -240,23 +243,48 @@ impl AppInstance {
             )
         })?;
         let thread_name = self.name.clone();
-        // A slow app handler must not stall the listener: it would delay the frame
-        // acknowledgement, make the secondary retry with the legacy line, and deliver the same
-        // launch twice. A single worker preserves message order without blocking I/O.
-        let (outcomes, received) = std::sync::mpsc::channel::<(u64, Option<InstanceMessage>)>();
+        // A slow app handler must not stall the listener, and a frame that misses the ordering
+        // window must not be acknowledged and then dropped. The ordered dispatcher owns the
+        // accept/reject decision; only an accepted frame is acknowledged.
+        let (outcomes, received) = std::sync::mpsc::channel::<(u64, ConnectionOutcome)>();
+        let (messages, received_messages) = std::sync::mpsc::channel::<InstanceMessage>();
         let worker = thread::Builder::new()
             .name(format!("auro-instance-handler-{thread_name}"))
-            .spawn(move || dispatch_in_order(received, handler))
+            .spawn(move || {
+                while let Ok(message) = received_messages.recv() {
+                    let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        handler(message);
+                    }));
+                    if dispatched.is_err() {
+                        tracing::error!("instance listener handler panicked");
+                    }
+                }
+            })
             .map_err(|error| {
                 AuroError::instance(
                     &self.name,
                     format!("cannot start the instance handler: {error}"),
                 )
             })?;
+        let dispatcher = thread::Builder::new()
+            .name(format!("auro-instance-order-{thread_name}"))
+            .spawn(move || {
+                dispatch_in_order(received, move |message| {
+                    if messages.send(message).is_err() {
+                        tracing::warn!("instance listener handler is gone");
+                    }
+                });
+            })
+            .map_err(|error| {
+                AuroError::instance(
+                    &self.name,
+                    format!("cannot start the instance dispatcher: {error}"),
+                )
+            })?;
         let thread = thread::Builder::new()
             .name(format!("auro-instance-{thread_name}"))
             .spawn(move || {
-                let mut sequence = 0u64;
+                let sequence = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
                 for connection in listener.incoming() {
                     let stream = match connection {
                         Ok(stream) => stream,
@@ -266,14 +294,13 @@ impl AppInstance {
                         }
                     };
                     // A stalled sender must not block the accept loop. Each connection gets its
-                    // own parser thread; the ordered dispatcher restores accept order before the
-                    // handler, and the read timeout bounds a half-written frame where supported.
+                    // own parser thread, but a sequence is assigned only once the first byte
+                    // arrives; an idle connection has no launch to order.
                     let outcomes = outcomes.clone();
-                    let connection_sequence = sequence;
-                    sequence += 1;
+                    let sequence = std::sync::Arc::clone(&sequence);
                     if let Err(error) = thread::Builder::new()
                         .name("auro-instance-message".to_owned())
-                        .spawn(move || handle_connection(connection_sequence, stream, outcomes))
+                        .spawn(move || handle_connection(sequence, stream, outcomes))
                     {
                         tracing::warn!(%error, "cannot start an instance connection handler");
                     }
@@ -289,39 +316,56 @@ impl AppInstance {
         Ok(InstanceListener {
             _guard: self,
             _thread: thread,
+            _dispatcher: dispatcher,
             _worker: worker,
         })
     }
 }
 
+struct ConnectionOutcome {
+    message: Option<InstanceMessage>,
+    framed: bool,
+    decision: std::sync::mpsc::Sender<bool>,
+}
+
 fn handle_connection(
-    sequence: u64,
+    sequence_counter: std::sync::Arc<std::sync::atomic::AtomicU64>,
     stream: LocalSocketStream,
-    outcomes: std::sync::mpsc::Sender<(u64, Option<InstanceMessage>)>,
+    outcomes: std::sync::mpsc::Sender<(u64, ConnectionOutcome)>,
 ) {
     // Windows named pipes reject receive timeouts; isolation in this thread still keeps the
     // accept loop responsive if a sender stalls.
     let _ = stream.set_recv_timeout(Some(CONNECTION_TIMEOUT));
     let mut reader = BufReader::new(stream);
     let framed = match reader.fill_buf() {
+        Ok([]) => return,
         Ok(bytes) => bytes
             .first()
             .is_some_and(|byte| *byte != b'{' && !byte.is_ascii_whitespace()),
         Err(error) => {
             tracing::warn!(%error, "instance listener read failed");
-            let _ = outcomes.send((sequence, None));
             return;
         }
     };
+    // An idle connection has not sent a byte; it has no launch to order, so it must not consume
+    // a sequence (issue #76).
+    let sequence = sequence_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let message = if framed {
         read_framed(&mut reader)
     } else {
         read_legacy(&mut reader)
     };
+    let (decision, decided) = std::sync::mpsc::channel();
     let acknowledge = framed && message.is_some();
-    if outcomes.send((sequence, message)).is_ok() && acknowledge {
-        // Acknowledge once the message is queued so a slow handler cannot make the secondary
-        // retry and duplicate the launch.
+    let outcome = ConnectionOutcome {
+        message,
+        framed,
+        decision,
+    };
+    if outcomes.send((sequence, outcome)).is_err() {
+        return;
+    }
+    if acknowledge && matches!(decided.recv_timeout(DECISION_TIMEOUT), Ok(true)) {
         let _ = reader.get_mut().write_all(&[FORWARD_ACK]);
     }
 }
@@ -393,21 +437,30 @@ fn read_legacy(reader: &mut BufReader<LocalSocketStream>) -> Option<InstanceMess
 }
 
 fn dispatch_in_order(
-    received: std::sync::mpsc::Receiver<(u64, Option<InstanceMessage>)>,
-    handler: impl Fn(InstanceMessage),
+    received: std::sync::mpsc::Receiver<(u64, ConnectionOutcome)>,
+    dispatch: impl Fn(InstanceMessage),
 ) {
-    let mut pending = std::collections::BTreeMap::new();
+    let mut pending: std::collections::BTreeMap<u64, ConnectionOutcome> =
+        std::collections::BTreeMap::new();
     let mut next = 0u64;
     let mut disconnected = false;
     let mut skip_at: Option<Instant> = None;
     loop {
         while let Some(outcome) = pending.remove(&next) {
-            if let Some(message) = outcome {
-                let dispatched =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(message)));
-                if dispatched.is_err() {
-                    tracing::error!("instance listener handler panicked");
+            match outcome.message {
+                Some(message) if outcome.framed => {
+                    // Acknowledge only after the message is accepted in order. If the parser gave
+                    // up waiting, dropping the message lets the legacy retry be the single
+                    // delivery.
+                    if outcome.decision.send(true).is_ok() {
+                        dispatch(message);
+                    }
                 }
+                Some(message) => dispatch(message),
+                None if outcome.framed => {
+                    let _ = outcome.decision.send(false);
+                }
+                None => {}
             }
             next += 1;
             skip_at = None;
@@ -470,6 +523,11 @@ fn dispatch_in_order(
         if outcome.0 >= next {
             pending.insert(outcome.0, outcome.1);
         } else {
+            // The sequence window already passed: do not acknowledge, so the secondary can use
+            // the legacy fallback. The message itself must not be delivered twice.
+            if outcome.1.framed {
+                let _ = outcome.1.decision.send(false);
+            }
             tracing::warn!(
                 sequence = outcome.0,
                 next,
@@ -483,6 +541,7 @@ fn dispatch_in_order(
 pub struct InstanceListener {
     _guard: AppInstance,
     _thread: JoinHandle<()>,
+    _dispatcher: JoinHandle<()>,
     _worker: JoinHandle<()>,
 }
 
@@ -931,10 +990,28 @@ mod tests {
 
         let first = InstanceMessage::new(vec!["first".to_owned()], "/tmp");
         let second = InstanceMessage::new(vec!["second".to_owned()], "/tmp");
+        let (decision1, acknowledged1) = mpsc::channel();
+        let (decision0, acknowledged0) = mpsc::channel();
         outcomes
-            .send((1, Some(second.clone())))
+            .send((
+                1,
+                ConnectionOutcome {
+                    message: Some(second.clone()),
+                    framed: true,
+                    decision: decision1,
+                },
+            ))
             .expect("send second");
-        outcomes.send((0, Some(first.clone()))).expect("send first");
+        outcomes
+            .send((
+                0,
+                ConnectionOutcome {
+                    message: Some(first.clone()),
+                    framed: true,
+                    decision: decision0,
+                },
+            ))
+            .expect("send first");
         drop(outcomes);
 
         assert_eq!(
@@ -947,7 +1024,97 @@ mod tests {
                 .expect("second"),
             second
         );
+        assert_eq!(acknowledged0.recv_timeout(Duration::from_secs(1)), Ok(true));
+        assert_eq!(acknowledged1.recv_timeout(Duration::from_secs(1)), Ok(true));
         worker.join().expect("dispatcher");
+    }
+
+    #[test]
+    fn a_frame_that_misses_the_order_window_is_not_acknowledged() {
+        let (outcomes, received) = mpsc::channel();
+        let (seen_tx, seen_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            dispatch_in_order(received, move |message| {
+                let _ = seen_tx.send(message);
+            });
+        });
+
+        let first = InstanceMessage::new(vec!["first".to_owned()], "/tmp");
+        let second = InstanceMessage::new(vec!["second".to_owned()], "/tmp");
+        let (decision1, acknowledged1) = mpsc::channel();
+        outcomes
+            .send((
+                1,
+                ConnectionOutcome {
+                    message: Some(second.clone()),
+                    framed: true,
+                    decision: decision1,
+                },
+            ))
+            .expect("send second");
+
+        // Sequence 0 is missing; the dispatcher skips it after ORDER_PATIENCE and accepts 1.
+        assert_eq!(
+            seen_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("second"),
+            second
+        );
+        assert_eq!(acknowledged1.recv_timeout(Duration::from_secs(1)), Ok(true));
+
+        let (decision0, acknowledged0) = mpsc::channel();
+        outcomes
+            .send((
+                0,
+                ConnectionOutcome {
+                    message: Some(first),
+                    framed: true,
+                    decision: decision0,
+                },
+            ))
+            .expect("send late first");
+        assert_eq!(
+            acknowledged0.recv_timeout(Duration::from_secs(1)),
+            Ok(false),
+            "a frame outside the ordering window must not be acknowledged"
+        );
+        assert!(
+            seen_rx.recv_timeout(Duration::from_millis(200)).is_err(),
+            "the late frame must not be delivered"
+        );
+        drop(outcomes);
+        worker.join().expect("dispatcher");
+    }
+
+    #[test]
+    fn an_idle_connection_does_not_delay_a_later_launch() {
+        let name = unique_name();
+        let (tx, rx) = mpsc::channel();
+        let primary = AppInstance::acquire(&name).expect("primary");
+        let _listener = primary
+            .listen(move |message| {
+                let _ = tx.send(message);
+            })
+            .expect("listener");
+
+        // Connect and send nothing: there is no launch to order, so it gets no sequence.
+        let _idle = LocalSocketStream::connect(socket_name(&name).expect("name"))
+            .expect("connect idle client");
+        std::thread::sleep(Duration::from_millis(100));
+
+        let secondary = AppInstance::acquire(&name).expect("secondary");
+        let message = InstanceMessage::new(vec!["later".to_owned()], "/tmp");
+        let started = std::time::Instant::now();
+        secondary.forward(&message).expect("forward");
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).expect("message"),
+            message
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(1500),
+            "an idle connection delayed the launch by {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]

@@ -14,6 +14,22 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ### Fixed
 
+- `auro-core`: a frame outside the ordering window is no longer acknowledged; the dispatcher owns
+  the ack decision, so the sender falls back and the launch arrives exactly once (#70).
+- `auro-cli`: `binary_name` understands `-F`, `-F<value>`, `-F=<value>` and workspace-qualified
+  `package/feature` names in `[dev].build-args` (#71).
+- `auro-update`: preflight rejects an AppImage/macOS target whose parent directory is not writable
+  (#72).
+- `auro-cli`: `auro dev` errors on a missing `[dev].watch` path before building or spawning instead
+  of silently watching nothing (#73).
+- `auro-services`: Linux autostart requires an executable `app_path` (#74).
+- `auro-services`: a failed `xdg-mime` registration removes the desktop entry it just wrote (#75).
+- `auro-core`: an idle forwarding connection gets no ordering sequence and no longer delays the
+  next launch by the 2 s patience window (#76).
+- `auro-core`: duplicate `bundle.targets` are rejected during config validation (#77).
+- `auro-services`: `Tray::set_menu` rejects duplicate item ids (#78).
+- `auro`: `always-on-top = true` is a typed config error under GPUI 0.2; `max-*` and `theme` are
+  documented as initial-size/toolkit-owned rather than silently applied (#79).
 - `auro-core`: forwarding connections are parsed concurrently but dispatched in accept order; an
   earlier slow/stalled connection is skipped after 2 s and a late result is dropped, so launches
   cannot overtake each other (#67).

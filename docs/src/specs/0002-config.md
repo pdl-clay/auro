@@ -80,22 +80,22 @@ It is never read at runtime and never affects behaviour.
 | `height` | integer | `640` | logical pixels |
 | `min-width` | integer | none | |
 | `min-height` | integer | none | |
-| `max-width` | integer | none | |
-| `max-height` | integer | none | |
+| `max-width` | integer | none | constrains the initial size; GPUI 0.2 does not enforce a runtime maximum |
+| `max-height` | integer | none | constrains the initial size; GPUI 0.2 does not enforce a runtime maximum |
 | `resizable` | bool | `true` | |
 | `decorations` | bool | `true` | |
 | `transparent` | bool | `false` | |
-| `always-on-top` | bool | `false` | |
+| `always-on-top` | bool | `false` | rejected by validation: GPUI 0.2 cannot express it |
 | `visible` | bool | `true` | |
 | `center` | bool | `true` | |
 | `fullscreen` | bool | `false` | |
-| `theme` | `"light"` \| `"dark"` \| `"system"` | `"system"` | |
+| `theme` | `"light"` \| `"dark"` \| `"system"` | `"system"` | available to `App::setup`; the chosen toolkit applies it, Auro does not |
 
 ### `[dev]`
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `watch` | array of string | `["src", "Auro.toml"]` | paths relative to the app dir |
+| `watch` | array of string | `["src", "Auro.toml"]` | paths relative to the app dir; `auro dev` errors if one does not exist instead of silently watching nothing |
 | `run-args` | array of string | `[]` | passed to the spawned binary in relaunch mode; `dx` owns the process in hot mode and `auro dev` prints a note |
 | `build-args` | array of string | `[]` | passed to `cargo build` |
 | `hot` | bool | `false` | run `dx serve --hot-patch` instead of rebuild-and-relaunch; needs `dx` (dioxus-cli 0.7.x) on `PATH` or `AURO_DX`, plus the app's `hot-reload` feature. `auro dev` refuses with the missing feature named, and `auro doctor` reports availability. Patches are applied by `dx`, so `run-args` are not forwarded, target-dir builds belong to dx, and only code reached through `auro::hot::hot`/`hot_with` reloads in-process. The generated layout puts the boundary in `data/src` and reports it through `hot_frame`/`rendered`; edits outside `data/src` are host code and restart the devserver/app with the snapshot restored |
@@ -163,7 +163,8 @@ Failures are `AuroError::Config { path, key, message }` and abort before a windo
    escaping the app directory: error.
 7. Window `width`/`height` must be greater than zero; a set `min-width`/`min-height`/
    `max-width`/`max-height` must be greater than zero, a minimum must not exceed its maximum, and
-   the initial size must lie inside the configured bounds.
+   the initial size must lie inside the configured bounds. `always-on-top = true` is a config
+   error under GPUI 0.2 because the renderer cannot express it.
 8. A window declared in `app.windows` without a matching `App::root`/`App::root_with` is a typed
    `AuroError::Window` before the event loop starts, not a headless process.
 

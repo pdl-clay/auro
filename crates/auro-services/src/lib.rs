@@ -194,11 +194,25 @@ fn validate_app_path(app_path: &str) -> Result<(), AutostartError> {
         });
     }
     #[cfg(target_os = "linux")]
-    if !path.is_file() {
-        return Err(AutostartError::Invalid {
-            field: "app_path",
-            message: format!("`{app_path}` is not a file"),
-        });
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        if !path.is_file() {
+            return Err(AutostartError::Invalid {
+                field: "app_path",
+                message: format!("`{app_path}` is not a file"),
+            });
+        }
+        let executable = path
+            .metadata()
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false);
+        if !executable {
+            return Err(AutostartError::Invalid {
+                field: "app_path",
+                message: format!("`{app_path}` is not executable"),
+            });
+        }
     }
     Ok(())
 }
@@ -298,6 +312,12 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("auro-autostart-test");
         std::fs::write(&path, b"placeholder").expect("write");
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .expect("executable mode");
+        }
         // `tempdir` removes itself on drop; the app only has to exist for `enable`.
         std::mem::forget(dir);
         Ok(path)
@@ -362,11 +382,39 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn rejects_a_non_executable_app_path() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempdir().expect("tempdir");
+        let app = directory.path().join("not-executable");
+        std::fs::write(&app, b"placeholder").expect("app");
+        std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o644)).expect("mode");
+        let error = Autostart::new(unique_name(), app.to_string_lossy(), &[] as &[&str])
+            .expect_err("app_path must be executable");
+        assert!(
+            matches!(
+                error,
+                AutostartError::Invalid {
+                    field: "app_path",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn linux_entry_quotes_paths_and_arguments_with_spaces() {
         let name = unique_name();
         let directory = tempdir().expect("tempdir");
         let app = directory.path().join("my app");
         std::fs::write(&app, b"placeholder").expect("app");
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o755))
+                .expect("executable mode");
+        }
         let autostart = Autostart::new(
             &name,
             app.to_string_lossy().into_owned(),

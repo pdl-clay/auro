@@ -228,7 +228,11 @@ pub fn binary_name_with_args(dir: &Path, build_args: &[String]) -> Result<String
             )
         })?;
 
-    let enabled = enabled_features(package["features"].as_object(), build_args);
+    let enabled = enabled_features(
+        package["name"].as_str().unwrap_or_default(),
+        package["features"].as_object(),
+        build_args,
+    );
     let bins: Vec<(&str, Vec<&str>)> = package["targets"]
         .as_array()
         .into_iter()
@@ -362,13 +366,17 @@ fn parse_feature_args(build_args: &[String]) -> (bool, bool, Vec<String>) {
         match argument.as_str() {
             "--all-features" => all = true,
             "--no-default-features" => no_default = true,
-            "--features" => {
+            "--features" | "-F" => {
                 if let Some(value) = arguments.next() {
                     requested.extend(split_features(value));
                 }
             }
             _ => {
-                if let Some(value) = argument.strip_prefix("--features=") {
+                if let Some(value) = argument
+                    .strip_prefix("--features=")
+                    .or_else(|| argument.strip_prefix("-F"))
+                {
+                    let value = value.strip_prefix('=').unwrap_or(value);
                     requested.extend(split_features(value));
                 }
             }
@@ -386,12 +394,16 @@ fn split_features(value: &str) -> Vec<String> {
 }
 
 fn enabled_features(
+    package_name: &str,
     features: Option<&serde_json::Map<String, serde_json::Value>>,
     build_args: &[String],
 ) -> HashSet<String> {
     let (all, no_default, requested) = parse_feature_args(build_args);
     let mut enabled = HashSet::new();
-    let mut pending = requested;
+    let mut pending: Vec<String> = requested
+        .iter()
+        .filter_map(|feature| local_feature(feature, package_name))
+        .collect();
     if !no_default {
         pending.push("default".to_owned());
     }
@@ -407,13 +419,27 @@ fn enabled_features(
             .and_then(serde_json::Value::as_array)
         {
             for member in members.iter().filter_map(serde_json::Value::as_str) {
-                if !member.contains('/') && !member.starts_with("dep:") {
-                    pending.push(member.to_owned());
+                if let Some(member) = local_feature(member, package_name) {
+                    pending.push(member);
                 }
             }
         }
     }
     enabled
+}
+
+/// Maps a Cargo feature token to a local feature, dropping dependency features.
+///
+/// `app/tool` names the local `tool` feature when `app` is the selected package; `dep/feature`
+/// on another package is not a local feature. `dep:foo` enables a dependency, not a feature.
+fn local_feature(token: &str, package_name: &str) -> Option<String> {
+    if let Some((owner, feature)) = token.split_once('/') {
+        (owner == package_name).then(|| feature.to_owned())
+    } else if token.starts_with("dep:") {
+        None
+    } else {
+        Some(token.to_owned())
+    }
 }
 
 /// Loads `Auro.toml` and rejects a version that disagrees with the manifest (spec 0002).
@@ -1003,6 +1029,26 @@ required-features = ["tool"]
             binary_name_with_args(temp.path(), &["--all-features".to_owned()])
                 .expect("all features"),
             "tool"
+        );
+        for args in [
+            vec!["-F".to_owned(), "tool".to_owned()],
+            vec!["-Ftool".to_owned()],
+            vec!["-F=tool".to_owned()],
+            vec!["--features".to_owned(), "gated/tool".to_owned()],
+        ] {
+            assert_eq!(
+                binary_name_with_args(temp.path(), &args).expect("feature alias"),
+                "tool",
+                "{args:?}"
+            );
+        }
+        assert!(
+            binary_name_with_args(
+                temp.path(),
+                &["--features".to_owned(), "other-package/tool".to_owned()]
+            )
+            .is_err(),
+            "a dependency feature must not enable a local required-feature"
         );
     }
 

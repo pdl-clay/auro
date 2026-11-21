@@ -383,6 +383,13 @@ impl Config {
                     format!("duplicate window label `{}`", window.label),
                 ));
             }
+            if window.always_on_top {
+                return Err(AuroError::config(
+                    path,
+                    Some(&format!("app.windows.{}.always-on-top", window.label)),
+                    "not supported by GPUI 0.2; remove the key or upgrade the renderer",
+                ));
+            }
             validate_window_dimensions(path, window)?;
         }
 
@@ -443,8 +450,16 @@ impl Config {
                     "must contain at least one package format; use \"all\" or list the formats",
                 ));
             }
+            let mut seen = BTreeSet::new();
             let host = host_bundle_targets();
             for target in targets {
+                if !seen.insert(target) {
+                    return Err(AuroError::config(
+                        path,
+                        Some("bundle.targets"),
+                        format!("duplicate package format `{target}`"),
+                    ));
+                }
                 if !BUNDLE_TARGETS.contains(&target.as_str()) {
                     return Err(AuroError::config(
                         path,
@@ -764,6 +779,14 @@ width = 320
     }
 
     #[test]
+    fn rejects_always_on_top_until_the_renderer_supports_it() {
+        let text = format!("{MINIMAL}\nalways-on-top = true\n");
+        let error = parse(&text).expect_err("unsupported always-on-top");
+        assert!(error.to_string().contains("always-on-top"), "{error}");
+        assert!(error.to_string().contains("not supported"), "{error}");
+    }
+
+    #[test]
     fn rejects_an_initial_size_outside_its_own_bounds() {
         let too_wide = format!("{MINIMAL}\nwidth = 500\nmax-width = 320\n");
         let error = parse(&too_wide).expect_err("width above max-width");
@@ -875,6 +898,17 @@ label = "main"
     }
 
     #[test]
+    fn rejects_a_duplicate_bundle_target() {
+        let host = host_bundle_targets()
+            .first()
+            .expect("supported hosts have at least one bundle target");
+        let text = format!("{MINIMAL}\n[bundle]\ntargets = [\"{host}\", \"{host}\"]\n");
+        let error = parse(&text).expect_err("duplicate target");
+        assert!(error.to_string().contains("duplicate"), "{error}");
+        assert!(error.to_string().contains(host), "{error}");
+    }
+
+    #[test]
     fn rejects_an_empty_bundle_target_list() {
         let text = format!("{MINIMAL}\n[bundle]\ntargets = []\n");
         let error = parse(&text).expect_err("empty target list");
@@ -924,7 +958,7 @@ max-height = 1200
 resizable = false
 decorations = false
 transparent = true
-always-on-top = true
+always-on-top = false
 visible = false
 center = false
 fullscreen = true

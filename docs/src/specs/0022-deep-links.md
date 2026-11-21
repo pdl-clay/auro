@@ -44,7 +44,8 @@ rest are ASCII alphanumerics or `+`, `-`, `.`. A leading digit and `_` are rejec
 
 The Linux entry's `Exec` value quotes the executable and escapes it for the Desktop Entry spec:
 `%` -> `%%` (field codes expand even inside quotes), `"`/`\`/`` ` ``/`$` are escaped, and control
-characters (including `\n`) are rejected so a path cannot inject another key.
+characters (including `\n`) are rejected so a path cannot inject another key. If `xdg-mime` is
+missing or fails, the just-written desktop entry is removed before the error is returned.
 
 *Rejected:* writing machine-wide registry keys or system desktop files. They need elevation and are
 not appropriate for an app-level link.

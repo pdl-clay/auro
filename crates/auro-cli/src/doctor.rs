@@ -101,13 +101,7 @@ fn unhonored(config: &Config) -> Vec<String> {
     for window in &config.app.windows {
         if window.max_width.is_some() || window.max_height.is_some() {
             notes.push(format!(
-                "app.windows.{}.max-width/max-height: accepted, not honored by GPUI 0.2",
-                window.label
-            ));
-        }
-        if window.always_on_top {
-            notes.push(format!(
-                "app.windows.{}.always-on-top: accepted, not honored by GPUI 0.2",
+                "app.windows.{}.max-width/max-height: constrains the initial size only; GPUI 0.2 does not enforce runtime limits",
                 window.label
             ));
         }

@@ -244,18 +244,37 @@ fn register_linux(scheme: &str, executable: &std::path::Path) -> Result<(), Deep
     std::fs::write(&desktop_path, entry)
         .map_err(|error| DeepLinkError::Register(error.to_string()))?;
 
-    let output = std::process::Command::new("xdg-mime")
+    finish_linux_registration(
+        &desktop_path,
+        &desktop_name,
+        scheme,
+        std::path::Path::new("xdg-mime"),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn finish_linux_registration(
+    desktop_path: &std::path::Path,
+    desktop_name: &str,
+    scheme: &str,
+    program: &std::path::Path,
+) -> Result<(), DeepLinkError> {
+    let fail = |error: DeepLinkError| {
+        let _ = std::fs::remove_file(desktop_path);
+        error
+    };
+    let output = std::process::Command::new(program)
         .args([
             "default",
-            &desktop_name,
+            desktop_name,
             &format!("x-scheme-handler/{scheme}"),
         ])
         .output()
-        .map_err(|error| DeepLinkError::Register(error.to_string()))?;
+        .map_err(|error| fail(DeepLinkError::Register(error.to_string())))?;
     if !output.status.success() {
-        return Err(DeepLinkError::Register(
+        return Err(fail(DeepLinkError::Register(
             String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        ));
+        )));
     }
     Ok(())
 }
@@ -339,6 +358,26 @@ mod tests {
 
         assert!(
             linux_desktop_entry("probe", std::path::Path::new("/opt/evil\nHidden=true")).is_err()
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn failed_xdg_mime_removes_the_desktop_entry() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let desktop = temp.path().join("auro-probe.desktop");
+        std::fs::write(&desktop, b"[Desktop Entry]\n").expect("desktop");
+        let error = finish_linux_registration(
+            &desktop,
+            "auro-probe.desktop",
+            "probe",
+            std::path::Path::new("/definitely/missing/xdg-mime"),
+        )
+        .expect_err("missing xdg-mime");
+        assert!(matches!(error, DeepLinkError::Register(_)));
+        assert!(
+            !desktop.exists(),
+            "a failed registration must not leave a handler"
         );
     }
 }
