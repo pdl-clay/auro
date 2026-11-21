@@ -10,6 +10,14 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Fixed
+
+- `auro-core`: forwarding connections are parsed concurrently but dispatched in accept order; an
+  earlier slow/stalled connection is skipped after 2 s and a late result is dropped, so launches
+  cannot overtake each other (#67).
+- `auro-cli`: `binary_name` honors an explicit `--bin`/`--bin=<name>` in `[dev].build-args`,
+  overriding `default-run`; multiple `--bin` values are rejected with a clear error (#68).
+
 ## [0.1.0-alpha.6] - 2026-11-21
 
 ### Fixed

@@ -255,6 +255,27 @@ pub fn binary_name_with_args(dir: &Path, build_args: &[String]) -> Result<String
         .map(|(name, _)| *name)
         .collect();
 
+    if let Some(requested_bin) = parse_bin_args(build_args)? {
+        if let Some((_, required)) = bins.iter().find(|(name, _)| *name == requested_bin) {
+            if !required.iter().all(|feature| enabled.contains(*feature)) {
+                return Err(AuroError::config(
+                    &manifest,
+                    None,
+                    format!(
+                        "--bin `{requested_bin}` requires feature(s) {}; enable them in [dev].build-args",
+                        required.join(", ")
+                    ),
+                ));
+            }
+            return Ok(requested_bin);
+        }
+        return Err(AuroError::config(
+            &manifest,
+            None,
+            format!("--bin `{requested_bin}` is not a binary target of this package"),
+        ));
+    }
+
     if let Some(default_run) = package["default_run"].as_str() {
         if enabled_bins.contains(&default_run) {
             return Ok(default_run.to_owned());
@@ -301,6 +322,34 @@ pub fn binary_name_with_args(dir: &Path, build_args: &[String]) -> Result<String
                 several.join(", ")
             ),
         )),
+    }
+}
+
+fn parse_bin_args(build_args: &[String]) -> Result<Option<String>, AuroError> {
+    let mut bins = Vec::new();
+    let mut arguments = build_args.iter();
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--bin" => {
+                let value = arguments.next().ok_or_else(|| {
+                    AuroError::Message("--bin in [dev].build-args needs a target name".to_owned())
+                })?;
+                bins.push(value.clone());
+            }
+            _ => {
+                if let Some(value) = argument.strip_prefix("--bin=") {
+                    bins.push(value.to_owned());
+                }
+            }
+        }
+    }
+    match bins.len() {
+        0 => Ok(None),
+        1 => Ok(bins.pop()),
+        _ => Err(AuroError::Message(format!(
+            "[dev].build-args selects multiple binaries ({}); auro dev runs one",
+            bins.join(", ")
+        ))),
     }
 }
 
@@ -868,6 +917,55 @@ required-features = ["tool"]
         assert!(error.to_string().contains("rf-app"), "{error}");
         assert!(error.to_string().contains("tool"), "{error}");
         assert!(!error.to_string().contains("required-features"), "{error}");
+    }
+
+    #[test]
+    fn an_explicit_bin_build_arg_selects_the_target() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "two-bins"
+version = "0.1.0"
+edition = "2024"
+default-run = "one"
+
+[[bin]]
+name = "one"
+path = "src/one.rs"
+
+[[bin]]
+name = "two"
+path = "src/two.rs"
+"#,
+        )
+        .expect("manifest");
+        write_source(temp.path(), "src/one.rs");
+        write_source(temp.path(), "src/two.rs");
+
+        assert_eq!(binary_name(temp.path()).expect("default-run"), "one");
+        assert_eq!(
+            binary_name_with_args(temp.path(), &["--bin".to_owned(), "two".to_owned()])
+                .expect("explicit bin"),
+            "two"
+        );
+        assert_eq!(
+            binary_name_with_args(temp.path(), &["--bin=two".to_owned()]).expect("inline bin"),
+            "two"
+        );
+        assert!(
+            binary_name_with_args(
+                temp.path(),
+                &[
+                    "--bin".to_owned(),
+                    "one".to_owned(),
+                    "--bin".to_owned(),
+                    "two".to_owned()
+                ]
+            )
+            .is_err()
+        );
     }
 
     #[test]

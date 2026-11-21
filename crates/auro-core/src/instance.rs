@@ -13,7 +13,7 @@ use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use interprocess::local_socket::GenericFilePath;
@@ -48,6 +48,13 @@ const ACK_TIMEOUT: Duration = Duration::from_secs(2);
 /// Upper bound on reading one forwarding connection. A sender that dies mid-frame must not block
 /// the listener forever; platforms without receive timeouts fall back to a connection thread.
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long the ordered dispatcher waits for an earlier connection before skipping it.
+///
+/// Connections are parsed concurrently so a stalled sender cannot block the listener, but their
+/// messages are delivered in accept order. A parser that does not finish within this window is
+/// treated as failed; a late message is dropped rather than delivered out of order.
+const ORDER_PATIENCE: Duration = Duration::from_secs(2);
 
 /// The message a secondary instance sends to the primary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -236,19 +243,10 @@ impl AppInstance {
         // A slow app handler must not stall the listener: it would delay the frame
         // acknowledgement, make the secondary retry with the legacy line, and deliver the same
         // launch twice. A single worker preserves message order without blocking I/O.
-        let (messages, received) = std::sync::mpsc::channel::<InstanceMessage>();
+        let (outcomes, received) = std::sync::mpsc::channel::<(u64, Option<InstanceMessage>)>();
         let worker = thread::Builder::new()
             .name(format!("auro-instance-handler-{thread_name}"))
-            .spawn(move || {
-                while let Ok(message) = received.recv() {
-                    let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        handler(message);
-                    }));
-                    if dispatched.is_err() {
-                        tracing::error!("instance listener handler panicked");
-                    }
-                }
-            })
+            .spawn(move || dispatch_in_order(received, handler))
             .map_err(|error| {
                 AuroError::instance(
                     &self.name,
@@ -258,6 +256,7 @@ impl AppInstance {
         let thread = thread::Builder::new()
             .name(format!("auro-instance-{thread_name}"))
             .spawn(move || {
+                let mut sequence = 0u64;
                 for connection in listener.incoming() {
                     let stream = match connection {
                         Ok(stream) => stream,
@@ -267,12 +266,14 @@ impl AppInstance {
                         }
                     };
                     // A stalled sender must not block the accept loop. Each connection gets its
-                    // own parser thread; the handler still receives messages through the single
-                    // worker, and the read timeout bounds a half-written frame where supported.
-                    let messages = messages.clone();
+                    // own parser thread; the ordered dispatcher restores accept order before the
+                    // handler, and the read timeout bounds a half-written frame where supported.
+                    let outcomes = outcomes.clone();
+                    let connection_sequence = sequence;
+                    sequence += 1;
                     if let Err(error) = thread::Builder::new()
                         .name("auro-instance-message".to_owned())
-                        .spawn(move || handle_connection(stream, messages))
+                        .spawn(move || handle_connection(connection_sequence, stream, outcomes))
                     {
                         tracing::warn!(%error, "cannot start an instance connection handler");
                     }
@@ -294,8 +295,9 @@ impl AppInstance {
 }
 
 fn handle_connection(
+    sequence: u64,
     stream: LocalSocketStream,
-    messages: std::sync::mpsc::Sender<InstanceMessage>,
+    outcomes: std::sync::mpsc::Sender<(u64, Option<InstanceMessage>)>,
 ) {
     // Windows named pipes reject receive timeouts; isolation in this thread still keeps the
     // accept loop responsive if a sender stalls.
@@ -307,81 +309,172 @@ fn handle_connection(
             .is_some_and(|byte| *byte != b'{' && !byte.is_ascii_whitespace()),
         Err(error) => {
             tracing::warn!(%error, "instance listener read failed");
+            let _ = outcomes.send((sequence, None));
             return;
         }
     };
-
-    if framed {
-        let mut header = [0u8; LENGTH_PREFIX_BYTES];
-        match reader.read_exact(&mut header) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return,
-            Err(error) => {
-                tracing::warn!(%error, "instance listener read failed");
-                return;
-            }
-        }
-        let length = u64::from_be_bytes(header);
-        if length > MAX_MESSAGE_BYTES {
-            tracing::warn!(
-                length,
-                limit = MAX_MESSAGE_BYTES,
-                "instance listener rejected an oversized message"
-            );
-            return;
-        }
-        let mut payload = vec![0u8; length as usize];
-        if let Err(error) = reader.read_exact(&mut payload) {
-            tracing::warn!(%error, "instance listener read failed");
-            return;
-        }
-        match serde_json::from_slice::<InstanceMessage>(&payload) {
-            Ok(message) => {
-                if messages.send(message).is_ok() {
-                    // Acknowledge once the message is queued so a slow handler cannot make the
-                    // secondary retry and duplicate the launch.
-                    let _ = reader.get_mut().write_all(&[FORWARD_ACK]);
-                } else {
-                    tracing::warn!("instance listener handler is gone");
-                }
-            }
-            Err(error) => {
-                tracing::warn!(%error, "instance listener received invalid JSON");
-            }
-        }
+    let message = if framed {
+        read_framed(&mut reader)
     } else {
-        // alpha.2 and earlier wrote one JSON line, with no length prefix.
-        let mut line = String::new();
-        match reader
-            .by_ref()
-            .take(MAX_MESSAGE_BYTES + 1)
-            .read_line(&mut line)
-        {
-            Ok(0) => return,
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return,
-            Err(error) => {
-                tracing::warn!(%error, "instance listener read failed");
-                return;
-            }
+        read_legacy(&mut reader)
+    };
+    let acknowledge = framed && message.is_some();
+    if outcomes.send((sequence, message)).is_ok() && acknowledge {
+        // Acknowledge once the message is queued so a slow handler cannot make the secondary
+        // retry and duplicate the launch.
+        let _ = reader.get_mut().write_all(&[FORWARD_ACK]);
+    }
+}
+
+fn read_framed(reader: &mut BufReader<LocalSocketStream>) -> Option<InstanceMessage> {
+    let mut header = [0u8; LENGTH_PREFIX_BYTES];
+    match reader.read_exact(&mut header) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return None,
+        Err(error) => {
+            tracing::warn!(%error, "instance listener read failed");
+            return None;
         }
-        if line.len() as u64 > MAX_MESSAGE_BYTES {
-            tracing::warn!(
-                length = line.len(),
-                limit = MAX_MESSAGE_BYTES,
-                "instance listener rejected an oversized message"
-            );
-            return;
+    }
+    let length = u64::from_be_bytes(header);
+    if length > MAX_MESSAGE_BYTES {
+        tracing::warn!(
+            length,
+            limit = MAX_MESSAGE_BYTES,
+            "instance listener rejected an oversized message"
+        );
+        return None;
+    }
+    let mut payload = vec![0u8; length as usize];
+    if let Err(error) = reader.read_exact(&mut payload) {
+        tracing::warn!(%error, "instance listener read failed");
+        return None;
+    }
+    match serde_json::from_slice::<InstanceMessage>(&payload) {
+        Ok(message) => Some(message),
+        Err(error) => {
+            tracing::warn!(%error, "instance listener received invalid JSON");
+            None
         }
-        match serde_json::from_str::<InstanceMessage>(line.trim()) {
-            Ok(message) => {
-                if messages.send(message).is_err() {
-                    tracing::warn!("instance listener handler is gone");
+    }
+}
+
+fn read_legacy(reader: &mut BufReader<LocalSocketStream>) -> Option<InstanceMessage> {
+    // alpha.2 and earlier wrote one JSON line, with no length prefix.
+    let mut line = String::new();
+    match reader
+        .by_ref()
+        .take(MAX_MESSAGE_BYTES + 1)
+        .read_line(&mut line)
+    {
+        Ok(0) => return None,
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return None,
+        Err(error) => {
+            tracing::warn!(%error, "instance listener read failed");
+            return None;
+        }
+    }
+    if line.len() as u64 > MAX_MESSAGE_BYTES {
+        tracing::warn!(
+            length = line.len(),
+            limit = MAX_MESSAGE_BYTES,
+            "instance listener rejected an oversized message"
+        );
+        return None;
+    }
+    match serde_json::from_str::<InstanceMessage>(line.trim()) {
+        Ok(message) => Some(message),
+        Err(error) => {
+            tracing::warn!(%error, "instance listener received invalid JSON");
+            None
+        }
+    }
+}
+
+fn dispatch_in_order(
+    received: std::sync::mpsc::Receiver<(u64, Option<InstanceMessage>)>,
+    handler: impl Fn(InstanceMessage),
+) {
+    let mut pending = std::collections::BTreeMap::new();
+    let mut next = 0u64;
+    let mut disconnected = false;
+    let mut skip_at: Option<Instant> = None;
+    loop {
+        while let Some(outcome) = pending.remove(&next) {
+            if let Some(message) = outcome {
+                let dispatched =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(message)));
+                if dispatched.is_err() {
+                    tracing::error!("instance listener handler panicked");
                 }
             }
-            Err(error) => {
-                tracing::warn!(%error, "instance listener received invalid JSON");
+            next += 1;
+            skip_at = None;
+        }
+        if disconnected {
+            if pending.is_empty() {
+                break;
             }
+            next = *pending.keys().next().expect("pending is not empty");
+            skip_at = None;
+            continue;
+        }
+
+        if pending.is_empty() {
+            skip_at = None;
+        } else if skip_at.is_none() {
+            skip_at = Some(Instant::now() + ORDER_PATIENCE);
+        }
+        if let Some(deadline) = skip_at
+            && Instant::now() >= deadline
+            && let Some(smallest) = pending.keys().next().copied()
+        {
+            tracing::warn!(
+                expected = next,
+                found = smallest,
+                "instance listener skipped a missing connection"
+            );
+            next = smallest;
+            skip_at = None;
+            continue;
+        }
+        let wait = skip_at.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+        let outcome = match wait {
+            Some(wait) => match received.recv_timeout(wait) {
+                Ok(outcome) => outcome,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if let Some(smallest) = pending.keys().next().copied() {
+                        tracing::warn!(
+                            expected = next,
+                            found = smallest,
+                            "instance listener skipped a missing connection"
+                        );
+                        next = smallest;
+                    }
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    disconnected = true;
+                    continue;
+                }
+            },
+            None => match received.recv() {
+                Ok(outcome) => outcome,
+                Err(_) => {
+                    disconnected = true;
+                    continue;
+                }
+            },
+        };
+        if outcome.0 >= next {
+            pending.insert(outcome.0, outcome.1);
+        } else {
+            tracing::warn!(
+                sequence = outcome.0,
+                next,
+                "instance listener dropped a late connection"
+            );
         }
     }
 }
@@ -824,6 +917,37 @@ mod tests {
         );
         assert!(seen.contains(&first));
         assert!(seen.contains(&second));
+    }
+
+    #[test]
+    fn dispatches_messages_in_connection_order() {
+        let (outcomes, received) = mpsc::channel();
+        let (seen_tx, seen_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            dispatch_in_order(received, move |message| {
+                let _ = seen_tx.send(message);
+            });
+        });
+
+        let first = InstanceMessage::new(vec!["first".to_owned()], "/tmp");
+        let second = InstanceMessage::new(vec!["second".to_owned()], "/tmp");
+        outcomes
+            .send((1, Some(second.clone())))
+            .expect("send second");
+        outcomes.send((0, Some(first.clone()))).expect("send first");
+        drop(outcomes);
+
+        assert_eq!(
+            seen_rx.recv_timeout(Duration::from_secs(5)).expect("first"),
+            first
+        );
+        assert_eq!(
+            seen_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("second"),
+            second
+        );
+        worker.join().expect("dispatcher");
     }
 
     #[test]
