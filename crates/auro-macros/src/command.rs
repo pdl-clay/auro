@@ -198,7 +198,9 @@ fn state_inner(ty: &Type) -> Option<&Type> {
     }
     let is_auro_state = segments.len() == 1
         || (segments.len() == 2 && segments[0].ident == "auro")
-        || (segments.len() == 3 && segments[0].ident == "auro" && segments[1].ident == "ipc");
+        || (segments.len() == 3
+            && segments[0].ident == "auro"
+            && matches!(segments[1].ident.to_string().as_str(), "ipc" | "prelude"));
     if !is_auro_state {
         return None;
     }
@@ -278,15 +280,18 @@ mod tests {
 
     #[test]
     fn an_auro_state_path_is_managed_state() {
-        let item = quote! {
-            async fn managed(value: auro::ipc::State<Counter>) -> Result<u64, AuroError> {
-                Ok(value.0)
-            }
-        };
-        let expanded = expand(TokenStream::new(), item)
-            .expect("expands")
-            .to_string();
-        assert!(expanded.contains("invoke . state"), "{expanded}");
+        for path in ["auro::ipc::State", "auro::prelude::State", "auro::State"] {
+            let segments: syn::Path = syn::parse_str(path).expect("path");
+            let item = syn::parse_quote! {
+                async fn managed(value: #segments<Counter>) -> Result<u64, AuroError> {
+                    Ok(value.0)
+                }
+            };
+            let expanded = expand(TokenStream::new(), item)
+                .expect("expands")
+                .to_string();
+            assert!(expanded.contains("invoke . state"), "{path}: {expanded}");
+        }
     }
 
     #[test]

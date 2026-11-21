@@ -14,6 +14,17 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ### Fixed
 
+- `auro-core`: the instance listener queues messages to a single handler worker and acknowledges
+  only after enqueueing, so a slow handler cannot make the 500 ms fallback deliver a launch twice
+  (#58).
+- `auro-cli`: a nullable field (`title`, `default-window`, `min-width`, ...) infers its type by
+  trying the string and JSON forms against `Config`; a numeric-looking string stays a string for
+  `Option<String>` and becomes a number for `Option<u32>` (#59).
+- `auro-update`: an AppImage no longer needs an extension in preflight, matching the installer
+  (#60). A `.deb`/`.rpm` apply is rejected before the handoff when `/usr/bin/pkexec` or the
+  matching package manager is missing (#61).
+- `auro-macros`: `auro::prelude::State<T>` is recognized as managed state alongside
+  `auro::State`/`auro::ipc::State` (#62).
 - `auro-core`: single-instance forwarding accepts both the alpha.2 newline format and the alpha.3
   length frame. A framed send waits for an acknowledgement and falls back to the alpha.2 line, so
   adjacent alphas can forward launches (#49).

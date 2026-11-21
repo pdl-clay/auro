@@ -34,10 +34,12 @@ config systems become unreadable. The rule is JSON Merge Patch (RFC 7396) minus 
 case, which TOML cannot express.
 
 `auro dev --config` uses the resolved config as a type hint. A field that is a string keeps a bare
-`123` as `"123"`; numeric, boolean, array and object fields parse JSON. Quoting the value always
-produces a JSON string. Numeric path segments index arrays. Because a merge patch replaces arrays
-wholesale, an indexed path seeds its array from the resolved config before changing one element, so
-`app.windows.0.width=800` keeps that window's `label` and the other windows. An index past the
+`123` as `"123"`; numeric, boolean, array and object fields parse JSON. A nullable field has no
+value to hint from, so both the string and the JSON form are tried against the resolved `Config`:
+`Option<String>` keeps `123` as a string and `Option<u32>` parses it as a number. Quoting the value
+always produces a JSON string. Numeric path segments index arrays. Because a merge patch replaces
+arrays wholesale, an indexed path seeds its array from the resolved config before changing one
+element, so `app.windows.0.width=800` keeps that window's `label` and the other windows. An index past the
 resolved array is rejected: a patch cannot insert a TOML-null slot or invent a complete element.
 `null` is rejected because TOML has no null value.
 

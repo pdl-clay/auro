@@ -192,6 +192,12 @@ pub enum UpdateError {
     #[error("apply kind {kind:?} is not supported on this host")]
     UnsupportedApply { kind: crate::journal::ApplyKind },
 
+    #[error("required program `{}` is missing for {kind:?}", .program.display())]
+    PackageManagerMissing {
+        kind: crate::journal::ApplyKind,
+        program: PathBuf,
+    },
+
     #[error("update backup `{}` is not beside target `{}`", .backup.display(), .target.display())]
     JournalBackupPath { backup: PathBuf, target: PathBuf },
 
