@@ -56,16 +56,35 @@ pub fn input_schema(args: impl IntoIterator<Item = (&'static str, Value)>) -> Va
     Value::Object(root)
 }
 
-/// Whether `serde_json` can deserialize `null` into this type, as it can for `Option<T>`.
+/// Whether `serde_json` can deserialize `null` into this type.
+///
+/// Covers `Option<T>` (a null type or an `anyOf` variant) and unconstrained schemas such as
+/// `serde_json::Value`, whose schema has no `type` or composition keyword. A `$ref`,
+/// `allOf`/`oneOf`, `const` or a non-null `enum` is treated as constrained and therefore required.
 fn accepts_null(schema: &Value) -> bool {
-    match schema.get("type") {
-        Some(Value::String(kind)) => kind == "null",
-        Some(Value::Array(kinds)) => kinds.iter().any(|kind| kind == "null"),
-        _ => schema
-            .get("anyOf")
-            .and_then(Value::as_array)
-            .is_some_and(|variants| variants.iter().any(accepts_null)),
+    let Value::Object(map) = schema else {
+        return matches!(schema, Value::Bool(true));
+    };
+    if let Some(kind) = map.get("type") {
+        return match kind {
+            Value::String(kind) => kind == "null",
+            Value::Array(kinds) => kinds.iter().any(|kind| kind == "null"),
+            _ => false,
+        };
     }
+    if let Some(variants) = map.get("anyOf").and_then(Value::as_array) {
+        return variants.iter().any(accepts_null);
+    }
+    if let Some(constant) = map.get("const") {
+        return constant.is_null();
+    }
+    if let Some(values) = map.get("enum").and_then(Value::as_array) {
+        return values.iter().any(Value::is_null);
+    }
+    !map.contains_key("$ref")
+        && !map.contains_key("allOf")
+        && !map.contains_key("oneOf")
+        && !map.contains_key("not")
 }
 
 #[cfg(test)]
@@ -93,6 +112,15 @@ mod tests {
         let optional = json!({ "type": ["integer", "null"] });
         let schema = input_schema([("value", optional), ("other", json!({ "type": "string" }))]);
         assert_eq!(schema["required"], json!(["other"]));
+    }
+
+    #[test]
+    fn an_unconstrained_argument_is_not_required() {
+        let schema = input_schema([
+            ("value", json!({ "title": "AnyValue" })),
+            ("referenced", json!({ "$ref": "#/$defs/Name" })),
+        ]);
+        assert_eq!(schema["required"], json!(["referenced"]));
     }
 
     #[test]

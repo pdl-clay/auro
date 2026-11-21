@@ -76,13 +76,15 @@ for a PID. It builds commands from paths and behaves differently per platform.
 ### D3 - The helper applies a prepared plan, then relaunches
 
 A `Prepared` journal may carry an `ApplyKind`, the staged manifest and the app-provided public key.
-`create_for_apply` runs the same preflight while the app is still alive: an AppImage/macOS plan
-needs its target, the artifact must exist and verify against the manifest signature, size and
-SHA-256, and the manifest version/platform must match the journal and host. A bad plan is rejected
-before the process handoff; otherwise the helper would reject it after the app exits and never
-relaunch. The helper repeats every check (defense in depth), then records a retained backup for
-AppImage/macOS, marks the journal
-`Applied`, and only then relaunches. An `Applied` journal with `ApplyKind::None` keeps the
+`create_for_apply` runs the same preflight while the app is still alive: the apply kind must be
+supported on this host; an AppImage target must be an existing file and a macOS `.app` target an
+existing directory; the artifact must exist, verify against the manifest signature, size and
+SHA-256, and match the kind's format (`.AppImage`, `.msi`/`.exe`, `.deb`, `.rpm`, `.zip` for
+`MacApp`, `.pkg`); the manifest version/platform must match the journal and host; and a package
+rollback must match the same kind. A bad plan is rejected before the process handoff; otherwise the
+helper would reject it after the app exits and never relaunch. The helper repeats every check
+(defense in depth), then records a retained backup for AppImage/macOS, marks the journal `Applied`,
+and only then relaunches. An `Applied` journal with `ApplyKind::None` keeps the
 synchronous-apply behavior: the helper just relaunches. A Windows installer that returns
 `3010`/`1641` leaves the journal `RebootRequired` and does not relaunch the old binary as if the
 update were complete.

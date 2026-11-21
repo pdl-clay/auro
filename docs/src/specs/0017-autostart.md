@@ -25,10 +25,10 @@ feature.
 
 ## Decisions
 
-### D1 - Delegate the platform mechanics
+### D1 - Delegate macOS and Windows, own the Linux entry
 
-`auto-launch` owns the per-OS implementation. Auro maps it to a single type and picks the platform
-mode:
+Auro writes the Linux XDG entry itself and delegates the macOS Launch Agent and Windows registry
+entry to `auto-launch`. The platform modes are:
 
 | Platform | Mode | Artifact |
 |---|---|---|
@@ -36,16 +36,18 @@ mode:
 | macOS | `LaunchAgent` | `~/Library/LaunchAgents/<app>.plist` |
 | Windows | `CurrentUser` | `HKCU\...\Run` value |
 
-Auro still owns the input contract: `app_name` must be one file-name component (no separators,
-control characters or `.`/`..`), and on Linux the executable and every argument are quoted for a
+Auro owns the input contract: `app_name` must be one file-name component (no separators, control
+characters or `.`/`..`), and `app_path` must be absolute and exist (a file on Linux). On Linux Auro
+also writes the desktop entry itself: `$XDG_CONFIG_HOME/autostart` when that variable is an absolute
+path, otherwise `$HOME/.config/autostart`, with the executable and every argument quoted for a
 Desktop Entry `Exec` value (`%` -> `%%`, backslash/quote/backtick/`$` escaping, control characters
-rejected) before `auto-launch` interpolates them. Without that, a path with spaces split into
-different arguments and a path with `%f` or a newline changed the launched command or injected
-desktop-entry keys.
+rejected). Without that, a path with spaces split into different arguments, a path with `%f` or a
+newline changed the launched command or injected keys, and `XDG_CONFIG_HOME` was ignored.
 
-*Rejected:* implementing the three mechanisms inside Auro. `auto-launch` is small, MIT licensed,
-and already handles the quirks. *Rejected:* AppleScript login items. They need a macOS GUI session
-and are less deterministic than a Launch Agent.
+macOS and Windows keep delegating to `auto-launch`. *Rejected:* AppleScript login items. They need a
+macOS GUI session and are less deterministic than a Launch Agent. *Rejected:* keeping
+`auto-launch` on Linux after its raw `Exec` interpolation and `dirs::home_dir()` path proved
+unfixable through its public API.
 
 ### D2 - Least privilege on Windows
 
@@ -68,9 +70,13 @@ error the app can surface.
 ## Interfaces
 
 ```rust
-pub enum AutostartError { /* auto_launch::Error */ }
+pub enum AutostartError {
+    AutoLaunch(auto_launch::Error), // macOS/Windows
+    Invalid { field: &'static str, message: String },
+    Io(std::io::Error),
+}
 
-pub struct Autostart { /* auto_launch::AutoLaunch */ }
+pub struct Autostart { /* Linux entry data, or auto_launch::AutoLaunch */ }
 
 impl Autostart {
     pub fn new(
@@ -103,8 +109,12 @@ if !autostart.is_enabled()? {
    (`reports_disabled_by_default`).
 2. `enable` and `disable` round-trip the autostart state
    (`enables_and_disables_the_service`).
-3. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
-4. `cargo fmt --all --check`,
+3. The Linux entry honors `XDG_CONFIG_HOME` and quotes `Exec` paths/arguments with spaces
+   (`autostart_dir_honors_xdg_config_home`, `linux_entry_quotes_paths_and_arguments_with_spaces`).
+4. A relative, missing or non-file `app_path` is rejected
+   (`rejects_a_relative_or_missing_app_path`).
+5. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
+6. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 

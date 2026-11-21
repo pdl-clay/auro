@@ -83,20 +83,28 @@ The lock and listener are acquired after config load and before `Application::ne
 held until `try_run` returns. Dropping the guard closes the lock; dropping the listener detaches the
 forwarding thread and the process exit releases the socket. Neither is stored in managed state.
 
-### D6 - Local socket, one length-prefixed JSON frame per message
+### D6 - Local socket, dual framing with an acknowledgement
 
 On Unix the primary binds a filesystem socket in the per-user runtime directory selected by D2 (name
 derived from a short sanitised prefix plus a stable hash of the full identifier, so long
 reverse-DNS identifiers sharing a prefix cannot collide and the path stays inside `sun_path`); Linux applies
 mode `0600`, and macOS uses the private directory under its per-user `$TMPDIR`. Windows uses a
-named pipe with the same label. The secondary writes an 8-byte big-endian length followed by the
-JSON `InstanceMessage`, and closes the connection. The listener accepts connections in a background
-thread, reads the frame, and sends the decoded message to the app's `EventSender`.
+named pipe with the same label. The listener accepts connections in a background thread, reads one
+message, and sends the decoded `InstanceMessage` to the app's `EventSender`.
+
+Two wire formats are accepted for one release: alpha.2's newline-delimited JSON and alpha.3's
+8-byte big-endian length followed by JSON. The first byte distinguishes them (`{` or whitespace is
+legacy JSON; a length prefix is binary). A framed message is acknowledged with one `0x06` byte
+before the handler runs. A secondary tries the frame first and, if no acknowledgement arrives
+within 500 ms, reconnects and writes the alpha.2 line. This lets alpha.4 forward to an alpha.2
+primary (line fallback) and to an alpha.3 primary (frame accepted, legacy retry discarded), while
+alpha.2 and alpha.3 secondaries can forward to alpha.4. Windows named pipes expose no receive
+timeout, so the Windows secondary uses the legacy line directly.
 
 The payload limit is 1 MiB. `forward` serialises first and returns `AuroError::Instance` for an
 oversized message instead of writing a truncated frame and exiting as if delivery succeeded; the
-listener independently rejects an oversized declared length. Framing replaces the former
-newline-delimited 64 KiB read, which silently truncated and dropped long launch arguments.
+listener independently rejects an oversized declared length or line. The limit replaces the former
+64 KiB read, which silently truncated and dropped long launch arguments.
 
 This avoids an abstract Linux socket, which has no filesystem permissions: a different local user
 could otherwise inject messages. `ListenerOptions::try_overwrite` handles a stale socket name; the

@@ -10,6 +10,26 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Fixed
+
+- `auro-core`: single-instance forwarding accepts both the alpha.2 newline format and the alpha.3
+  length frame. A framed send waits for an acknowledgement and falls back to the alpha.2 line, so
+  adjacent alphas can forward launches (#49).
+- `auro-update`: `create_for_apply` now also checks the target's existence/type, whether the apply
+  kind runs on this host, the artifact/rollback format, and `ApplyKind::None` before the app exits
+  (#50).
+- `auro-cli`: `--config` uses the resolved config as a type hint, so a bare numeric value stays a
+  string for a string field; an array index past the resolved array is rejected instead of emitting
+  TOML null (#51, #52).
+- `auro-cli`: `binary_name` resolves through `cargo metadata`, including auto-discovered
+  `src/bin/*.rs` targets and `default-run` (#53).
+- `auro-services`: the Linux autostart entry honors `XDG_CONFIG_HOME`, is written by Auro, and
+  `Autostart::new` rejects a relative, missing or non-file `app_path` (#54).
+- `auro-macros`: only unqualified `State<T>`, `auro::State<T>` and `auro::ipc::State<T>` are managed
+  state; a payload type named `State` is deserialized (#55).
+- `auro-ipc`: an unconstrained schema such as `serde_json::Value` is optional in the generated
+  input schema, matching the runtime's null default (#56).
+
 ## [0.1.0-alpha.3] - 2026-11-20
 
 ### Added

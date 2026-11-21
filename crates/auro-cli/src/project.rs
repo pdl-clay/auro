@@ -170,38 +170,76 @@ fn plain_path(path: PathBuf) -> PathBuf {
 
 /// The executable cargo places in `target/release`.
 ///
-/// Resolution follows cargo: `package.default-run`, then the single explicit `[[bin]]` name, then
-/// `package.name` for the implicit `src/main.rs` binary. Several explicit binaries without
-/// `default-run` are ambiguous, so they are rejected instead of guessing.
+/// Uses `cargo metadata`, so explicit `[[bin]]` targets, `default-run`, auto-discovered
+/// `src/bin/*.rs` binaries and `autobins = false` all resolve the way Cargo resolves them. Several
+/// binaries without `default-run` are ambiguous, so they are rejected instead of guessing.
 pub fn binary_name(dir: &Path) -> Result<String, AuroError> {
     let manifest = dir.join("Cargo.toml");
-    let text = fs::read_to_string(&manifest)?;
-    let value: toml::Value = toml::from_str(&text).map_err(|error: toml::de::Error| {
-        AuroError::config(&manifest, None, format!("invalid Cargo.toml: {error}"))
-    })?;
-    let package = value
-        .get("package")
-        .ok_or_else(|| AuroError::config(&manifest, None, "missing [package]"))?;
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--no-deps")
+        .arg("--format-version")
+        .arg("1")
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .output()
+        .map_err(|error| {
+            AuroError::config(
+                &manifest,
+                None,
+                format!("cannot run cargo metadata: {error}"),
+            )
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AuroError::config(
+            &manifest,
+            None,
+            format!("cargo metadata failed: {}", stderr.trim()),
+        ));
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let canonical_manifest = manifest.canonicalize().unwrap_or_else(|_| manifest.clone());
+    let package = metadata["packages"]
+        .as_array()
+        .and_then(|packages| {
+            packages.iter().find(|package| {
+                package["manifest_path"]
+                    .as_str()
+                    .map(Path::new)
+                    .and_then(|path| path.canonicalize().ok())
+                    .is_some_and(|path| path == canonical_manifest)
+            })
+        })
+        .ok_or_else(|| {
+            AuroError::config(
+                &manifest,
+                None,
+                "cargo metadata did not describe this package",
+            )
+        })?;
 
-    if let Some(default_run) = package.get("default-run").and_then(toml::Value::as_str) {
+    if let Some(default_run) = package["default_run"].as_str() {
         return Ok(default_run.to_owned());
     }
 
-    let bins: Vec<&str> = value
-        .get("bin")
-        .and_then(toml::Value::as_array)
-        .map(|bins| {
-            bins.iter()
-                .filter_map(|bin| bin.get("name").and_then(toml::Value::as_str))
-                .collect()
+    let bins: Vec<&str> = package["targets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|target| {
+            target["kind"]
+                .as_array()
+                .is_some_and(|kinds| kinds.iter().any(|kind| kind == "bin"))
         })
-        .unwrap_or_default();
+        .filter_map(|target| target["name"].as_str())
+        .collect();
     match bins.as_slice() {
-        [] => package
-            .get("name")
-            .and_then(toml::Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| AuroError::config(&manifest, Some("package.name"), "missing name")),
+        [] => Err(AuroError::config(
+            &manifest,
+            None,
+            "package has no binary target; add src/main.rs, src/bin/*.rs or [[bin]]",
+        )),
         [only] => Ok((*only).to_owned()),
         several => Err(AuroError::config(
             &manifest,
@@ -635,9 +673,18 @@ version = "{manifest_version}"
         );
     }
 
+    fn write_source(dir: &Path, relative: &str) {
+        let path = dir.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("source dir");
+        }
+        std::fs::write(path, "fn main() {}\n").expect("source file");
+    }
+
     #[test]
     fn reads_the_binary_name_from_the_manifest() {
         let temp = tempfile::tempdir().expect("tempdir");
+        write_source(temp.path(), "src/main.rs");
         std::fs::write(
             temp.path().join("Cargo.toml"),
             "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
@@ -647,7 +694,7 @@ version = "{manifest_version}"
 
         std::fs::write(
             temp.path().join("Cargo.toml"),
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\ndefault-run = \"server\"\n",
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\ndefault-run = \"server\"\n\n[[bin]]\nname = \"server\"\npath = \"src/main.rs\"\n",
         )
         .expect("manifest");
         assert_eq!(binary_name(temp.path()).expect("default-run"), "server");
@@ -664,6 +711,18 @@ version = "{manifest_version}"
     }
 
     #[test]
+    fn finds_an_auto_discovered_src_bin_binary() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[package]\nname = \"pkg-name\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("manifest");
+        write_source(temp.path(), "src/bin/app.rs");
+        assert_eq!(binary_name(temp.path()).expect("src/bin app"), "app");
+    }
+
+    #[test]
     fn refuses_to_guess_between_several_binaries() {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::write(
@@ -671,6 +730,8 @@ version = "{manifest_version}"
             "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[[bin]]\nname = \"one\"\npath = \"src/main.rs\"\n\n[[bin]]\nname = \"two\"\npath = \"src/two.rs\"\n",
         )
         .expect("manifest");
+        write_source(temp.path(), "src/main.rs");
+        write_source(temp.path(), "src/two.rs");
         let error = binary_name(temp.path()).expect_err("ambiguous");
         assert!(error.to_string().contains("one"), "{error}");
         assert!(error.to_string().contains("two"), "{error}");

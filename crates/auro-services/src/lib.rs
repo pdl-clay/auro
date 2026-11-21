@@ -7,7 +7,10 @@
 //! specced and implemented.
 
 use std::path::Path;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 
+#[cfg(not(target_os = "linux"))]
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 
 pub mod deep_link;
@@ -38,23 +41,37 @@ pub enum AutostartError {
         field: &'static str,
         message: String,
     },
+
+    #[error("autostart I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// Controls whether an app is launched at login.
 ///
-/// The backing mechanism is delegated to `auto-launch`: an XDG autostart desktop entry on Linux, a
-/// Launch Agent on macOS, and a per-user registry entry on Windows. Auro always uses the
-/// least-privileged mode (`CurrentUser`) on Windows.
+/// Linux writes the XDG autostart entry itself so `XDG_CONFIG_HOME` and Desktop Entry escaping are
+/// honored; macOS and Windows delegate the Launch Agent/registry mechanics to `auto-launch`, which
+/// always uses the least-privileged mode (`CurrentUser`) on Windows.
 #[derive(Clone, Debug)]
 pub struct Autostart {
+    #[cfg(target_os = "linux")]
+    linux: LinuxAutostart,
+    #[cfg(not(target_os = "linux"))]
     inner: AutoLaunch,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Debug)]
+struct LinuxAutostart {
+    app_name: String,
+    app_path: String,
+    args: Vec<String>,
 }
 
 impl Autostart {
     /// Creates an autostart service for the given app.
     ///
-    /// `app_path` must be absolute and exist on the platform. `args` are passed to the app at
-    /// login. On macOS this uses a Launch Agent, not AppleScript login items.
+    /// `app_path` must be absolute and exist. `args` are passed to the app at login. On macOS this
+    /// uses a Launch Agent, not AppleScript login items.
     pub fn new(
         app_name: impl Into<String>,
         app_path: impl Into<String>,
@@ -67,49 +84,37 @@ impl Autostart {
         })?;
 
         let app_path = app_path.into();
-        #[cfg(target_os = "linux")]
-        let launch_path = desktop_entry::quote_exec_arg(&app_path).map_err(|message| {
-            AutostartError::Invalid {
-                field: "app_path",
-                message,
-            }
-        })?;
-        #[cfg(not(target_os = "linux"))]
-        let launch_path = app_path;
-
-        let launch_args = args
+        validate_app_path(&app_path)?;
+        let args: Vec<String> = args
             .iter()
-            .map(|argument| {
-                let argument = argument.as_ref();
-                #[cfg(target_os = "linux")]
-                {
-                    desktop_entry::quote_exec_arg(argument).map_err(|message| {
-                        AutostartError::Invalid {
-                            field: "args",
-                            message,
-                        }
-                    })
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    Ok(argument.to_owned())
-                }
-            })
-            .collect::<Result<Vec<_>, AutostartError>>()?;
+            .map(|argument| argument.as_ref().to_owned())
+            .collect();
 
-        let mut builder = AutoLaunchBuilder::new();
-        builder
-            .set_app_name(&app_name)
-            .set_app_path(&launch_path)
-            .set_linux_launch_mode(auto_launch::LinuxLaunchMode::XdgAutostart)
-            .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
-            .set_windows_enable_mode(auto_launch::WindowsEnableMode::CurrentUser);
-        if !launch_args.is_empty() {
-            builder.set_args(&launch_args);
+        #[cfg(target_os = "linux")]
+        {
+            Ok(Autostart {
+                linux: LinuxAutostart {
+                    app_name,
+                    app_path,
+                    args,
+                },
+            })
         }
-        Ok(Autostart {
-            inner: builder.build()?,
-        })
+        #[cfg(not(target_os = "linux"))]
+        {
+            let mut builder = AutoLaunchBuilder::new();
+            builder
+                .set_app_name(&app_name)
+                .set_app_path(&app_path)
+                .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
+                .set_windows_enable_mode(auto_launch::WindowsEnableMode::CurrentUser);
+            if !args.is_empty() {
+                builder.set_args(&args);
+            }
+            Ok(Autostart {
+                inner: builder.build()?,
+            })
+        }
     }
 
     /// Creates an autostart service for the running executable.
@@ -127,20 +132,139 @@ impl Autostart {
 
     /// Enables launching the app at login.
     pub fn enable(&self) -> Result<(), AutostartError> {
-        self.inner.enable()?;
-        Ok(())
+        #[cfg(target_os = "linux")]
+        {
+            let path = self.linux.path()?;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(path, self.linux.entry()?)?;
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.inner.enable()?;
+            Ok(())
+        }
     }
 
     /// Disables launching the app at login.
     pub fn disable(&self) -> Result<(), AutostartError> {
-        self.inner.disable()?;
-        Ok(())
+        #[cfg(target_os = "linux")]
+        {
+            match std::fs::remove_file(self.linux.path()?) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.inner.disable()?;
+            Ok(())
+        }
     }
 
     /// Whether the app is currently launched at login.
     pub fn is_enabled(&self) -> Result<bool, AutostartError> {
-        Ok(self.inner.is_enabled()?)
+        #[cfg(target_os = "linux")]
+        {
+            Ok(self.linux.path()?.is_file())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Ok(self.inner.is_enabled()?)
+        }
     }
+}
+
+fn validate_app_path(app_path: &str) -> Result<(), AutostartError> {
+    let path = Path::new(app_path);
+    if !path.is_absolute() {
+        return Err(AutostartError::Invalid {
+            field: "app_path",
+            message: "must be an absolute path".to_owned(),
+        });
+    }
+    if !path.exists() {
+        return Err(AutostartError::Invalid {
+            field: "app_path",
+            message: format!("`{app_path}` does not exist"),
+        });
+    }
+    #[cfg(target_os = "linux")]
+    if !path.is_file() {
+        return Err(AutostartError::Invalid {
+            field: "app_path",
+            message: format!("`{app_path}` is not a file"),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxAutostart {
+    fn path(&self) -> Result<PathBuf, AutostartError> {
+        Ok(linux_autostart_dir()?.join(format!("{}.desktop", self.app_name)))
+    }
+
+    fn entry(&self) -> Result<String, AutostartError> {
+        let exec = desktop_entry::quote_exec_arg(&self.app_path).map_err(|message| {
+            AutostartError::Invalid {
+                field: "app_path",
+                message,
+            }
+        })?;
+        let args = self
+            .args
+            .iter()
+            .map(|argument| {
+                desktop_entry::quote_exec_arg(argument).map_err(|message| AutostartError::Invalid {
+                    field: "args",
+                    message,
+                })
+            })
+            .collect::<Result<Vec<_>, AutostartError>>()?
+            .join(" ");
+        let exec = if args.is_empty() {
+            exec
+        } else {
+            format!("{exec} {args}")
+        };
+        Ok(format!(
+            "[Desktop Entry]\nType=Application\nVersion=1.0\nName={}\nComment={} startup script\nExec={exec}\nStartupNotify=false\nTerminal=false\n",
+            self.app_name, self.app_name
+        ))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_autostart_dir() -> Result<PathBuf, AutostartError> {
+    linux_autostart_dir_from(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn linux_autostart_dir_from(
+    xdg_config_home: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Result<PathBuf, AutostartError> {
+    if let Some(xdg) = xdg_config_home.filter(|value| !value.is_empty()) {
+        let path = PathBuf::from(xdg);
+        if path.is_absolute() {
+            return Ok(path.join("autostart"));
+        }
+    }
+    let home = home
+        .filter(|value| !value.is_empty())
+        .ok_or(AutostartError::Invalid {
+            field: "HOME",
+            message: "XDG_CONFIG_HOME is unset and HOME cannot be resolved".to_owned(),
+        })?;
+    Ok(PathBuf::from(home).join(".config/autostart"))
 }
 
 /// The stable executable an autostart entry should launch.
@@ -218,26 +342,75 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rejects_a_relative_or_missing_app_path() {
+        for path in ["relative-app", "/definitely/missing/auro-app"] {
+            let error = Autostart::new(unique_name(), path, &[] as &[&str])
+                .expect_err("app_path must be absolute and exist");
+            assert!(
+                matches!(
+                    error,
+                    AutostartError::Invalid {
+                        field: "app_path",
+                        ..
+                    }
+                ),
+                "{error}"
+            );
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_entry_quotes_paths_and_arguments_with_spaces() {
         let name = unique_name();
-        let home = std::env::var_os("HOME").expect("HOME is set for the test");
-        let autostart =
-            Autostart::new(&name, "/opt/My App/my app", &["--title", "a b"]).expect("autostart");
+        let directory = tempdir().expect("tempdir");
+        let app = directory.path().join("my app");
+        std::fs::write(&app, b"placeholder").expect("app");
+        let autostart = Autostart::new(
+            &name,
+            app.to_string_lossy().into_owned(),
+            &["--title", "a b"],
+        )
+        .expect("autostart");
         autostart.enable().expect("enable");
 
-        let entry = std::path::PathBuf::from(home)
-            .join(".config/autostart")
+        let entry = linux_autostart_dir()
+            .expect("autostart dir")
             .join(format!("{name}.desktop"));
         let text = std::fs::read_to_string(&entry).expect("entry");
         autostart.disable().expect("disable");
 
         assert!(
-            text.contains("Exec=\"/opt/My App/my app\" \"--title\" \"a b\""),
+            text.contains(&format!("Exec=\"{}\" \"--title\" \"a b\"", app.display())),
             "{text}"
         );
         assert!(!entry.exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn autostart_dir_honors_xdg_config_home() {
+        let xdg = std::path::PathBuf::from("/tmp/auro-xdg-config");
+        assert_eq!(
+            linux_autostart_dir_from(
+                Some(xdg.clone().into_os_string()),
+                Some(std::ffi::OsString::from("/tmp/auro-home")),
+            )
+            .expect("xdg"),
+            xdg.join("autostart")
+        );
+
+        assert_eq!(
+            linux_autostart_dir_from(
+                Some(std::ffi::OsString::from("relative")),
+                Some(std::ffi::OsString::from("/tmp/auro-home")),
+            )
+            .expect("fallback"),
+            std::path::PathBuf::from("/tmp/auro-home/.config/autostart")
+        );
+
+        assert!(linux_autostart_dir_from(None, None).is_err());
     }
 
     #[test]

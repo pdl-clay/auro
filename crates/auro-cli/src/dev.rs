@@ -965,8 +965,8 @@ fn overrides_json(
 
     // The patch must deserialize as TOML, which has no null; drop null-valued optional fields
     // from the base clone. Missing fields fall back to their config defaults.
-    let mut base = base.clone();
-    remove_nulls(&mut base);
+    let mut patch_base = base.clone();
+    remove_nulls(&mut patch_base);
 
     let mut root = serde_json::Value::Object(serde_json::Map::new());
 
@@ -980,55 +980,93 @@ fn overrides_json(
                 "--config expects KEY=VALUE, got `{entry}`"
             )));
         }
-        let parsed = serde_json::from_str::<serde_json::Value>(value)
-            .unwrap_or_else(|_| serde_json::Value::String(value.to_owned()));
-        if parsed.is_null() {
-            return Err(AuroError::Message(
-                "--config does not support `null`; TOML has no null value".to_owned(),
-            ));
-        }
-        set_path(&mut root, &parts, parsed, &base);
+        let parsed = parse_override(value, base, &parts)?;
+        set_path(&mut root, &parts, parsed, &patch_base)
+            .map_err(|message| AuroError::Message(format!("--config `{entry}`: {message}")))?;
     }
 
     Ok(Some(root.to_string()))
 }
 
+/// Parses one override, using the resolved config as the type hint.
+///
+/// A string field keeps a bare `123` as the string `123`; numeric, boolean, array and object
+/// fields parse JSON. Quoting a value always makes it a JSON string.
+fn parse_override(
+    value: &str,
+    base: &serde_json::Value,
+    path: &[&str],
+) -> Result<serde_json::Value, AuroError> {
+    let hint = value_at(base, path);
+    if matches!(hint, Some(serde_json::Value::String(_))) {
+        if value.starts_with('"') {
+            return serde_json::from_str(value).map_err(|error| {
+                AuroError::Message(format!(
+                    "--config value is not a valid JSON string: {error}"
+                ))
+            });
+        }
+        return Ok(serde_json::Value::String(value.to_owned()));
+    }
+
+    let parsed = serde_json::from_str::<serde_json::Value>(value)
+        .unwrap_or_else(|_| serde_json::Value::String(value.to_owned()));
+    if parsed.is_null() {
+        return Err(AuroError::Message(
+            "--config does not support `null`; TOML has no null value".to_owned(),
+        ));
+    }
+    Ok(parsed)
+}
+
+fn value_at<'a>(base: &'a serde_json::Value, path: &[&str]) -> Option<&'a serde_json::Value> {
+    let mut value = base;
+    for part in path {
+        value = base_part(value, part)?;
+    }
+    Some(value)
+}
+
 /// Applies one `--config` path, creating objects or arrays as the segments require.
+///
+/// Array indices are limited to the resolved array: inventing a slot would require a complete
+/// default element and would emit TOML null for skipped positions.
 fn set_path(
     node: &mut serde_json::Value,
     path: &[&str],
     value: serde_json::Value,
     base: &serde_json::Value,
-) {
+) -> Result<(), String> {
     let Some((last, parents)) = path.split_last() else {
-        return;
+        return Ok(());
     };
     let mut node = node;
     let mut base = Some(base);
     for part in parents {
-        node = child(node, base, part);
+        node = child(node, base, part)?;
         base = base.and_then(|base| base_part(base, part));
     }
     if let Ok(index) = last.parse::<usize>() {
         let array = array_for(node, base);
-        if array.len() <= index {
-            array.resize(index + 1, serde_json::Value::Null);
+        if index >= array.len() {
+            return Err(array_index_error(index, array.len()));
         }
         array[index] = value;
     } else {
         ensure_object(node).insert((*last).to_owned(), value);
     }
+    Ok(())
 }
 
 fn child<'a>(
     node: &'a mut serde_json::Value,
     base: Option<&serde_json::Value>,
     part: &str,
-) -> &'a mut serde_json::Value {
+) -> Result<&'a mut serde_json::Value, String> {
     if let Ok(index) = part.parse::<usize>() {
         let array = array_for(node, base);
-        if array.len() <= index {
-            array.resize(index + 1, serde_json::Value::Null);
+        if index >= array.len() {
+            return Err(array_index_error(index, array.len()));
         }
         if array[index].is_null()
             && let Some(element) = base
@@ -1037,12 +1075,18 @@ fn child<'a>(
         {
             array[index] = element.clone();
         }
-        &mut array[index]
+        Ok(&mut array[index])
     } else {
-        ensure_object(node)
+        Ok(ensure_object(node)
             .entry(part.to_owned())
-            .or_insert(serde_json::Value::Null)
+            .or_insert(serde_json::Value::Null))
     }
+}
+
+fn array_index_error(index: usize, length: usize) -> String {
+    format!(
+        "array index {index} is out of range; the resolved array has {length} element(s) and a patch cannot insert null slots"
+    )
 }
 
 /// Removes `null` values recursively so the patch can be represented as TOML.
@@ -1184,6 +1228,28 @@ mod tests {
         assert_eq!(value["dev"]["hot"], true);
         assert_eq!(value["app"]["product-name"], "Demo");
         assert_eq!(value["app"]["authors"], serde_json::json!(["Ana"]));
+    }
+
+    #[test]
+    fn a_numeric_looking_value_stays_a_string_for_a_string_field() {
+        let base = serde_json::json!({ "app": { "product-name": "Repro" } });
+        let patch = overrides_json(&["app.product-name=123".to_owned()], &base)
+            .expect("patch")
+            .expect("some");
+        let value: serde_json::Value = serde_json::from_str(&patch).expect("json");
+        assert_eq!(value["app"]["product-name"], "123");
+    }
+
+    #[test]
+    fn an_index_past_the_base_array_is_rejected_without_null() {
+        let base = serde_json::json!({
+            "app": { "windows": [{ "label": "main", "width": 960 }] }
+        });
+        let error = overrides_json(&["app.windows.2.label=third".to_owned()], &base)
+            .expect_err("index beyond the resolved array");
+        let message = error.to_string();
+        assert!(message.contains("out of range"), "{message}");
+        assert!(message.contains("app.windows.2"), "{message}");
     }
 
     #[test]
