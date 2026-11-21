@@ -14,14 +14,14 @@ You need:
   [platform support](reference/platform-support.md#linux-system-dependencies); macOS and Windows
   need their normal native build toolchain.
 - The alpha CLI. There is no stable release. The published version is
-  `0.1.0-alpha.5`.
+  `0.1.0-alpha.6`.
 
 The CLI is a cargo-installed binary named `auro`; the crate is `auro-cli`.
 
 ## 1. Install the CLI
 
 ```bash
-cargo install auro-cli --version 0.1.0-alpha.5
+cargo install auro-cli --version 0.1.0-alpha.6
 auro --version
 ```
 
