@@ -40,7 +40,14 @@ const LENGTH_PREFIX_BYTES: usize = 8;
 const FORWARD_ACK: u8 = 0x06;
 
 /// How long a secondary waits for the primary's acknowledgement before falling back.
-const ACK_TIMEOUT: Duration = Duration::from_millis(500);
+///
+/// Generous on purpose: a false timeout makes the secondary send the legacy retry, and a loaded
+/// primary may acknowledge late. The frame is still delivered once when it arrives.
+const ACK_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Upper bound on reading one forwarding connection. A sender that dies mid-frame must not block
+/// the listener forever; platforms without receive timeouts fall back to a connection thread.
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The message a secondary instance sends to the primary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,93 +266,15 @@ impl AppInstance {
                             continue;
                         }
                     };
-                    let mut reader = BufReader::new(stream);
-                    let framed = match reader.fill_buf() {
-                        Ok(bytes) => bytes
-                            .first()
-                            .is_some_and(|byte| *byte != b'{' && !byte.is_ascii_whitespace()),
-                        Err(error) => {
-                            tracing::warn!(%error, "instance listener read failed");
-                            continue;
-                        }
-                    };
-
-                    if framed {
-                        let mut header = [0u8; LENGTH_PREFIX_BYTES];
-                        match reader.read_exact(&mut header) {
-                            Ok(()) => {}
-                            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                                continue;
-                            }
-                            Err(error) => {
-                                tracing::warn!(%error, "instance listener read failed");
-                                continue;
-                            }
-                        }
-                        let length = u64::from_be_bytes(header);
-                        if length > MAX_MESSAGE_BYTES {
-                            tracing::warn!(
-                                length,
-                                limit = MAX_MESSAGE_BYTES,
-                                "instance listener rejected an oversized message"
-                            );
-                            continue;
-                        }
-                        let mut payload = vec![0u8; length as usize];
-                        if let Err(error) = reader.read_exact(&mut payload) {
-                            tracing::warn!(%error, "instance listener read failed");
-                            continue;
-                        }
-                        match serde_json::from_slice::<InstanceMessage>(&payload) {
-                            Ok(message) => {
-                                if messages.send(message).is_ok() {
-                                    // Acknowledge once the message is queued so a slow handler
-                                    // cannot make the secondary retry and duplicate the launch.
-                                    let _ = reader.get_mut().write_all(&[FORWARD_ACK]);
-                                } else {
-                                    tracing::warn!("instance listener handler is gone");
-                                }
-                            }
-                            Err(error) => {
-                                tracing::warn!(%error, "instance listener received invalid JSON");
-                            }
-                        }
-                    } else {
-                        // alpha.2 and earlier wrote one JSON line, with no length prefix.
-                        let mut line = String::new();
-                        match reader
-                            .by_ref()
-                            .take(MAX_MESSAGE_BYTES + 1)
-                            .read_line(&mut line)
-                        {
-                            Ok(0) => continue,
-                            Ok(_) => {}
-                            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                                continue;
-                            }
-                            Err(error) => {
-                                tracing::warn!(%error, "instance listener read failed");
-                                continue;
-                            }
-                        }
-                        if line.len() as u64 > MAX_MESSAGE_BYTES {
-                            tracing::warn!(
-                                length = line.len(),
-                                limit = MAX_MESSAGE_BYTES,
-                                "instance listener rejected an oversized message"
-                            );
-                            continue;
-                        }
-                        match serde_json::from_str::<InstanceMessage>(line.trim()) {
-                            Ok(message) => {
-                                if messages.send(message).is_err() {
-                                    tracing::warn!("instance listener handler is gone");
-                                }
-                            }
-                            Err(error) => {
-                                tracing::warn!(%error, "instance listener received invalid JSON");
-                            }
-                        }
+                    // A stalled sender must not block the accept loop. Each connection gets its
+                    // own parser thread; the handler still receives messages through the single
+                    // worker, and the read timeout bounds a half-written frame where supported.
+                    let messages = messages.clone();
+                    if let Err(error) = thread::Builder::new()
+                        .name("auro-instance-message".to_owned())
+                        .spawn(move || handle_connection(stream, messages))
+                    {
+                        tracing::warn!(%error, "cannot start an instance connection handler");
                     }
                 }
             })
@@ -361,6 +290,99 @@ impl AppInstance {
             _thread: thread,
             _worker: worker,
         })
+    }
+}
+
+fn handle_connection(
+    stream: LocalSocketStream,
+    messages: std::sync::mpsc::Sender<InstanceMessage>,
+) {
+    // Windows named pipes reject receive timeouts; isolation in this thread still keeps the
+    // accept loop responsive if a sender stalls.
+    let _ = stream.set_recv_timeout(Some(CONNECTION_TIMEOUT));
+    let mut reader = BufReader::new(stream);
+    let framed = match reader.fill_buf() {
+        Ok(bytes) => bytes
+            .first()
+            .is_some_and(|byte| *byte != b'{' && !byte.is_ascii_whitespace()),
+        Err(error) => {
+            tracing::warn!(%error, "instance listener read failed");
+            return;
+        }
+    };
+
+    if framed {
+        let mut header = [0u8; LENGTH_PREFIX_BYTES];
+        match reader.read_exact(&mut header) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return,
+            Err(error) => {
+                tracing::warn!(%error, "instance listener read failed");
+                return;
+            }
+        }
+        let length = u64::from_be_bytes(header);
+        if length > MAX_MESSAGE_BYTES {
+            tracing::warn!(
+                length,
+                limit = MAX_MESSAGE_BYTES,
+                "instance listener rejected an oversized message"
+            );
+            return;
+        }
+        let mut payload = vec![0u8; length as usize];
+        if let Err(error) = reader.read_exact(&mut payload) {
+            tracing::warn!(%error, "instance listener read failed");
+            return;
+        }
+        match serde_json::from_slice::<InstanceMessage>(&payload) {
+            Ok(message) => {
+                if messages.send(message).is_ok() {
+                    // Acknowledge once the message is queued so a slow handler cannot make the
+                    // secondary retry and duplicate the launch.
+                    let _ = reader.get_mut().write_all(&[FORWARD_ACK]);
+                } else {
+                    tracing::warn!("instance listener handler is gone");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "instance listener received invalid JSON");
+            }
+        }
+    } else {
+        // alpha.2 and earlier wrote one JSON line, with no length prefix.
+        let mut line = String::new();
+        match reader
+            .by_ref()
+            .take(MAX_MESSAGE_BYTES + 1)
+            .read_line(&mut line)
+        {
+            Ok(0) => return,
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return,
+            Err(error) => {
+                tracing::warn!(%error, "instance listener read failed");
+                return;
+            }
+        }
+        if line.len() as u64 > MAX_MESSAGE_BYTES {
+            tracing::warn!(
+                length = line.len(),
+                limit = MAX_MESSAGE_BYTES,
+                "instance listener rejected an oversized message"
+            );
+            return;
+        }
+        match serde_json::from_str::<InstanceMessage>(line.trim()) {
+            Ok(message) => {
+                if messages.send(message).is_err() {
+                    tracing::warn!("instance listener handler is gone");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "instance listener received invalid JSON");
+            }
+        }
     }
 }
 
@@ -802,6 +824,41 @@ mod tests {
         );
         assert!(seen.contains(&first));
         assert!(seen.contains(&second));
+    }
+
+    #[test]
+    fn a_stalled_client_does_not_block_or_duplicate_a_later_launch() {
+        let name = unique_name();
+        let (tx, rx) = mpsc::channel();
+        let primary = AppInstance::acquire(&name).expect("primary");
+        let _listener = primary
+            .listen(move |message| {
+                let _ = tx.send(message);
+            })
+            .expect("listener");
+
+        // Promise a payload and never send it. The connection parser owns this read.
+        let mut stalled = LocalSocketStream::connect(socket_name(&name).expect("name"))
+            .expect("connect stalled client");
+        stalled
+            .write_all(&(64 * 1024u64).to_be_bytes())
+            .expect("write header");
+        std::thread::sleep(Duration::from_millis(100));
+
+        let secondary = AppInstance::acquire(&name).expect("secondary");
+        let message = InstanceMessage::new(vec!["later".to_owned()], "/tmp");
+        secondary.forward(&message).expect("forward");
+
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).expect("message"),
+            message
+        );
+        drop(stalled);
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            rx.recv_timeout(Duration::from_millis(200)).is_err(),
+            "the failed stalled frame must not duplicate the later launch"
+        );
     }
 
     #[test]

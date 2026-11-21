@@ -723,7 +723,7 @@ fn strip_ansi(line: &str) -> String {
 }
 
 fn build(dir: &Path, config: &Config) -> Result<PathBuf, AuroError> {
-    let expected = crate::project::binary_name(dir)?;
+    let expected = crate::project::binary_name_with_args(dir, &config.dev.build_args)?;
     let mut command = Command::new("cargo");
     command
         .arg("build")

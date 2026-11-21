@@ -10,6 +10,15 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Fixed
+
+- `auro-core`: each forwarding connection is parsed on its own thread with a receive timeout, so a
+  sender that dies mid-frame cannot wedge the listener; the acknowledgement window is 2 s and a
+  stalled connection cannot duplicate the next launch (#64).
+- `auro-cli`: `binary_name` filters targets by `required-features` using the same
+  `[dev].build-args` feature set as `cargo build`, lists only enabled candidates, and reports a
+  gated-only package with the missing feature (#65).
+
 ## [0.1.0-alpha.5] - 2026-11-21
 
 ### Fixed

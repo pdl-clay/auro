@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -174,6 +175,14 @@ fn plain_path(path: PathBuf) -> PathBuf {
 /// `src/bin/*.rs` binaries and `autobins = false` all resolve the way Cargo resolves them. Several
 /// binaries without `default-run` are ambiguous, so they are rejected instead of guessing.
 pub fn binary_name(dir: &Path) -> Result<String, AuroError> {
+    binary_name_with_args(dir, &[])
+}
+
+/// Resolves the executable with the feature set `cargo build` will receive.
+///
+/// `build_args` is the app's `[dev].build-args`; `--features`, `--all-features` and
+/// `--no-default-features` select which `required-features` targets are enabled.
+pub fn binary_name_with_args(dir: &Path, build_args: &[String]) -> Result<String, AuroError> {
     let manifest = dir.join("Cargo.toml");
     let output = Command::new("cargo")
         .arg("metadata")
@@ -219,11 +228,8 @@ pub fn binary_name(dir: &Path) -> Result<String, AuroError> {
             )
         })?;
 
-    if let Some(default_run) = package["default_run"].as_str() {
-        return Ok(default_run.to_owned());
-    }
-
-    let bins: Vec<&str> = package["targets"]
+    let enabled = enabled_features(package["features"].as_object(), build_args);
+    let bins: Vec<(&str, Vec<&str>)> = package["targets"]
         .as_array()
         .into_iter()
         .flatten()
@@ -232,24 +238,133 @@ pub fn binary_name(dir: &Path) -> Result<String, AuroError> {
                 .as_array()
                 .is_some_and(|kinds| kinds.iter().any(|kind| kind == "bin"))
         })
-        .filter_map(|target| target["name"].as_str())
+        .filter_map(|target| {
+            let name = target["name"].as_str()?;
+            let required = target["required-features"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .collect();
+            Some((name, required))
+        })
         .collect();
-    match bins.as_slice() {
-        [] => Err(AuroError::config(
+    let enabled_bins: Vec<&str> = bins
+        .iter()
+        .filter(|(_, required)| required.iter().all(|feature| enabled.contains(*feature)))
+        .map(|(name, _)| *name)
+        .collect();
+
+    if let Some(default_run) = package["default_run"].as_str() {
+        if enabled_bins.contains(&default_run) {
+            return Ok(default_run.to_owned());
+        }
+        return Err(AuroError::config(
             &manifest,
-            None,
-            "package has no binary target; add src/main.rs, src/bin/*.rs or [[bin]]",
-        )),
+            Some("package.default-run"),
+            match bins.iter().find(|(name, _)| *name == default_run) {
+                Some((_, required)) if !required.is_empty() => format!(
+                    "default-run `{default_run}` requires feature(s) {}; enable them in [dev].build-args",
+                    required.join(", ")
+                ),
+                _ => format!("default-run `{default_run}` is not an enabled binary target"),
+            },
+        ));
+    }
+
+    match enabled_bins.as_slice() {
+        [] => {
+            let gated: Vec<String> = bins
+                .iter()
+                .filter(|(_, required)| {
+                    !required.is_empty()
+                        && !required.iter().all(|feature| enabled.contains(*feature))
+                })
+                .map(|(name, required)| format!("`{name}` requires {}", required.join(", ")))
+                .collect();
+            let message = if gated.is_empty() {
+                "package has no binary target; add src/main.rs, src/bin/*.rs or [[bin]]".to_owned()
+            } else {
+                format!(
+                    "no binary target is enabled; {} (enable the feature in [dev].build-args)",
+                    gated.join("; ")
+                )
+            };
+            Err(AuroError::config(&manifest, None, message))
+        }
         [only] => Ok((*only).to_owned()),
         several => Err(AuroError::config(
             &manifest,
             Some("package.default-run"),
             format!(
-                "multiple binary targets ({}); set package.default-run to choose the app binary",
+                "multiple enabled binary targets ({}); set package.default-run to choose the app binary",
                 several.join(", ")
             ),
         )),
     }
+}
+
+fn parse_feature_args(build_args: &[String]) -> (bool, bool, Vec<String>) {
+    let mut all = false;
+    let mut no_default = false;
+    let mut requested = Vec::new();
+    let mut arguments = build_args.iter();
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--all-features" => all = true,
+            "--no-default-features" => no_default = true,
+            "--features" => {
+                if let Some(value) = arguments.next() {
+                    requested.extend(split_features(value));
+                }
+            }
+            _ => {
+                if let Some(value) = argument.strip_prefix("--features=") {
+                    requested.extend(split_features(value));
+                }
+            }
+        }
+    }
+    (all, no_default, requested)
+}
+
+fn split_features(value: &str) -> Vec<String> {
+    value
+        .split([',', ' '])
+        .filter(|feature| !feature.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn enabled_features(
+    features: Option<&serde_json::Map<String, serde_json::Value>>,
+    build_args: &[String],
+) -> HashSet<String> {
+    let (all, no_default, requested) = parse_feature_args(build_args);
+    let mut enabled = HashSet::new();
+    let mut pending = requested;
+    if !no_default {
+        pending.push("default".to_owned());
+    }
+    if all && let Some(features) = features {
+        pending.extend(features.keys().cloned());
+    }
+    while let Some(feature) = pending.pop() {
+        if !enabled.insert(feature.clone()) {
+            continue;
+        }
+        if let Some(members) = features
+            .and_then(|features| features.get(&feature))
+            .and_then(serde_json::Value::as_array)
+        {
+            for member in members.iter().filter_map(serde_json::Value::as_str) {
+                if !member.contains('/') && !member.starts_with("dep:") {
+                    pending.push(member.to_owned());
+                }
+            }
+        }
+    }
+    enabled
 }
 
 /// Loads `Auro.toml` and rejects a version that disagrees with the manifest (spec 0002).
@@ -720,6 +835,77 @@ version = "{manifest_version}"
         .expect("manifest");
         write_source(temp.path(), "src/bin/app.rs");
         assert_eq!(binary_name(temp.path()).expect("src/bin app"), "app");
+    }
+
+    #[test]
+    fn required_features_are_honored_when_selecting_a_binary() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "rf-app"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+tool = []
+
+[[bin]]
+name = "tool"
+path = "src/bin/tool.rs"
+required-features = ["tool"]
+"#,
+        )
+        .expect("manifest");
+        write_source(temp.path(), "src/main.rs");
+        write_source(temp.path(), "src/bin/tool.rs");
+        assert_eq!(binary_name(temp.path()).expect("app"), "rf-app");
+
+        let error =
+            binary_name_with_args(temp.path(), &["--features".to_owned(), "tool".to_owned()])
+                .expect_err("two enabled binaries");
+        assert!(error.to_string().contains("rf-app"), "{error}");
+        assert!(error.to_string().contains("tool"), "{error}");
+        assert!(!error.to_string().contains("required-features"), "{error}");
+    }
+
+    #[test]
+    fn a_sole_gated_binary_requires_its_feature() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            r#"
+[package]
+name = "gated"
+version = "0.1.0"
+
+[features]
+tool = []
+
+[[bin]]
+name = "tool"
+path = "src/bin/tool.rs"
+required-features = ["tool"]
+"#,
+        )
+        .expect("manifest");
+        write_source(temp.path(), "src/bin/tool.rs");
+
+        let error = binary_name(temp.path()).expect_err("feature disabled");
+        assert!(error.to_string().contains("tool"), "{error}");
+        assert!(error.to_string().contains("requires"), "{error}");
+
+        assert_eq!(
+            binary_name_with_args(temp.path(), &["--features=tool".to_owned()])
+                .expect("feature enabled"),
+            "tool"
+        );
+        assert_eq!(
+            binary_name_with_args(temp.path(), &["--all-features".to_owned()])
+                .expect("all features"),
+            "tool"
+        );
     }
 
     #[test]
