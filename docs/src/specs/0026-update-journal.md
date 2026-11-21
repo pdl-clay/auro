@@ -79,11 +79,13 @@ A `Prepared` journal may carry an `ApplyKind`, the staged manifest and the app-p
 `create_for_apply` runs the same preflight while the app is still alive: the apply kind must be
 supported on this host; an AppImage target must be an existing file and a macOS `.app` target an
 existing directory; the artifact must exist, verify against the manifest signature, size and
-SHA-256, and match the kind's format (`.AppImage`, `.msi`/`.exe`, `.deb`, `.rpm`, `.zip` for
-`MacApp`, `.pkg`); the manifest version/platform must match the journal and host; and a package
-rollback must match the same kind. A bad plan is rejected before the process handoff; otherwise the
-helper would reject it after the app exits and never relaunch. The helper repeats every check
-(defense in depth), then records a retained backup for AppImage/macOS, marks the journal `Applied`,
+SHA-256, and match the kind's format (`.msi`/`.exe`, `.deb`, `.rpm`, `.zip` for `MacApp`, `.pkg`;
+an AppImage has no required extension); the manifest version/platform must match the journal and
+host; a package rollback must match the same kind; and a `.deb`/`.rpm` apply requires
+`/usr/bin/pkexec` plus `/usr/bin/dpkg` or `/usr/bin/rpm`. A bad plan is rejected before the process
+handoff; otherwise the helper would reject it after the app exits and never relaunch. The helper
+repeats every check (defense in depth), then records a retained backup for AppImage/macOS, marks
+the journal `Applied`,
 and only then relaunches. An `Applied` journal with `ApplyKind::None` keeps the
 synchronous-apply behavior: the helper just relaunches. A Windows installer that returns
 `3010`/`1641` leaves the journal `RebootRequired` and does not relaunch the old binary as if the

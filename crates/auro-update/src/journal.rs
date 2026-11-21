@@ -95,7 +95,9 @@ fn preflight_target(kind: ApplyKind, target: Option<&Path>) -> Result<(), Update
 
 fn preflight_artifact(kind: ApplyKind, path: &Path) -> Result<(), UpdateError> {
     let (expected, matches) = match kind {
-        ApplyKind::AppImage => (".AppImage", has_extension(path, "appimage")),
+        // The AppImage installer accepts any file name; requiring `.AppImage` rejected valid
+        // artifacts (issue #60).
+        ApplyKind::AppImage => return Ok(()),
         ApplyKind::WindowsInstaller => (
             ".msi or .exe",
             has_extension(path, "msi") || has_extension(path, "exe"),
@@ -120,6 +122,26 @@ fn has_extension(path: &Path, expected: &str) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
+}
+
+fn preflight_package_manager(kind: ApplyKind) -> Result<(), UpdateError> {
+    if let Some(program) = missing_package_manager(kind, |path| path.is_file()) {
+        return Err(UpdateError::PackageManagerMissing { kind, program });
+    }
+    Ok(())
+}
+
+fn missing_package_manager(kind: ApplyKind, exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    let programs: &[&str] = match kind {
+        ApplyKind::DebPackage => &["/usr/bin/pkexec", "/usr/bin/dpkg"],
+        ApplyKind::RpmPackage => &["/usr/bin/pkexec", "/usr/bin/rpm"],
+        _ => return None,
+    };
+    programs
+        .iter()
+        .map(Path::new)
+        .find(|program| !exists(program))
+        .map(Path::to_path_buf)
 }
 
 /// A caller-supplied older package to reinstall if the primary package apply fails.
@@ -436,6 +458,7 @@ impl ApplyJournal {
                 });
             }
         }
+        preflight_package_manager(plan.kind)?;
         Ok(())
     }
 
@@ -1514,26 +1537,24 @@ mod tests {
             Err(UpdateError::InstallTargetNotFile { .. })
         ));
 
-        let zip = temp.path().join("new.zip");
-        std::fs::write(&zip, b"zip").expect("zip");
-        let zip_manifest = Manifest::for_artifact(
-            &zip,
+        let rpm = temp.path().join("new.rpm");
+        std::fs::write(&rpm, b"rpm").expect("rpm");
+        let rpm_manifest = Manifest::for_artifact(
+            &rpm,
             "1.2.3",
             crate::current_platform(),
-            "https://example.test/new.zip",
+            "https://example.test/new.rpm",
             "",
             "2026-11-18T00:00:00Z",
         )
         .expect("manifest")
         .sign(&key)
         .expect("sign");
-        let target = temp.path().join("App.AppImage");
-        std::fs::write(&target, b"old").expect("target");
         let plan = ApplyPlan::new(
-            ApplyKind::AppImage,
-            &zip,
-            Some(target),
-            zip_manifest,
+            ApplyKind::DebPackage,
+            &rpm,
+            None,
+            rpm_manifest,
             key.public_key(),
         );
         assert!(matches!(
@@ -1545,6 +1566,54 @@ mod tests {
             ),
             Err(UpdateError::UnsupportedInstaller { .. })
         ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn preflight_accepts_an_appimage_without_an_extension() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("staged-appimage");
+        std::fs::write(&artifact, b"new appimage").expect("artifact");
+        let target = temp.path().join("App.AppImage");
+        std::fs::write(&target, b"old appimage").expect("target");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            crate::current_platform(),
+            "https://example.test/appimage",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let plan = ApplyPlan::new(
+            ApplyKind::AppImage,
+            &artifact,
+            Some(target),
+            manifest,
+            key.public_key(),
+        );
+        ApplyJournal::create_for_apply(temp.path().join("apply.json"), "1.2.3", plan, relaunch())
+            .expect("an extensionless AppImage is valid");
+    }
+
+    #[test]
+    fn missing_package_manager_reports_the_required_program() {
+        let missing =
+            missing_package_manager(ApplyKind::DebPackage, |_| false).expect("missing program");
+        assert!(missing.ends_with("pkexec"), "{}", missing.display());
+
+        let missing =
+            missing_package_manager(ApplyKind::DebPackage, |path| path.ends_with("pkexec"))
+                .expect("missing dpkg");
+        assert!(missing.ends_with("dpkg"), "{}", missing.display());
+
+        assert!(missing_package_manager(ApplyKind::RpmPackage, |_| true).is_none());
+        assert!(missing_package_manager(ApplyKind::AppImage, |_| false).is_none());
     }
 
     #[cfg(target_os = "linux")]
@@ -1745,23 +1814,24 @@ mod tests {
         .expect("manifest")
         .sign(&key)
         .expect("sign");
-        let plan = ApplyPlan::new(
-            ApplyKind::DebPackage,
-            &new_artifact,
-            None,
-            new_manifest,
-            key.public_key(),
-        )
-        .with_package_rollback(PackageRollback::new(
-            &old_artifact,
-            old_manifest,
-            key.public_key(),
-        ));
-        let journal = ApplyJournal::create_for_apply(
+        // Bypass the host preflight: this test covers journal serialization, not whether this
+        // machine has dpkg/rpm installed.
+        let journal = ApplyJournal::create_with(
             temp.path().join("apply.json"),
             "1.2.3",
-            plan,
-            relaunch(),
+            JournalSpec {
+                artifact: new_artifact.clone(),
+                target: None,
+                kind: ApplyKind::DebPackage,
+                manifest: Some(new_manifest),
+                verify_key: Some(key.public_key().to_base64()),
+                rollback: Some(RollbackData {
+                    artifact: old_artifact.clone(),
+                    manifest: old_manifest,
+                    verify_key: Some(key.public_key().to_base64()),
+                }),
+                relaunch: relaunch(),
+            },
         )
         .expect("journal");
 

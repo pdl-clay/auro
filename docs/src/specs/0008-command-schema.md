@@ -51,10 +51,10 @@ Property names use the command's `rename_all` setting. An argument whose schema 
 optional and omitted from `required`; this covers `Option<T>` and unconstrained schemas such as
 `serde_json::Value`. A `$ref` or other constrained schema stays required. Every other non-state
 argument is required. `State<T>` is treated as managed state only when unqualified or written as
-`auro::State`/`auro::ipc::State`; a payload type such as `payload::State<T>` is deserialized. A
-`rename_all` that maps two arguments to one key is a compile error. Registering two commands with
-the same name is rejected (`try_command` returns a typed error; the builder and
-`generate_handler!` panic with the name). Per-argument
+`auro::State`, `auro::ipc::State` or `auro::prelude::State`; a payload type such as
+`payload::State<T>` is deserialized. A `rename_all` that maps two arguments to one key is a compile
+error. Registering two commands with the same name is rejected (`try_command` returns a typed error;
+the builder and `generate_handler!` panic with the name). Per-argument
 `$defs`/`definitions` are hoisted to the root so `#/$defs/...` references resolve;
 duplicate definition names are last-wins in this slice. Schemas are computed once when the handler
 is built, not reflected at dispatch time.

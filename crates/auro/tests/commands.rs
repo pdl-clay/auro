@@ -23,6 +23,11 @@ async fn read_counter(state: State<Counter>) -> Result<u64, AuroError> {
     Ok(state.0)
 }
 
+#[auro::command]
+async fn read_counter_via_prelude(state: auro::prelude::State<Counter>) -> Result<u64, AuroError> {
+    Ok(state.0)
+}
+
 #[auro::command(rename_all = "camelCase")]
 async fn greet(first_name: String) -> Result<String, AuroError> {
     Ok(format!("hello {first_name}"))
@@ -99,6 +104,18 @@ fn dispatches_a_sync_command_through_the_blocking_pool() {
 fn resolves_managed_state() {
     let (states, _) = setup();
     match run(&states, "read_counter", serde_json::json!({})) {
+        Response::Ok { value } => assert_eq!(value, 41),
+        other => panic!("expected ok, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolves_state_through_the_prelude_path() {
+    let states = Arc::new(StateStore::new());
+    states.insert(Counter(41));
+    let handler = auro::generate_handler![read_counter_via_prelude];
+    let invoke = invoke(&states, "read_counter_via_prelude", serde_json::json!({}));
+    match auro::ipc::runtime::runtime().block_on(handler.dispatch(invoke)) {
         Response::Ok { value } => assert_eq!(value, 41),
         other => panic!("expected ok, got {other:?}"),
     }

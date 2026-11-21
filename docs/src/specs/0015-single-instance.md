@@ -95,8 +95,10 @@ message, and sends the decoded `InstanceMessage` to the app's `EventSender`.
 Two wire formats are accepted for one release: alpha.2's newline-delimited JSON and alpha.3's
 8-byte big-endian length followed by JSON. The first byte distinguishes them (`{` or whitespace is
 legacy JSON; a length prefix is binary). A framed message is acknowledged with one `0x06` byte
-before the handler runs. A secondary tries the frame first and, if no acknowledgement arrives
-within 500 ms, reconnects and writes the alpha.2 line. This lets alpha.4 forward to an alpha.2
+after the message is queued. A single handler worker drains the queue, so a slow app handler cannot
+stall the listener, delay the acknowledgement, or cause the legacy retry to duplicate a launch. A
+secondary tries the frame first and, if no acknowledgement arrives within 500 ms, reconnects and
+writes the alpha.2 line. This lets alpha.4 forward to an alpha.2
 primary (line fallback) and to an alpha.3 primary (frame accepted, legacy retry discarded), while
 alpha.2 and alpha.3 secondaries can forward to alpha.4. Windows named pipes expose no receive
 timeout, so the Windows secondary uses the legacy line directly.

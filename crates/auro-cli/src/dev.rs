@@ -1016,6 +1016,23 @@ fn parse_override(
             "--config does not support `null`; TOML has no null value".to_owned(),
         ));
     }
+
+    if hint.is_none_or(serde_json::Value::is_null) {
+        // A nullable field has no value to hint from. Ask the resolved `Config` which candidate
+        // fits: `Option<String>` accepts the string form, `Option<u32>` accepts the number.
+        let string = serde_json::Value::String(value.to_owned());
+        let string_ok = config_accepts(base, path, string.clone());
+        let parsed_ok = config_accepts(base, path, parsed.clone());
+        if string_ok && !parsed_ok {
+            return Ok(string);
+        }
+        if parsed_ok {
+            return Ok(parsed);
+        }
+        if string_ok {
+            return Ok(string);
+        }
+    }
     Ok(parsed)
 }
 
@@ -1025,6 +1042,38 @@ fn value_at<'a>(base: &'a serde_json::Value, path: &[&str]) -> Option<&'a serde_
         value = base_part(value, part)?;
     }
     Some(value)
+}
+
+fn config_accepts(base: &serde_json::Value, path: &[&str], candidate: serde_json::Value) -> bool {
+    let Some(value) = with_value(base, path, candidate) else {
+        return false;
+    };
+    serde_json::from_value::<Config>(value).is_ok()
+}
+
+fn with_value(
+    base: &serde_json::Value,
+    path: &[&str],
+    candidate: serde_json::Value,
+) -> Option<serde_json::Value> {
+    let mut root = base.clone();
+    let mut node = &mut root;
+    for part in path {
+        node = base_part_mut(node, part)?;
+    }
+    *node = candidate;
+    Some(root)
+}
+
+fn base_part_mut<'a>(
+    node: &'a mut serde_json::Value,
+    part: &str,
+) -> Option<&'a mut serde_json::Value> {
+    if let Ok(index) = part.parse::<usize>() {
+        node.as_array_mut()?.get_mut(index)
+    } else {
+        node.as_object_mut()?.get_mut(part)
+    }
 }
 
 /// Applies one `--config` path, creating objects or arrays as the segments require.
@@ -1238,6 +1287,41 @@ mod tests {
             .expect("some");
         let value: serde_json::Value = serde_json::from_str(&patch).expect("json");
         assert_eq!(value["app"]["product-name"], "123");
+    }
+
+    #[test]
+    fn nullable_fields_infer_string_and_number_from_config() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Auro.toml"),
+            r#"
+[app]
+identifier = "com.example.nullable"
+product-name = "Nullable"
+version = "0.1.0"
+
+[[app.windows]]
+label = "main"
+max-width = 1600
+"#,
+        )
+        .expect("config");
+        let config = Config::load_from(&temp.path().join("Auro.toml")).expect("valid config");
+        let base = serde_json::to_value(&config).expect("json");
+        let patch = overrides_json(
+            &[
+                "app.windows.0.title=123".to_owned(),
+                "app.windows.0.min-width=320".to_owned(),
+                "app.default-window=123".to_owned(),
+            ],
+            &base,
+        )
+        .expect("patch")
+        .expect("some");
+        let value: serde_json::Value = serde_json::from_str(&patch).expect("json");
+        assert_eq!(value["app"]["windows"][0]["title"], "123");
+        assert_eq!(value["app"]["windows"][0]["min-width"], 320);
+        assert_eq!(value["app"]["default-window"], "123");
     }
 
     #[test]

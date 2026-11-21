@@ -226,6 +226,28 @@ impl AppInstance {
             )
         })?;
         let thread_name = self.name.clone();
+        // A slow app handler must not stall the listener: it would delay the frame
+        // acknowledgement, make the secondary retry with the legacy line, and deliver the same
+        // launch twice. A single worker preserves message order without blocking I/O.
+        let (messages, received) = std::sync::mpsc::channel::<InstanceMessage>();
+        let worker = thread::Builder::new()
+            .name(format!("auro-instance-handler-{thread_name}"))
+            .spawn(move || {
+                while let Ok(message) = received.recv() {
+                    let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        handler(message);
+                    }));
+                    if dispatched.is_err() {
+                        tracing::error!("instance listener handler panicked");
+                    }
+                }
+            })
+            .map_err(|error| {
+                AuroError::instance(
+                    &self.name,
+                    format!("cannot start the instance handler: {error}"),
+                )
+            })?;
         let thread = thread::Builder::new()
             .name(format!("auro-instance-{thread_name}"))
             .spawn(move || {
@@ -276,10 +298,13 @@ impl AppInstance {
                         }
                         match serde_json::from_slice::<InstanceMessage>(&payload) {
                             Ok(message) => {
-                                // Acknowledge before invoking the handler so a slow handler does
-                                // not make the secondary retry and duplicate the launch.
-                                let _ = reader.get_mut().write_all(&[FORWARD_ACK]);
-                                handler(message);
+                                if messages.send(message).is_ok() {
+                                    // Acknowledge once the message is queued so a slow handler
+                                    // cannot make the secondary retry and duplicate the launch.
+                                    let _ = reader.get_mut().write_all(&[FORWARD_ACK]);
+                                } else {
+                                    tracing::warn!("instance listener handler is gone");
+                                }
                             }
                             Err(error) => {
                                 tracing::warn!(%error, "instance listener received invalid JSON");
@@ -312,7 +337,11 @@ impl AppInstance {
                             continue;
                         }
                         match serde_json::from_str::<InstanceMessage>(line.trim()) {
-                            Ok(message) => handler(message),
+                            Ok(message) => {
+                                if messages.send(message).is_err() {
+                                    tracing::warn!("instance listener handler is gone");
+                                }
+                            }
                             Err(error) => {
                                 tracing::warn!(%error, "instance listener received invalid JSON");
                             }
@@ -330,14 +359,16 @@ impl AppInstance {
         Ok(InstanceListener {
             _guard: self,
             _thread: thread,
+            _worker: worker,
         })
     }
 }
 
-/// Keeps the primary lock and forwarding thread alive for the app's lifetime.
+/// Keeps the primary lock and forwarding threads alive for the app's lifetime.
 pub struct InstanceListener {
     _guard: AppInstance,
     _thread: JoinHandle<()>,
+    _worker: JoinHandle<()>,
 }
 
 impl Drop for AppInstance {
@@ -727,6 +758,50 @@ mod tests {
         symlink(&real, &link).expect("symlink");
         assert!(!is_private_existing_dir(&link));
         assert!(ensure_private_dir(&link).is_err());
+    }
+
+    #[test]
+    fn a_slow_handler_does_not_make_the_next_launch_duplicate() {
+        use std::sync::{Arc, Mutex};
+
+        let name = unique_name();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let handler_seen = Arc::clone(&seen);
+        let (started_tx, started_rx) = mpsc::channel();
+        let primary = AppInstance::acquire(&name).expect("primary");
+        let _listener = primary
+            .listen(move |message| {
+                let _ = started_tx.send(());
+                std::thread::sleep(Duration::from_millis(700));
+                handler_seen.lock().expect("seen").push(message);
+            })
+            .expect("listener");
+
+        let first = InstanceMessage::new(vec!["first".to_owned()], "/tmp");
+        let one = AppInstance::acquire(&name).expect("first secondary");
+        one.forward(&first).expect("first forward");
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the handler started");
+
+        let second = InstanceMessage::new(vec!["second".to_owned()], "/tmp");
+        let two = AppInstance::acquire(&name).expect("second secondary");
+        two.forward(&second).expect("second forward");
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while seen.lock().expect("seen").len() < 2 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        // Give a would-be legacy duplicate time to arrive before counting.
+        std::thread::sleep(Duration::from_millis(600));
+        let seen = seen.lock().expect("seen");
+        assert_eq!(
+            seen.len(),
+            2,
+            "a slow handler must not deliver a launch twice: {seen:?}"
+        );
+        assert!(seen.contains(&first));
+        assert!(seen.contains(&second));
     }
 
     #[test]
