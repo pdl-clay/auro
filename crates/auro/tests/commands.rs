@@ -44,6 +44,11 @@ async fn optional(value: Option<u64>) -> Result<Option<u64>, AuroError> {
 }
 
 #[auro::command]
+async fn raw(value: serde_json::Value) -> Result<serde_json::Value, AuroError> {
+    Ok(value)
+}
+
+#[auro::command]
 async fn async_boom() -> Result<(), AuroError> {
     panic!("async command panicked")
 }
@@ -197,6 +202,20 @@ fn an_optional_argument_is_not_required_in_the_schema() {
         schema.input["properties"]["value"]["type"],
         serde_json::json!(["integer", "null"])
     );
+}
+
+#[test]
+fn a_json_value_argument_is_optional_in_the_schema_and_at_runtime() {
+    let states = Arc::new(StateStore::new());
+    let handler = auro::generate_handler![raw];
+    let schema = handler.schema("raw").expect("schema");
+    assert!(schema.input.get("required").is_none(), "{}", schema.input);
+
+    let invoke = invoke(&states, "raw", serde_json::json!({}));
+    match auro::ipc::runtime::runtime().block_on(handler.dispatch(invoke)) {
+        Response::Ok { value } => assert!(value.is_null(), "{value}"),
+        other => panic!("expected ok, got {other:?}"),
+    }
 }
 
 #[test]

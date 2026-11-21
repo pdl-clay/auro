@@ -49,11 +49,77 @@ pub enum ApplyKind {
     MacPkg,
 }
 
-impl ApplyKind {
-    /// Whether the helper needs a platform target path to apply this kind.
-    fn requires_target(self) -> bool {
-        matches!(self, ApplyKind::AppImage | ApplyKind::MacApp)
+fn kind_supported(kind: ApplyKind) -> bool {
+    match kind {
+        ApplyKind::None => false,
+        ApplyKind::AppImage | ApplyKind::DebPackage | ApplyKind::RpmPackage => {
+            cfg!(target_os = "linux")
+        }
+        ApplyKind::WindowsInstaller => cfg!(target_os = "windows"),
+        ApplyKind::MacApp | ApplyKind::MacPkg => cfg!(target_os = "macos"),
     }
+}
+
+fn preflight_target(kind: ApplyKind, target: Option<&Path>) -> Result<(), UpdateError> {
+    match kind {
+        ApplyKind::AppImage => {
+            let target = target.ok_or(UpdateError::ApplyTargetMissing { kind })?;
+            if !target.exists() {
+                return Err(UpdateError::InstallTargetMissing {
+                    path: target.to_path_buf(),
+                });
+            }
+            if !target.is_file() {
+                return Err(UpdateError::InstallTargetNotFile {
+                    path: target.to_path_buf(),
+                });
+            }
+        }
+        ApplyKind::MacApp => {
+            let target = target.ok_or(UpdateError::ApplyTargetMissing { kind })?;
+            if !target.exists() {
+                return Err(UpdateError::InstallTargetMissing {
+                    path: target.to_path_buf(),
+                });
+            }
+            if !target.is_dir() {
+                return Err(UpdateError::InstallTargetNotDirectory {
+                    path: target.to_path_buf(),
+                });
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn preflight_artifact(kind: ApplyKind, path: &Path) -> Result<(), UpdateError> {
+    let (expected, matches) = match kind {
+        ApplyKind::AppImage => (".AppImage", has_extension(path, "appimage")),
+        ApplyKind::WindowsInstaller => (
+            ".msi or .exe",
+            has_extension(path, "msi") || has_extension(path, "exe"),
+        ),
+        ApplyKind::DebPackage => (".deb", has_extension(path, "deb")),
+        ApplyKind::RpmPackage => (".rpm", has_extension(path, "rpm")),
+        ApplyKind::MacApp => (".zip containing a .app bundle", has_extension(path, "zip")),
+        ApplyKind::MacPkg => (".pkg", has_extension(path, "pkg")),
+        ApplyKind::None => return Ok(()),
+    };
+    if matches {
+        Ok(())
+    } else {
+        Err(UpdateError::UnsupportedInstaller {
+            path: path.to_path_buf(),
+            expected,
+        })
+    }
+}
+
+fn has_extension(path: &Path, expected: &str) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
 }
 
 /// A caller-supplied older package to reinstall if the primary package apply fails.
@@ -318,9 +384,13 @@ impl ApplyJournal {
     /// The helper repeats every check after the handoff (defense in depth), but a plan that fails
     /// here must not close the app: the helper would mark the journal `Failed` and never relaunch.
     fn preflight_plan(version: &str, plan: &ApplyPlan) -> Result<(), UpdateError> {
-        if plan.kind.requires_target() && plan.target.is_none() {
-            return Err(UpdateError::ApplyTargetMissing { kind: plan.kind });
+        if plan.kind == ApplyKind::None {
+            return Err(UpdateError::ApplyKindMissing);
         }
+        if !kind_supported(plan.kind) {
+            return Err(UpdateError::UnsupportedApply { kind: plan.kind });
+        }
+        preflight_target(plan.kind, plan.target.as_deref())?;
         plan.manifest
             .verify_artifact(&plan.artifact, &plan.public_key)?;
         if plan.manifest.version != version {
@@ -336,6 +406,7 @@ impl ApplyJournal {
                 actual: plan.manifest.platform.clone(),
             });
         }
+        preflight_artifact(plan.kind, &plan.artifact)?;
         if let Some(rollback) = &plan.rollback {
             rollback
                 .manifest
@@ -346,6 +417,7 @@ impl ApplyJournal {
                     actual: rollback.manifest.platform.clone(),
                 });
             }
+            preflight_artifact(plan.kind, &rollback.artifact)?;
             let failed =
                 semver::Version::parse(version).map_err(|_| UpdateError::InvalidVersion {
                     field: "journal version",
@@ -1306,6 +1378,7 @@ mod tests {
         assert!(journal_path.exists());
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn create_for_apply_rejects_a_plan_the_helper_would_reject() {
         use auro_sign::SigningKey;
@@ -1315,6 +1388,7 @@ mod tests {
         let artifact = temp.path().join("new.AppImage");
         std::fs::write(&artifact, b"new appimage").expect("artifact");
         let target = temp.path().join("App.AppImage");
+        std::fs::write(&target, b"old appimage").expect("target");
         let manifest = |version: &str, platform: &str| {
             Manifest::for_artifact(
                 &artifact,
@@ -1400,6 +1474,166 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn preflight_rejects_a_directory_target_and_a_wrong_artifact_format() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("new.AppImage");
+        std::fs::write(&artifact, b"new appimage").expect("artifact");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            crate::current_platform(),
+            "https://example.test/App.AppImage",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+
+        let directory = temp.path().join("AppDir");
+        std::fs::create_dir(&directory).expect("target dir");
+        let plan = ApplyPlan::new(
+            ApplyKind::AppImage,
+            &artifact,
+            Some(directory.clone()),
+            manifest.clone(),
+            key.public_key(),
+        );
+        assert!(matches!(
+            ApplyJournal::create_for_apply(
+                temp.path().join("apply.json"),
+                "1.2.3",
+                plan,
+                relaunch(),
+            ),
+            Err(UpdateError::InstallTargetNotFile { .. })
+        ));
+
+        let zip = temp.path().join("new.zip");
+        std::fs::write(&zip, b"zip").expect("zip");
+        let zip_manifest = Manifest::for_artifact(
+            &zip,
+            "1.2.3",
+            crate::current_platform(),
+            "https://example.test/new.zip",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let target = temp.path().join("App.AppImage");
+        std::fs::write(&target, b"old").expect("target");
+        let plan = ApplyPlan::new(
+            ApplyKind::AppImage,
+            &zip,
+            Some(target),
+            zip_manifest,
+            key.public_key(),
+        );
+        assert!(matches!(
+            ApplyJournal::create_for_apply(
+                temp.path().join("apply.json"),
+                "1.2.3",
+                plan,
+                relaunch(),
+            ),
+            Err(UpdateError::UnsupportedInstaller { .. })
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn preflight_rejects_an_apply_kind_this_host_cannot_execute() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("installer.msi");
+        std::fs::write(&artifact, b"installer").expect("artifact");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            crate::current_platform(),
+            "https://example.test/installer.msi",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+        let plan = ApplyPlan::new(
+            ApplyKind::WindowsInstaller,
+            &artifact,
+            None,
+            manifest,
+            key.public_key(),
+        );
+        assert!(matches!(
+            ApplyJournal::create_for_apply(
+                temp.path().join("apply.json"),
+                "1.2.3",
+                plan,
+                relaunch(),
+            ),
+            Err(UpdateError::UnsupportedApply {
+                kind: ApplyKind::WindowsInstaller
+            })
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn preflight_rejects_a_rollback_package_that_does_not_match_the_kind() {
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let artifact = temp.path().join("new.deb");
+        std::fs::write(&artifact, b"new package").expect("artifact");
+        let rollback = temp.path().join("old.rpm");
+        std::fs::write(&rollback, b"old package").expect("rollback");
+        let manifest = |path: &Path, version: &str| {
+            Manifest::for_artifact(
+                path,
+                version,
+                crate::current_platform(),
+                "https://example.test/package",
+                "",
+                "2026-11-18T00:00:00Z",
+            )
+            .expect("manifest")
+            .sign(&key)
+            .expect("sign")
+        };
+        let plan = ApplyPlan::new(
+            ApplyKind::DebPackage,
+            &artifact,
+            None,
+            manifest(&artifact, "1.2.3"),
+            key.public_key(),
+        )
+        .with_package_rollback(PackageRollback::new(
+            &rollback,
+            manifest(&rollback, "1.1.0"),
+            key.public_key(),
+        ));
+        assert!(matches!(
+            ApplyJournal::create_for_apply(
+                temp.path().join("apply.json"),
+                "1.2.3",
+                plan,
+                relaunch(),
+            ),
+            Err(UpdateError::UnsupportedInstaller { .. })
+        ));
+    }
+
     #[test]
     fn records_reboot_state() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -1478,6 +1712,7 @@ mod tests {
         ));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn round_trips_a_package_rollback_plan() {
         use auro_sign::SigningKey;
@@ -1898,17 +2133,18 @@ mod tests {
         .expect("manifest")
         .sign(&key)
         .expect("sign");
-        let journal = ApplyJournal::create_for_apply(
+        let journal = ApplyJournal::create_with(
             temp.path().join("apply.json"),
             "1.2.3",
-            ApplyPlan::new(
-                ApplyKind::WindowsInstaller,
-                &artifact,
-                None,
-                manifest,
-                key.public_key(),
-            ),
-            relaunch(),
+            JournalSpec {
+                artifact: artifact.clone(),
+                target: None,
+                kind: ApplyKind::WindowsInstaller,
+                manifest: Some(manifest),
+                verify_key: Some(key.public_key().to_base64()),
+                rollback: None,
+                relaunch: relaunch(),
+            },
         )
         .expect("journal");
 

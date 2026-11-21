@@ -10,9 +10,10 @@
 #[cfg(unix)]
 use std::fs;
 use std::fs::{File, OpenOptions, TryLockError};
-use std::io::{BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 #[cfg(unix)]
 use interprocess::local_socket::GenericFilePath;
@@ -34,6 +35,12 @@ const MAX_MESSAGE_BYTES: u64 = 1024 * 1024;
 
 /// Big-endian byte length of the frame that precedes each JSON payload.
 const LENGTH_PREFIX_BYTES: usize = 8;
+
+/// Acknowledges a framed message so the secondary does not retry with the legacy framing.
+const FORWARD_ACK: u8 = 0x06;
+
+/// How long a secondary waits for the primary's acknowledgement before falling back.
+const ACK_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// The message a secondary instance sends to the primary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,13 +139,6 @@ impl AppInstance {
             ));
         }
 
-        let name = socket_name(&self.name)?;
-        let mut stream = LocalSocketStream::connect(name).map_err(|error| {
-            AuroError::instance(
-                &self.name,
-                format!("cannot connect to the primary instance: {error}"),
-            )
-        })?;
         let payload = serde_json::to_vec(message)?;
         let length = payload.len() as u64;
         if length > MAX_MESSAGE_BYTES {
@@ -149,8 +149,49 @@ impl AppInstance {
                 ),
             ));
         }
-        stream.write_all(&length.to_be_bytes())?;
-        stream.write_all(&payload)?;
+
+        // alpha.3 introduced framed messages without a version handshake. A framed write is
+        // acknowledged by an alpha.4 listener; when no acknowledgement arrives, retry with the
+        // newline-delimited format understood by alpha.2. An alpha.3 primary accepts the frame
+        // and ignores the legacy retry, so the message is delivered once.
+        if self.forward_framed(&payload).is_ok() {
+            return Ok(());
+        }
+        self.forward_legacy(&payload)
+    }
+
+    fn connect_primary(&self) -> Result<LocalSocketStream, AuroError> {
+        let name = socket_name(&self.name)?;
+        LocalSocketStream::connect(name).map_err(|error| {
+            AuroError::instance(
+                &self.name,
+                format!("cannot connect to the primary instance: {error}"),
+            )
+        })
+    }
+
+    fn forward_framed(&self, payload: &[u8]) -> Result<(), AuroError> {
+        let mut stream = self.connect_primary()?;
+        // Without a receive timeout the read below could wait forever on an older primary that
+        // does not acknowledge. If the platform cannot set one, use the legacy framing directly.
+        stream.set_recv_timeout(Some(ACK_TIMEOUT))?;
+        stream.write_all(&(payload.len() as u64).to_be_bytes())?;
+        stream.write_all(payload)?;
+        let mut acknowledgement = [0u8; 1];
+        stream.read_exact(&mut acknowledgement)?;
+        if acknowledgement[0] != FORWARD_ACK {
+            return Err(AuroError::instance(
+                &self.name,
+                "the primary acknowledged with an unknown protocol byte",
+            ));
+        }
+        Ok(())
+    }
+
+    fn forward_legacy(&self, payload: &[u8]) -> Result<(), AuroError> {
+        let mut stream = self.connect_primary()?;
+        stream.write_all(payload)?;
+        stream.write_all(b"\n")?;
         Ok(())
     }
 
@@ -197,33 +238,84 @@ impl AppInstance {
                         }
                     };
                     let mut reader = BufReader::new(stream);
-                    let mut header = [0u8; LENGTH_PREFIX_BYTES];
-                    match reader.read_exact(&mut header) {
-                        Ok(()) => {}
-                        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => continue,
+                    let framed = match reader.fill_buf() {
+                        Ok(bytes) => bytes
+                            .first()
+                            .is_some_and(|byte| *byte != b'{' && !byte.is_ascii_whitespace()),
                         Err(error) => {
                             tracing::warn!(%error, "instance listener read failed");
                             continue;
                         }
-                    }
-                    let length = u64::from_be_bytes(header);
-                    if length > MAX_MESSAGE_BYTES {
-                        tracing::warn!(
-                            length,
-                            limit = MAX_MESSAGE_BYTES,
-                            "instance listener rejected an oversized message"
-                        );
-                        continue;
-                    }
-                    let mut payload = vec![0u8; length as usize];
-                    if let Err(error) = reader.read_exact(&mut payload) {
-                        tracing::warn!(%error, "instance listener read failed");
-                        continue;
-                    }
-                    match serde_json::from_slice::<InstanceMessage>(&payload) {
-                        Ok(message) => handler(message),
-                        Err(error) => {
-                            tracing::warn!(%error, "instance listener received invalid JSON");
+                    };
+
+                    if framed {
+                        let mut header = [0u8; LENGTH_PREFIX_BYTES];
+                        match reader.read_exact(&mut header) {
+                            Ok(()) => {}
+                            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                                continue;
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "instance listener read failed");
+                                continue;
+                            }
+                        }
+                        let length = u64::from_be_bytes(header);
+                        if length > MAX_MESSAGE_BYTES {
+                            tracing::warn!(
+                                length,
+                                limit = MAX_MESSAGE_BYTES,
+                                "instance listener rejected an oversized message"
+                            );
+                            continue;
+                        }
+                        let mut payload = vec![0u8; length as usize];
+                        if let Err(error) = reader.read_exact(&mut payload) {
+                            tracing::warn!(%error, "instance listener read failed");
+                            continue;
+                        }
+                        match serde_json::from_slice::<InstanceMessage>(&payload) {
+                            Ok(message) => {
+                                // Acknowledge before invoking the handler so a slow handler does
+                                // not make the secondary retry and duplicate the launch.
+                                let _ = reader.get_mut().write_all(&[FORWARD_ACK]);
+                                handler(message);
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "instance listener received invalid JSON");
+                            }
+                        }
+                    } else {
+                        // alpha.2 and earlier wrote one JSON line, with no length prefix.
+                        let mut line = String::new();
+                        match reader
+                            .by_ref()
+                            .take(MAX_MESSAGE_BYTES + 1)
+                            .read_line(&mut line)
+                        {
+                            Ok(0) => continue,
+                            Ok(_) => {}
+                            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                                continue;
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "instance listener read failed");
+                                continue;
+                            }
+                        }
+                        if line.len() as u64 > MAX_MESSAGE_BYTES {
+                            tracing::warn!(
+                                length = line.len(),
+                                limit = MAX_MESSAGE_BYTES,
+                                "instance listener rejected an oversized message"
+                            );
+                            continue;
+                        }
+                        match serde_json::from_str::<InstanceMessage>(line.trim()) {
+                            Ok(message) => handler(message),
+                            Err(error) => {
+                                tracing::warn!(%error, "instance listener received invalid JSON");
+                            }
                         }
                     }
                 }
@@ -635,5 +727,120 @@ mod tests {
         symlink(&real, &link).expect("symlink");
         assert!(!is_private_existing_dir(&link));
         assert!(ensure_private_dir(&link).is_err());
+    }
+
+    #[test]
+    fn accepts_a_newline_framed_message_from_an_older_instance() {
+        let name = unique_name();
+        let (tx, rx) = mpsc::channel();
+        let primary = AppInstance::acquire(&name).expect("primary");
+        let _listener = primary
+            .listen(move |message| {
+                let _ = tx.send(message);
+            })
+            .expect("listener");
+
+        let message = InstanceMessage::new(vec!["legacy".to_owned()], "/tmp");
+        let mut client = LocalSocketStream::connect(socket_name(&name).expect("name"))
+            .expect("connect to the alpha.4 listener");
+        serde_json::to_writer(&mut client, &message).expect("write JSON");
+        client.write_all(b"\n").expect("write newline");
+        drop(client);
+
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).expect("message"),
+            message
+        );
+    }
+
+    #[test]
+    fn a_new_secondary_forwards_to_an_old_newline_primary() {
+        let name = unique_name();
+        let _primary = AppInstance::acquire(&name).expect("primary");
+        let listener = ListenerOptions::new()
+            .name(socket_name(&name).expect("name"))
+            .try_overwrite(true)
+            .create_sync()
+            .expect("old listener");
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            for connection in listener.incoming() {
+                let Ok(stream) = connection else {
+                    continue;
+                };
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                let _ = reader.read_line(&mut line);
+                if let Ok(message) = serde_json::from_str::<InstanceMessage>(line.trim()) {
+                    let _ = tx.send(message);
+                    break;
+                }
+            }
+        });
+
+        let secondary = AppInstance::acquire(&name).expect("secondary");
+        let message = InstanceMessage::new(vec!["fallback".to_owned()], "/tmp");
+        secondary.forward(&message).expect("forward");
+
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).expect("message"),
+            message
+        );
+        handle.join().expect("listener thread");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_secondary_forwards_once_to_an_old_framed_primary() {
+        let name = unique_name();
+        let _primary = AppInstance::acquire(&name).expect("primary");
+        let listener = ListenerOptions::new()
+            .name(socket_name(&name).expect("name"))
+            .try_overwrite(true)
+            .create_sync()
+            .expect("old listener");
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            for (index, connection) in listener.incoming().enumerate() {
+                let Ok(stream) = connection else {
+                    continue;
+                };
+                let mut reader = BufReader::new(stream);
+                if index == 0 {
+                    let mut header = [0u8; LENGTH_PREFIX_BYTES];
+                    if reader.read_exact(&mut header).is_ok() {
+                        let length = u64::from_be_bytes(header);
+                        if length <= MAX_MESSAGE_BYTES {
+                            let mut payload = vec![0u8; length as usize];
+                            if reader.read_exact(&mut payload).is_ok()
+                                && let Ok(message) =
+                                    serde_json::from_slice::<InstanceMessage>(&payload)
+                            {
+                                let _ = tx.send(message);
+                            }
+                        }
+                    }
+                } else {
+                    // The legacy retry is not a frame; consume its header and stop.
+                    let mut header = [0u8; LENGTH_PREFIX_BYTES];
+                    let _ = reader.read_exact(&mut header);
+                    break;
+                }
+            }
+        });
+
+        let secondary = AppInstance::acquire(&name).expect("secondary");
+        let message = InstanceMessage::new(vec!["compat".to_owned()], "/tmp");
+        secondary.forward(&message).expect("forward");
+
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).expect("message"),
+            message
+        );
+        assert!(
+            rx.recv_timeout(Duration::from_millis(200)).is_err(),
+            "the legacy retry must not duplicate the launch"
+        );
+        handle.join().expect("listener thread");
     }
 }

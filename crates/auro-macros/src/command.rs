@@ -183,12 +183,23 @@ fn result_ok_type(output: &ReturnType) -> syn::Result<Type> {
 }
 
 /// `State<T>` in an argument position is resolved from the app, not from the payload.
+///
+/// Only the Auro state handle qualifies: the unqualified `State` imported by `auro::prelude`, or
+/// an explicit `auro::State` / `auro::ipc::State` path. A payload type such as `payload::State<T>`
+/// is deserialized like any other argument.
 fn state_inner(ty: &Type) -> Option<&Type> {
     let Type::Path(path) = ty else {
         return None;
     };
-    let segment = path.path.segments.last()?;
+    let segments = &path.path.segments;
+    let segment = segments.last()?;
     if segment.ident != "State" {
+        return None;
+    }
+    let is_auro_state = segments.len() == 1
+        || (segments.len() == 2 && segments[0].ident == "auro")
+        || (segments.len() == 3 && segments[0].ident == "auro" && segments[1].ident == "ipc");
+    if !is_auro_state {
         return None;
     }
     let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
@@ -244,6 +255,39 @@ impl RenameAll {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_payload_type_named_state_is_not_managed_state() {
+        let item = quote! {
+            async fn takes_payload(value: payload::State<u64>) -> Result<u64, AuroError> {
+                Ok(value.0)
+            }
+        };
+        let expanded = expand(TokenStream::new(), item)
+            .expect("expands")
+            .to_string();
+        assert!(
+            expanded.contains("invoke . arg"),
+            "a foreign State type must be read from the payload: {expanded}"
+        );
+        assert!(
+            !expanded.contains("invoke . state"),
+            "a foreign State type must not resolve managed state: {expanded}"
+        );
+    }
+
+    #[test]
+    fn an_auro_state_path_is_managed_state() {
+        let item = quote! {
+            async fn managed(value: auro::ipc::State<Counter>) -> Result<u64, AuroError> {
+                Ok(value.0)
+            }
+        };
+        let expanded = expand(TokenStream::new(), item)
+            .expect("expands")
+            .to_string();
+        assert!(expanded.contains("invoke . state"), "{expanded}");
+    }
 
     #[test]
     fn rejects_two_arguments_that_rename_to_the_same_key() {
