@@ -6,7 +6,9 @@
 //! autostart; notifications, keychain, tray, global shortcuts and deep links land here as they are
 //! specced and implemented.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 
 #[cfg(not(target_os = "linux"))]
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
