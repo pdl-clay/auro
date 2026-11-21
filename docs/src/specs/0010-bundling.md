@@ -58,9 +58,10 @@ An unknown category or package format is `AuroError::Bundle`, not a bundler pani
 `[bundle] active = false` (`AuroError::Bundle`; bundling is opt-out, not a silent no-op), runs
 `cargo build --release`, resolves the executable name through `cargo metadata` (`default-run`, else
 the sole enabled binary target, including auto-discovered `src/bin/*.rs`; targets whose
-`required-features` are disabled are ignored, an explicit `--bin` in `[dev].build-args` wins, and
-several enabled binaries without `default-run` are an error naming only those candidates), then
-calls
+`required-features` are disabled are ignored, feature flags (`--features`, `-F`, `--all-features`,
+`--no-default-features`, including `package/feature` names) select the enabled set like Cargo, an
+explicit `--bin` in `[dev].build-args` wins, and several enabled binaries without `default-run` are
+an error naming only those candidates), then calls
 `auro_bundle::bundle_in(dir, &config, &binary, &target)`. The target root is
 `CARGO_TARGET_DIR` resolved like cargo (relative values under the invocation directory), or
 `<app>/target`; the bundler reads `<target>/release` and artifacts land under

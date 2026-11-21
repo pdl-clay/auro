@@ -91,6 +91,9 @@ pub enum UpdateError {
     #[error("install target `{}` is not a directory", .path.display())]
     InstallTargetNotDirectory { path: PathBuf },
 
+    #[error("install target `{}` cannot be written: {message}", .path.display())]
+    InstallTargetNotWritable { path: PathBuf, message: String },
+
     #[error("staged artifact `{}` is missing", .path.display())]
     StagedArtifactMissing { path: PathBuf },
 

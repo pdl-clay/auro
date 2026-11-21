@@ -37,8 +37,8 @@ entry to `auto-launch`. The platform modes are:
 | Windows | `CurrentUser` | `HKCU\...\Run` value |
 
 Auro owns the input contract: `app_name` must be one file-name component (no separators, control
-characters or `.`/`..`), and `app_path` must be absolute and exist (a file on Linux). On Linux Auro
-also writes the desktop entry itself: `$XDG_CONFIG_HOME/autostart` when that variable is an absolute
+characters or `.`/`..`), and `app_path` must be absolute and exist (on Linux, a file with at least
+one execute bit). On Linux Auro also writes the desktop entry itself: `$XDG_CONFIG_HOME/autostart` when that variable is an absolute
 path, otherwise `$HOME/.config/autostart`, with the executable and every argument quoted for a
 Desktop Entry `Exec` value (`%` -> `%%`, backslash/quote/backtick/`$` escaping, control characters
 rejected). Without that, a path with spaces split into different arguments, a path with `%f` or a

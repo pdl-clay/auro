@@ -30,6 +30,9 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     let dir = dir.canonicalize()?;
     let config = crate::project::load_checked(&dir)?;
     let patch = overrides_json(overrides, &serde_json::to_value(&config)?)?;
+    // Report a typo before building or spawning anything; an empty watcher silently disables the
+    // rebuild loop for the rest of the session.
+    let watch_paths = watch_paths(&dir, &config)?;
 
     if config.dev.hot {
         return run_hot(&dir, &config, patch.as_deref());
@@ -81,7 +84,7 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     })
     .map_err(|error| AuroError::Message(format!("cannot start the file watcher: {error}")))?;
 
-    for path in watch_paths(&dir, &config) {
+    for path in watch_paths {
         watcher
             .watch(&path, RecursiveMode::Recursive)
             .map_err(|error| {
@@ -173,14 +176,20 @@ pub fn run(dir: PathBuf, overrides: &[String]) -> Result<(), AuroError> {
     Ok(())
 }
 
-fn watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
-    config
-        .dev
-        .watch
-        .iter()
-        .map(|path| dir.join(path))
-        .filter(|path| path.exists())
-        .collect()
+fn watch_paths(dir: &Path, config: &Config) -> Result<Vec<PathBuf>, AuroError> {
+    let mut paths = Vec::with_capacity(config.dev.watch.len());
+    for configured in &config.dev.watch {
+        let path = dir.join(configured);
+        if !path.exists() {
+            return Err(AuroError::config(
+                dir.join(auro_core::config::CONFIG_FILE),
+                Some("dev.watch"),
+                format!("`{configured}` does not exist"),
+            ));
+        }
+        paths.push(path);
+    }
+    Ok(paths)
 }
 
 /// Whether a watcher event is a build artifact or an editor side file rather than a source edit.
@@ -243,8 +252,8 @@ fn outside_boundary_change(
 ///
 /// A project scaffolded before the four-crate layout, or one whose `[dev] watch` was not updated,
 /// would otherwise hot-patch without a save timestamp and lose the D6 measurement.
-fn hot_watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
-    let mut paths = watch_paths(dir, config);
+fn hot_watch_paths(dir: &Path, config: &Config) -> Result<Vec<PathBuf>, AuroError> {
+    let mut paths = watch_paths(dir, config)?;
     let mut add = |path: PathBuf| {
         if path.exists() && !paths.contains(&path) {
             paths.push(path);
@@ -255,7 +264,7 @@ fn hot_watch_paths(dir: &Path, config: &Config) -> Vec<PathBuf> {
         add(dir.join(member).join("Cargo.toml"));
     }
     add(dir.join("Cargo.toml"));
-    paths
+    Ok(paths)
 }
 
 /// Runs the hot-patch devserver. `dx` owns the app process; this loop forwards its output,
@@ -282,6 +291,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
         )));
     }
 
+    let watch_paths = hot_watch_paths(dir, config)?;
     let (events, received) = mpsc::channel::<DxEvent>();
     let child = spawn_devserver(&dx, dir, patch, &events)?;
     let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
@@ -325,7 +335,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
         let _ = saves.send((now, paths));
     })
     .map_err(|error| AuroError::Message(format!("cannot start the file watcher: {error}")))?;
-    for path in hot_watch_paths(dir, config) {
+    for path in watch_paths {
         watcher
             .watch(&path, RecursiveMode::Recursive)
             .map_err(|error| {
@@ -1394,6 +1404,31 @@ max-width = 1600
         );
         assert_eq!(ready_label("auro: running /tmp/app"), None);
         assert_eq!(ready_label(""), None);
+    }
+
+    #[test]
+    fn a_missing_watch_path_is_reported_before_startup() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("Auro.toml"),
+            r#"
+[app]
+identifier = "com.example.watch"
+product-name = "Watch"
+version = "0.1.0"
+
+[[app.windows]]
+label = "main"
+
+[dev]
+watch = ["srcc"]
+"#,
+        )
+        .expect("config");
+        let config = Config::load_from(&temp.path().join("Auro.toml")).expect("valid config");
+        let error = watch_paths(temp.path(), &config).expect_err("missing watch path");
+        assert!(error.to_string().contains("srcc"), "{error}");
+        assert!(error.to_string().contains("dev.watch"), "{error}");
     }
 
     #[test]

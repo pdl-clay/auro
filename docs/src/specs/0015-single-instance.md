@@ -94,15 +94,17 @@ message, and sends the decoded `InstanceMessage` to the app's `EventSender`.
 
 Two wire formats are accepted for one release: alpha.2's newline-delimited JSON and alpha.3's
 8-byte big-endian length followed by JSON. The first byte distinguishes them (`{` or whitespace is
-legacy JSON; a length prefix is binary). A framed message is acknowledged with one `0x06` byte
-after the message is queued. A single handler worker drains the queue, so a slow app handler cannot
-stall the listener, delay the acknowledgement, or cause the legacy retry to duplicate a launch. Each
-accepted connection is parsed on its own thread with a 5 s receive timeout where the platform
-supports one, so a sender that dies mid-frame cannot block later launches or their acknowledgement.
-Each accepted connection carries an accept-order sequence; the dispatcher delivers messages in that
-order, skips a sequence that does not complete within 2 s, and drops a late result rather than
-delivering it out of order. A secondary tries the frame first and, if no acknowledgement arrives
-within 2 s, reconnects and writes the alpha.2 line. This lets alpha.4 forward to an alpha.2
+legacy JSON; a length prefix is binary). A framed message is acknowledged with one `0x06` byte only
+after the ordered dispatcher accepts it, never when a parser merely queues it. A single handler
+worker drains accepted messages, so a slow app handler cannot stall the listener or cause the
+legacy retry to duplicate a launch.
+
+Each connection is parsed on its own thread with a 5 s receive timeout where the platform supports
+one. A sequence number is assigned only after the first byte arrives: an idle connection has no
+launch to order and cannot delay later ones. The dispatcher delivers in sequence, skips a missing
+sequence after 2 s, and rejects a late result without acknowledging it; the sender then falls back
+to the alpha.2 line, which is delivered once. A secondary tries the frame first and, if no
+acknowledgement arrives within 3 s, reconnects and writes the alpha.2 line. This lets alpha.4 forward to an alpha.2
 primary (line fallback) and to an alpha.3 primary (frame accepted, legacy retry discarded), while
 alpha.2 and alpha.3 secondaries can forward to alpha.4. Windows named pipes expose no receive
 timeout, so the Windows secondary uses the legacy line directly.

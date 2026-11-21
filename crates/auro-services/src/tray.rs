@@ -24,6 +24,9 @@ pub enum TrayError {
 
     #[error("invalid tray icon: {0}")]
     InvalidIcon(&'static str),
+
+    #[error("duplicate tray menu id `{0}`")]
+    DuplicateMenuId(String),
 }
 
 /// Raw RGBA pixels for a tray icon.
@@ -290,7 +293,15 @@ impl Tray {
     }
 
     /// Replaces the context menu.
+    ///
+    /// Item ids are the callback contract and must be unique.
     pub fn set_menu(&self, items: &[TrayMenuItem]) -> Result<(), TrayError> {
+        let mut ids = std::collections::HashSet::with_capacity(items.len());
+        for item in items {
+            if !ids.insert(item.id.as_str()) {
+                return Err(TrayError::DuplicateMenuId(item.id.clone()));
+            }
+        }
         self.backend.set_menu(items.to_vec())
     }
 
@@ -472,6 +483,24 @@ mod tests {
         tray.on_menu_event(move |id| tx.send(id.to_owned()).expect("receiver"));
         backend.fire_menu("open");
         assert_eq!(rx.recv().expect("event"), "open");
+    }
+
+    #[test]
+    fn duplicate_menu_ids_are_rejected() {
+        let backend = RecordingBackend::new();
+        let tray = Tray::with_backend(backend.clone());
+        let error = tray
+            .set_menu(&[
+                TrayMenuItem::new("same", "First"),
+                TrayMenuItem::new("same", "Second"),
+            ])
+            .expect_err("duplicate id");
+        assert!(matches!(&error, TrayError::DuplicateMenuId(id) if id == "same"));
+        assert!(backend.menu().is_empty(), "the menu must not be replaced");
+
+        // The id set can be reused after a failed update.
+        tray.set_menu(&[TrayMenuItem::new("same", "Only")])
+            .expect("unique ids");
     }
 
     #[test]

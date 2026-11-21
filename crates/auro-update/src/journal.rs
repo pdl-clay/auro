@@ -74,6 +74,7 @@ fn preflight_target(kind: ApplyKind, target: Option<&Path>) -> Result<(), Update
                     path: target.to_path_buf(),
                 });
             }
+            preflight_writable_parent(target)?;
         }
         ApplyKind::MacApp => {
             let target = target.ok_or(UpdateError::ApplyTargetMissing { kind })?;
@@ -87,9 +88,26 @@ fn preflight_target(kind: ApplyKind, target: Option<&Path>) -> Result<(), Update
                     path: target.to_path_buf(),
                 });
             }
+            preflight_writable_parent(target)?;
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn preflight_writable_parent(target: &Path) -> Result<(), UpdateError> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| UpdateError::InstallTargetNotWritable {
+            path: target.to_path_buf(),
+            message: "has no parent directory".to_owned(),
+        })?;
+    tempfile::NamedTempFile::new_in(parent).map_err(|error| {
+        UpdateError::InstallTargetNotWritable {
+            path: target.to_path_buf(),
+            message: error.to_string(),
+        }
+    })?;
     Ok(())
 }
 
@@ -1565,6 +1583,60 @@ mod tests {
                 relaunch(),
             ),
             Err(UpdateError::UnsupportedInstaller { .. })
+        ));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn preflight_rejects_a_read_only_target_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let directory = temp.path().join("install");
+        std::fs::create_dir(&directory).expect("install dir");
+        let (kind, target, artifact) = if cfg!(target_os = "macos") {
+            let target = directory.join("App.app");
+            std::fs::create_dir(&target).expect("app bundle");
+            (ApplyKind::MacApp, target, temp.path().join("new.zip"))
+        } else {
+            let target = directory.join("App.AppImage");
+            std::fs::write(&target, b"old appimage").expect("target");
+            (
+                ApplyKind::AppImage,
+                target,
+                temp.path().join("new.AppImage"),
+            )
+        };
+        std::fs::write(&artifact, b"new artifact").expect("artifact");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            crate::current_platform(),
+            "https://example.test/App",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o555))
+            .expect("read-only install dir");
+        let result = ApplyJournal::create_for_apply(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            ApplyPlan::new(kind, &artifact, Some(target), manifest, key.public_key()),
+            relaunch(),
+        );
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755))
+            .expect("restore install dir");
+
+        assert!(matches!(
+            result,
+            Err(UpdateError::InstallTargetNotWritable { .. })
         ));
     }
 
