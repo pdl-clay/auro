@@ -423,7 +423,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "auro"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "auro-core",
  "auro-ipc",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "auro-core"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "auro-ipc",
  "interprocess",
@@ -449,11 +449,12 @@ dependencies = [
  "tokio",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
+ "widestring",
 ]
 
 [[package]]
 name = "auro-ipc"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "schemars",
  "serde",
@@ -464,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "auro-macros"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -473,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "auro-perms"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "globset",
  "thiserror 2.0.21",
@@ -481,7 +482,7 @@ dependencies = [
 
 [[package]]
 name = "auro-ui"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "auro-core",
  "gpui",

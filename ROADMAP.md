@@ -434,6 +434,11 @@ the two fixes from #64-#65 (per-connection forwarding parser with timeouts, and
 **Alpha.7 published (2026-11-21):** all eleven crates are `0.1.0-alpha.7` on crates.io, carrying
 the two fixes from #67-#68 (ordered forwarding dispatch and explicit `--bin` resolution).
 
+**Alpha.8 published (2026-11-21):** all eleven crates are `0.1.0-alpha.8` on crates.io, carrying
+the twenty fixes from #70-#79 and #81-#90 (forwarding sequence and worker pool, dev watch and
+build-arg resolution, update preflight and macOS extraction budgets, symlink-safe autostart,
+deep-link and signing writes, Windows pipe DACL, and typed window config errors).
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 
