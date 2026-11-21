@@ -788,7 +788,12 @@ mod tests {
         let two = AppInstance::acquire(&name).expect("second secondary");
         two.forward(&second).expect("second forward");
 
-        std::thread::sleep(Duration::from_millis(1500));
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while seen.lock().expect("seen").len() < 2 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        // Give a would-be legacy duplicate time to arrive before counting.
+        std::thread::sleep(Duration::from_millis(600));
         let seen = seen.lock().expect("seen");
         assert_eq!(
             seen.len(),
