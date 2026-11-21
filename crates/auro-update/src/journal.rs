@@ -1586,7 +1586,7 @@ mod tests {
         ));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn preflight_rejects_a_read_only_target_directory() {
         use std::os::unix::fs::PermissionsExt as _;
@@ -1597,15 +1597,25 @@ mod tests {
         let key = SigningKey::generate();
         let directory = temp.path().join("install");
         std::fs::create_dir(&directory).expect("install dir");
-        let artifact = temp.path().join("new.AppImage");
-        std::fs::write(&artifact, b"new appimage").expect("artifact");
-        let target = directory.join("App.AppImage");
-        std::fs::write(&target, b"old appimage").expect("target");
+        let (kind, target, artifact) = if cfg!(target_os = "macos") {
+            let target = directory.join("App.app");
+            std::fs::create_dir(&target).expect("app bundle");
+            (ApplyKind::MacApp, target, temp.path().join("new.zip"))
+        } else {
+            let target = directory.join("App.AppImage");
+            std::fs::write(&target, b"old appimage").expect("target");
+            (
+                ApplyKind::AppImage,
+                target,
+                temp.path().join("new.AppImage"),
+            )
+        };
+        std::fs::write(&artifact, b"new artifact").expect("artifact");
         let manifest = Manifest::for_artifact(
             &artifact,
             "1.2.3",
             crate::current_platform(),
-            "https://example.test/App.AppImage",
+            "https://example.test/App",
             "",
             "2026-11-18T00:00:00Z",
         )
@@ -1618,13 +1628,7 @@ mod tests {
         let result = ApplyJournal::create_for_apply(
             temp.path().join("apply.json"),
             "1.2.3",
-            ApplyPlan::new(
-                ApplyKind::AppImage,
-                &artifact,
-                Some(target),
-                manifest,
-                key.public_key(),
-            ),
+            ApplyPlan::new(kind, &artifact, Some(target), manifest, key.public_key()),
             relaunch(),
         );
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755))
