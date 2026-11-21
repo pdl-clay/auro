@@ -10,8 +10,6 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
-## [0.1.0-alpha.7] - 2026-11-21
-
 ### Fixed
 
 - `auro-core`: a frame outside the ordering window is no longer acknowledged; the dispatcher owns
@@ -30,6 +28,11 @@ breaking change bumps the minor version; the patch version is for compatible fix
 - `auro-services`: `Tray::set_menu` rejects duplicate item ids (#78).
 - `auro`: `always-on-top = true` is a typed config error under GPUI 0.2; `max-*` and `theme` are
   documented as initial-size/toolkit-owned rather than silently applied (#79).
+
+## [0.1.0-alpha.7] - 2026-11-21
+
+### Fixed
+
 - `auro-core`: forwarding connections are parsed concurrently but dispatched in accept order; an
   earlier slow/stalled connection is skipped after 2 s and a late result is dropped, so launches
   cannot overtake each other (#67).
