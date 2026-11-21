@@ -6,11 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0. Before 1.0, a
 breaking change bumps the minor version; the patch version is for compatible fixes.
 
-**`0.1.0-alpha.4` is published on crates.io.** No stable release has been tagged.
+**`0.1.0-alpha.5` is published on crates.io.** No stable release has been tagged.
 
 ## [Unreleased]
 
-## [0.1.0-alpha.4] - 2026-11-20
+## [0.1.0-alpha.5] - 2026-11-21
 
 ### Fixed
 
@@ -25,6 +25,11 @@ breaking change bumps the minor version; the patch version is for compatible fix
   matching package manager is missing (#61).
 - `auro-macros`: `auro::prelude::State<T>` is recognized as managed state alongside
   `auro::State`/`auro::ipc::State` (#62).
+
+## [0.1.0-alpha.4] - 2026-11-20
+
+### Fixed
+
 - `auro-core`: single-instance forwarding accepts both the alpha.2 newline format and the alpha.3
   length frame. A framed send waits for an acknowledgement and falls back to the alpha.2 line, so
   adjacent alphas can forward launches (#49).

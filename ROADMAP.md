@@ -423,6 +423,10 @@ the eight follow-up fixes from #49-#56 (cross-alpha forwarding, complete updater
 `--config` values, `cargo metadata` binary resolution, XDG autostart, `State` path classification
 and unconstrained schema arguments).
 
+**Alpha.5 published (2026-11-21):** all eleven crates are `0.1.0-alpha.5` on crates.io, carrying
+the five fixes from #58-#62 (non-blocking instance handler, nullable override inference, AppImage
+preflight, package-manager availability and `auro::prelude::State`).
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 
