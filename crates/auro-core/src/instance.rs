@@ -40,9 +40,6 @@ const LENGTH_PREFIX_BYTES: usize = 8;
 const FORWARD_ACK: u8 = 0x06;
 
 /// How long a secondary waits for the primary's acknowledgement before falling back.
-///
-/// Longer than [`ORDER_PATIENCE`] so a message ordered behind a skipped connection still
-/// receives its acknowledgement before the sender retries.
 const ACK_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// How long a parser waits for the ordered dispatcher to accept or reject its message.
@@ -52,12 +49,20 @@ const DECISION_TIMEOUT: Duration = Duration::from_secs(5);
 /// the listener forever; platforms without receive timeouts fall back to a connection thread.
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// How long the ordered dispatcher waits for an earlier connection before skipping it.
+/// How long the dispatcher waits for an earlier complete message before skipping it.
 ///
-/// Connections are parsed concurrently so a stalled sender cannot block the listener, but their
-/// messages are delivered in accept order. A parser that does not finish within this window is
-/// treated as failed; a late message is dropped rather than delivered out of order.
+/// A sequence is assigned only after a complete message has been parsed, so this window only
+/// covers thread scheduling between assignment and delivery. A stalled sender never holds one.
 const ORDER_PATIENCE: Duration = Duration::from_secs(2);
+
+/// Maximum number of connections parsed concurrently.
+///
+/// A local process can open connections faster than they time out; a fixed worker pool bounds
+/// threads and memory without letting one client starve the accept loop.
+const CONNECTION_WORKERS: usize = 8;
+
+/// Connections waiting for a parser worker. Excess connections are accepted and dropped.
+const CONNECTION_QUEUE: usize = 16;
 
 /// The message a secondary instance sends to the primary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -236,6 +241,30 @@ impl AppInstance {
             // private runtime directory; mode 0600 also protects the `/tmp` fallback.
             options = options.mode(0o600);
         }
+        #[cfg(windows)]
+        {
+            use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
+            use interprocess::os::windows::security_descriptor::SecurityDescriptor;
+            use widestring::U16CString;
+
+            // A named pipe is machine-global. Do not inherit the token's default DACL: allow
+            // only the creating user (OW), SYSTEM and Administrators to connect (#89).
+            let sddl = U16CString::from_str("D:P(A;;GA;;;OW)(A;;GA;;;SY)(A;;GA;;;BA)").map_err(
+                |error| {
+                    AuroError::instance(
+                        &self.name,
+                        format!("cannot build the instance pipe ACL: {error}"),
+                    )
+                },
+            )?;
+            let descriptor = SecurityDescriptor::deserialize(sddl.as_ucstr()).map_err(|error| {
+                AuroError::instance(
+                    &self.name,
+                    format!("cannot build the instance pipe ACL: {error}"),
+                )
+            })?;
+            options = options.security_descriptor(descriptor);
+        }
         let listener = options.create_sync().map_err(|error| {
             AuroError::instance(
                 &self.name,
@@ -243,10 +272,47 @@ impl AppInstance {
             )
         })?;
         let thread_name = self.name.clone();
+        let (outcomes, received) = std::sync::mpsc::channel::<(u64, ConnectionOutcome)>();
+        // Parsers run on a fixed worker pool: a local process cannot turn every accepted
+        // connection into an OS thread. A slow handler stays isolated from this pool.
+        let sequence = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let (connections, queued) =
+            std::sync::mpsc::sync_channel::<LocalSocketStream>(CONNECTION_QUEUE);
+        let queued = std::sync::Arc::new(std::sync::Mutex::new(queued));
+        let mut connection_workers = Vec::with_capacity(CONNECTION_WORKERS);
+        for _ in 0..CONNECTION_WORKERS {
+            let outcomes = outcomes.clone();
+            let sequence = std::sync::Arc::clone(&sequence);
+            let queued = std::sync::Arc::clone(&queued);
+            let worker = thread::Builder::new()
+                .name("auro-instance-message".to_owned())
+                .spawn(move || {
+                    loop {
+                        let stream = {
+                            let receiver = queued.lock().expect("instance connection queue");
+                            match receiver.recv() {
+                                Ok(stream) => stream,
+                                Err(_) => return,
+                            }
+                        };
+                        handle_connection(
+                            std::sync::Arc::clone(&sequence),
+                            stream,
+                            outcomes.clone(),
+                        );
+                    }
+                })
+                .map_err(|error| {
+                    AuroError::instance(
+                        &self.name,
+                        format!("cannot start an instance connection worker: {error}"),
+                    )
+                })?;
+            connection_workers.push(worker);
+        }
         // A slow app handler must not stall the listener, and a frame that misses the ordering
         // window must not be acknowledged and then dropped. The ordered dispatcher owns the
         // accept/reject decision; only an accepted frame is acknowledged.
-        let (outcomes, received) = std::sync::mpsc::channel::<(u64, ConnectionOutcome)>();
         let (messages, received_messages) = std::sync::mpsc::channel::<InstanceMessage>();
         let worker = thread::Builder::new()
             .name(format!("auro-instance-handler-{thread_name}"))
@@ -284,7 +350,6 @@ impl AppInstance {
         let thread = thread::Builder::new()
             .name(format!("auro-instance-{thread_name}"))
             .spawn(move || {
-                let sequence = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
                 for connection in listener.incoming() {
                     let stream = match connection {
                         Ok(stream) => stream,
@@ -293,16 +358,16 @@ impl AppInstance {
                             continue;
                         }
                     };
-                    // A stalled sender must not block the accept loop. Each connection gets its
-                    // own parser thread, but a sequence is assigned only once the first byte
-                    // arrives; an idle connection has no launch to order.
-                    let outcomes = outcomes.clone();
-                    let sequence = std::sync::Arc::clone(&sequence);
-                    if let Err(error) = thread::Builder::new()
-                        .name("auro-instance-message".to_owned())
-                        .spawn(move || handle_connection(sequence, stream, outcomes))
-                    {
-                        tracing::warn!(%error, "cannot start an instance connection handler");
+                    // The queue is bounded. When every parser is busy, close the excess
+                    // connection instead of creating an unbounded thread or stalling accepts.
+                    match connections.try_send(stream) {
+                        Ok(()) => {}
+                        Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                            tracing::warn!(
+                                "instance listener at connection capacity; dropping a client"
+                            );
+                        }
+                        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
                     }
                 }
             })
@@ -318,6 +383,7 @@ impl AppInstance {
             _thread: thread,
             _dispatcher: dispatcher,
             _worker: worker,
+            _connection_workers: connection_workers,
         })
     }
 }
@@ -347,18 +413,22 @@ fn handle_connection(
             return;
         }
     };
-    // An idle connection has not sent a byte; it has no launch to order, so it must not consume
-    // a sequence (issue #76).
-    let sequence = sequence_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    // An incomplete frame has no launch to order. A client can send a length header and stop;
+    // assigning a sequence before the payload arrives would let it reserve a slot for
+    // CONNECTION_TIMEOUT and delay a later launch by ORDER_PATIENCE (#81).
     let message = if framed {
         read_framed(&mut reader)
     } else {
         read_legacy(&mut reader)
     };
+    let Some(message) = message else {
+        return;
+    };
+    let sequence = sequence_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let (decision, decided) = std::sync::mpsc::channel();
-    let acknowledge = framed && message.is_some();
+    let acknowledge = framed;
     let outcome = ConnectionOutcome {
-        message,
+        message: Some(message),
         framed,
         decision,
     };
@@ -543,6 +613,7 @@ pub struct InstanceListener {
     _thread: JoinHandle<()>,
     _dispatcher: JoinHandle<()>,
     _worker: JoinHandle<()>,
+    _connection_workers: Vec<JoinHandle<()>>,
 }
 
 impl Drop for AppInstance {
@@ -1118,7 +1189,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stalled_client_does_not_block_or_duplicate_a_later_launch() {
+    fn an_incomplete_frame_does_not_delay_or_duplicate_a_later_launch() {
         let name = unique_name();
         let (tx, rx) = mpsc::channel();
         let primary = AppInstance::acquire(&name).expect("primary");
@@ -1138,11 +1209,17 @@ mod tests {
 
         let secondary = AppInstance::acquire(&name).expect("secondary");
         let message = InstanceMessage::new(vec!["later".to_owned()], "/tmp");
+        let started = std::time::Instant::now();
         secondary.forward(&message).expect("forward");
 
         assert_eq!(
             rx.recv_timeout(Duration::from_secs(5)).expect("message"),
             message
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(1500),
+            "an incomplete frame delayed the next launch by {:?}",
+            started.elapsed()
         );
         drop(stalled);
         std::thread::sleep(Duration::from_millis(100));

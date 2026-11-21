@@ -25,7 +25,7 @@ pub enum DeepLinkError {
 pub struct DeepLink {
     /// The lowercased scheme.
     pub scheme: String,
-    /// The percent-decoded host.
+    /// The percent-decoded host, validated as a DNS-style label sequence or IPv6 literal.
     pub host: String,
     /// The percent-decoded path segments.
     pub segments: Vec<String>,
@@ -141,7 +141,7 @@ fn parse(raw: &str, schemes: &[String]) -> Option<DeepLink> {
     };
     let mut parts = path_part.split('/');
     let host = percent_decode(parts.next()?)?;
-    if host.is_empty() {
+    if !valid_host(&host) {
         return None;
     }
 
@@ -196,6 +196,33 @@ fn percent_decode(raw: &str) -> Option<String> {
     (!decoded.chars().any(char::is_control)).then_some(decoded)
 }
 
+/// Whether a percent-decoded deep-link host is a single DNS-style label sequence or IPv6 literal.
+///
+/// Deep links are external input. A host that carries path separators, traversal components or
+/// non-host characters would let an app that uses it as a path or file key escape its directory
+/// (#85). Unicode IDNs are rejected; callers can percent-encode/punycode at the boundary.
+fn valid_host(host: &str) -> bool {
+    if let Some(inner) = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+    {
+        return !inner.is_empty()
+            && inner
+                .chars()
+                .all(|ch| ch.is_ascii_hexdigit() || matches!(ch, ':' | '.'));
+    }
+    let host = host.strip_suffix('.').unwrap_or(host);
+    !host.is_empty()
+        && !host.starts_with('.')
+        && !host.contains("..")
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+        })
+}
+
 #[cfg(windows)]
 fn register_windows(scheme: &str, executable: &std::path::Path) -> Result<(), DeepLinkError> {
     let base = format!(r"HKCU\Software\Classes\{scheme}");
@@ -237,32 +264,73 @@ fn register_linux(scheme: &str, executable: &std::path::Path) -> Result<(), Deep
     let applications = data_home.join("applications");
     std::fs::create_dir_all(&applications)
         .map_err(|error| DeepLinkError::Register(error.to_string()))?;
-
-    let desktop_name = format!("auro-{scheme}.desktop");
-    let desktop_path = applications.join(&desktop_name);
-    let entry = linux_desktop_entry(scheme, executable)?;
-    std::fs::write(&desktop_path, entry)
-        .map_err(|error| DeepLinkError::Register(error.to_string()))?;
-
-    finish_linux_registration(
-        &desktop_path,
-        &desktop_name,
+    install_linux_registration(
+        &applications,
         scheme,
+        executable,
         std::path::Path::new("xdg-mime"),
     )
 }
 
 #[cfg(target_os = "linux")]
+fn install_linux_registration(
+    applications: &std::path::Path,
+    scheme: &str,
+    executable: &std::path::Path,
+    program: &std::path::Path,
+) -> Result<(), DeepLinkError> {
+    let desktop_name = format!("auro-{scheme}.desktop");
+    let desktop_path = applications.join(&desktop_name);
+
+    // Keep the previous handler so a failed rewrite can put it back. A symlink is rejected
+    // rather than read or followed (#84, #87).
+    let previous = match std::fs::symlink_metadata(&desktop_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(DeepLinkError::Register(format!(
+                "`{}` is a symlink",
+                desktop_path.display()
+            )));
+        }
+        Ok(metadata) if metadata.is_file() => Some(
+            std::fs::read_to_string(&desktop_path)
+                .map_err(|error| DeepLinkError::Register(error.to_string()))?,
+        ),
+        Ok(_) => {
+            return Err(DeepLinkError::Register(format!(
+                "`{}` is not a regular file",
+                desktop_path.display()
+            )));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(DeepLinkError::Register(error.to_string())),
+    };
+
+    let entry = linux_desktop_entry(scheme, executable)?;
+    crate::desktop_entry::write_atomic(&desktop_path, &entry)
+        .map_err(|error| DeepLinkError::Register(error.to_string()))?;
+
+    if let Err(error) = finish_linux_registration(&desktop_name, scheme, program) {
+        let restored = match previous {
+            Some(previous) => crate::desktop_entry::write_atomic(&desktop_path, &previous)
+                .map_err(|restore| restore.to_string()),
+            None => std::fs::remove_file(&desktop_path).map_err(|restore| restore.to_string()),
+        };
+        if let Err(restore) = restored {
+            return Err(DeepLinkError::Register(format!(
+                "{error}; restoring the previous handler failed: {restore}"
+            )));
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
 fn finish_linux_registration(
-    desktop_path: &std::path::Path,
     desktop_name: &str,
     scheme: &str,
     program: &std::path::Path,
 ) -> Result<(), DeepLinkError> {
-    let fail = |error: DeepLinkError| {
-        let _ = std::fs::remove_file(desktop_path);
-        error
-    };
     let output = std::process::Command::new(program)
         .args([
             "default",
@@ -270,11 +338,11 @@ fn finish_linux_registration(
             &format!("x-scheme-handler/{scheme}"),
         ])
         .output()
-        .map_err(|error| fail(DeepLinkError::Register(error.to_string())))?;
+        .map_err(|error| DeepLinkError::Register(error.to_string()))?;
     if !output.status.success() {
-        return Err(fail(DeepLinkError::Register(
+        return Err(DeepLinkError::Register(
             String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        )));
+        ));
     }
     Ok(())
 }
@@ -361,23 +429,91 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rejects_a_traversal_host() {
+        let links = AppLinks::new(vec!["auro".to_owned()]);
+        for raw in [
+            "auro://..%2F..%2Fetc%2Fpasswd",
+            "auro://..",
+            "auro://.",
+            "auro://example..com",
+            "auro://a%5Cb",
+        ] {
+            links.push(raw);
+        }
+        assert!(links.drain().is_empty());
+    }
+
+    #[test]
+    fn accepts_dns_and_ipv6_hosts() {
+        let links = AppLinks::new(vec!["auro".to_owned()]);
+        links.push("auro://example.com/path");
+        links.push("auro://example.com./path");
+        links.push("auro://[2001:db8::1]/path");
+        assert_eq!(links.drain().len(), 3);
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
-    fn failed_xdg_mime_removes_the_desktop_entry() {
+    fn failed_xdg_mime_removes_a_new_entry() {
         let temp = tempfile::tempdir().expect("tempdir");
         let desktop = temp.path().join("auro-probe.desktop");
-        std::fs::write(&desktop, b"[Desktop Entry]\n").expect("desktop");
-        let error = finish_linux_registration(
-            &desktop,
-            "auro-probe.desktop",
+        let error = install_linux_registration(
+            temp.path(),
             "probe",
+            std::path::Path::new("/tmp/app"),
             std::path::Path::new("/definitely/missing/xdg-mime"),
         )
         .expect_err("missing xdg-mime");
         assert!(matches!(error, DeepLinkError::Register(_)));
         assert!(
             !desktop.exists(),
-            "a failed registration must not leave a handler"
+            "a failed first registration must not leave a handler"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn failed_reregistration_restores_the_previous_handler() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let desktop = temp.path().join("auro-probe.desktop");
+        std::fs::write(&desktop, b"previous handler").expect("previous");
+        install_linux_registration(
+            temp.path(),
+            "probe",
+            std::path::Path::new("/tmp/app"),
+            std::path::Path::new("/definitely/missing/xdg-mime"),
+        )
+        .expect_err("missing xdg-mime");
+        assert_eq!(
+            std::fs::read(&desktop).expect("desktop"),
+            b"previous handler"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn registration_rejects_a_symlinked_desktop_entry() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let victim = temp.path().join("victim");
+        std::fs::write(&victim, b"SAFE").expect("victim");
+        let desktop = temp.path().join("auro-probe.desktop");
+        symlink(&victim, &desktop).expect("symlink");
+        install_linux_registration(
+            temp.path(),
+            "probe",
+            std::path::Path::new("/tmp/app"),
+            std::path::Path::new("/definitely/missing/xdg-mime"),
+        )
+        .expect_err("symlinked handler");
+        assert_eq!(std::fs::read(&victim).expect("victim"), b"SAFE");
+        assert!(
+            std::fs::symlink_metadata(&desktop)
+                .expect("desktop")
+                .file_type()
+                .is_symlink()
         );
     }
 }

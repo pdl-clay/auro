@@ -57,6 +57,8 @@ covers the manifest payload, not the artifact directly.
 
 Key files and certificates are outside the app source tree and CI secrets. `auro bundle` works
 unsigned when no identity is configured; the macOS smoke workflow exercises exactly that path.
+`SigningKey::save_to` writes a sibling temporary file with mode `0600` and renames it into place, so
+a symlink at the destination is replaced instead of receiving the seed.
 
 ## Interfaces
 

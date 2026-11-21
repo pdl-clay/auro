@@ -96,7 +96,14 @@ fn preflight_target(kind: ApplyKind, target: Option<&Path>) -> Result<(), Update
 }
 
 fn preflight_writable_parent(target: &Path) -> Result<(), UpdateError> {
-    let parent = target
+    // The installers resolve symlinks before creating their backup and temporary file. Check the
+    // real parent, not the (possibly writable) directory that holds the link (#83).
+    let resolved =
+        std::fs::canonicalize(target).map_err(|error| UpdateError::InstallTargetNotWritable {
+            path: target.to_path_buf(),
+            message: format!("cannot resolve the target: {error}"),
+        })?;
+    let parent = resolved
         .parent()
         .ok_or_else(|| UpdateError::InstallTargetNotWritable {
             path: target.to_path_buf(),
@@ -1633,6 +1640,60 @@ mod tests {
         );
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755))
             .expect("restore install dir");
+
+        assert!(matches!(
+            result,
+            Err(UpdateError::InstallTargetNotWritable { .. })
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn preflight_rejects_a_writable_symlink_to_a_read_only_target() {
+        use std::os::unix::fs::{PermissionsExt as _, symlink};
+
+        use auro_sign::SigningKey;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = SigningKey::generate();
+        let readonly = temp.path().join("readonly");
+        let writable = temp.path().join("writable");
+        std::fs::create_dir(&readonly).expect("readonly dir");
+        std::fs::create_dir(&writable).expect("writable dir");
+        let real = readonly.join("Real.AppImage");
+        std::fs::write(&real, b"old appimage").expect("real target");
+        let target = writable.join("App.AppImage");
+        symlink(&real, &target).expect("target symlink");
+        let artifact = temp.path().join("new.AppImage");
+        std::fs::write(&artifact, b"new appimage").expect("artifact");
+        let manifest = Manifest::for_artifact(
+            &artifact,
+            "1.2.3",
+            crate::current_platform(),
+            "https://example.test/App.AppImage",
+            "",
+            "2026-11-18T00:00:00Z",
+        )
+        .expect("manifest")
+        .sign(&key)
+        .expect("sign");
+
+        std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o555))
+            .expect("read-only real dir");
+        let result = ApplyJournal::create_for_apply(
+            temp.path().join("apply.json"),
+            "1.2.3",
+            ApplyPlan::new(
+                ApplyKind::AppImage,
+                &artifact,
+                Some(target),
+                manifest,
+                key.public_key(),
+            ),
+            relaunch(),
+        );
+        std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o755))
+            .expect("restore real dir");
 
         assert!(matches!(
             result,

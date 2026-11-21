@@ -136,7 +136,10 @@ pub enum UpdateError {
         message: String,
     },
 
-    #[error("archive entry `{}` escapes the extraction directory through a symlink", .path.display())]
+    #[error(
+        "update archive `{}` is unsafe: an entry escapes the extraction directory or exceeds the extraction budget",
+        .path.display()
+    )]
     UnsafeArchive { path: PathBuf },
 
     #[error("update journal `{}` is missing", .path.display())]

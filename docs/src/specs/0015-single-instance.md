@@ -99,8 +99,10 @@ after the ordered dispatcher accepts it, never when a parser merely queues it. A
 worker drains accepted messages, so a slow app handler cannot stall the listener or cause the
 legacy retry to duplicate a launch.
 
-Each connection is parsed on its own thread with a 5 s receive timeout where the platform supports
-one. A sequence number is assigned only after the first byte arrives: an idle connection has no
+Each connection is parsed by a fixed pool of eight workers with a 5 s receive timeout where the
+platform supports one; the accept loop queues at most sixteen connections and closes excess ones
+with a warning, so a local client cannot create an unbounded number of threads. A sequence number
+is assigned only after a complete message has been parsed: an idle or partial connection has no
 launch to order and cannot delay later ones. The dispatcher delivers in sequence, skips a missing
 sequence after 2 s, and rejects a late result without acknowledging it; the sender then falls back
 to the alpha.2 line, which is delivered once. A secondary tries the frame first and, if no
@@ -119,9 +121,11 @@ could otherwise inject messages. `ListenerOptions::try_overwrite` handles a stal
 file lock remains the authority that prevents two primaries. Invalid JSON is logged and never
 invokes the app handler.
 
-On Windows the named pipe is machine-global rather than behind a per-user directory; isolation
-relies on the pipe's default ACL, and multi-user behavior has not been verified on a real desktop
-session. The forwarded payload is arguments and a working directory, never secrets by contract.
+On Windows the named pipe is machine-global rather than behind a per-user directory. The listener
+sets an explicit DACL that allows only the creating user (`OW`), SYSTEM and Administrators to
+connect; it does not inherit the process token's default pipe ACL. Multi-user behavior has not been
+verified on a real desktop session. The forwarded payload is arguments and a working directory,
+never secrets by contract.
 
 *Rejected:* a shared-memory or file-drop protocol. It needs polling or a second notification channel
 and is harder to test than a local socket. *Rejected:* an abstract socket, because peer credentials

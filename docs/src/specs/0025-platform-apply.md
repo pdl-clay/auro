@@ -57,11 +57,13 @@ installer again here; only the verified `StagedUpdate` is accepted.
 
 ### D2 - macOS swaps the `.app` directory from a zip
 
-`MacAppInstaller` accepts a staged `.zip` with exactly one top-level `.app`. It extracts with
-`zip`'s enclosed-path extractor and then walks the extracted tree, rejecting any symlink whose
-canonical target escapes the extraction directory. Nested symlinks are allowed when they stay
-inside the bundle. It renames the old bundle to a hidden backup beside it, renames the new bundle
-into place, and returns `MacAppReceipt`.
+`MacAppInstaller` accepts a staged `.zip` with exactly one top-level `.app`. It checks the declared
+expanded size and entry count before extraction (4 GiB and 100,000 entries), then extracts with
+`zip`'s enclosed-path extractor and walks the extracted tree, rejecting any symlink whose canonical
+target escapes the extraction directory. Nested symlinks are allowed when they stay inside the
+bundle. It renames the old bundle to a hidden backup beside it, renames the new bundle into place,
+and returns `MacAppReceipt`. The budget bounds a signed artifact that compresses well but expands
+past the available disk; exceeding it is `UnsafeArchive`.
 
 The extraction directory is created beside the target, so the final rename stays on one filesystem.
 If the new rename fails, the backup is renamed back. The receipt follows the conservative
@@ -187,10 +189,12 @@ The snippet is an intended call shape, not an app that exists yet.
     Windows installer is `InstallerFailed { code: None }` (`reports_a_terminated_installer`), and a
     macOS rollback with a missing backup reports `RollbackBackupMissing`
     (`rollback_reports_a_missing_backup`).
-13. `cargo fmt --all --check`,
-   `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-   `cargo test --workspace --locked`, `cargo test -p auro-update --locked`,
-   `cargo check -p auro --features updater --locked`, and `mdbook build docs` pass.
+13. An archive whose declared expansion exceeds 4 GiB or 100,000 entries is rejected as
+    `UnsafeArchive` (`rejects_archives_over_the_expansion_budget`).
+14. `cargo fmt --all --check`,
+    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+    `cargo test --workspace --locked`, `cargo test -p auro-update --locked`,
+    `cargo check -p auro --features updater --locked`, and `mdbook build docs` pass.
 
 ## Open questions
 

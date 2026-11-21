@@ -14,6 +14,15 @@ use zip::ZipArchive;
 
 use crate::{StagedUpdate, UpdateError};
 
+/// Maximum expanded bytes one `.app.zip` may produce.
+///
+/// The manifest verifies the compressed artifact, not its expansion. A signed but malformed or
+/// hostile release must not be able to fill the disk after the app has exited.
+const MAX_EXPANDED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
+/// Maximum number of entries one `.app.zip` may contain.
+const MAX_ARCHIVE_ENTRIES: usize = 100_000;
+
 /// Replaces a macOS `.app` directory with a staged `.zip` archive.
 #[derive(Clone, Debug)]
 pub struct MacAppInstaller {
@@ -147,10 +156,31 @@ fn resolve_target(path: &Path) -> Result<PathBuf, UpdateError> {
     Ok(target)
 }
 
-fn extract_archive(archive: &Path, destination: &Path) -> Result<(), UpdateError> {
-    let file = fs::File::open(archive)?;
+fn extract_archive(archive_path: &Path, destination: &Path) -> Result<(), UpdateError> {
+    let file = fs::File::open(archive_path)?;
     let mut archive = ZipArchive::new(file)?;
+    let entries = archive.len();
+    let mut expanded = 0u64;
+    for index in 0..entries {
+        let entry = archive.by_index(index)?;
+        expanded =
+            expanded
+                .checked_add(entry.size())
+                .ok_or_else(|| UpdateError::UnsafeArchive {
+                    path: archive_path.to_path_buf(),
+                })?;
+        check_archive_budget(entries, expanded, archive_path)?;
+    }
     archive.extract(destination)?;
+    Ok(())
+}
+
+fn check_archive_budget(entries: usize, expanded: u64, archive: &Path) -> Result<(), UpdateError> {
+    if entries > MAX_ARCHIVE_ENTRIES || expanded > MAX_EXPANDED_BYTES {
+        return Err(UpdateError::UnsafeArchive {
+            path: archive.to_path_buf(),
+        });
+    }
     Ok(())
 }
 
@@ -487,6 +517,21 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn rejects_archives_over_the_expansion_budget() {
+        let path = Path::new("Demo.app.zip");
+        check_archive_budget(1, MAX_EXPANDED_BYTES, path).expect("at the byte limit");
+        assert!(matches!(
+            check_archive_budget(1, MAX_EXPANDED_BYTES + 1, path),
+            Err(UpdateError::UnsafeArchive { .. })
+        ));
+        check_archive_budget(MAX_ARCHIVE_ENTRIES, 0, path).expect("at the entry limit");
+        assert!(matches!(
+            check_archive_budget(MAX_ARCHIVE_ENTRIES + 1, 0, path),
+            Err(UpdateError::UnsafeArchive { .. })
+        ));
+    }
+
     #[test]
     fn rejects_symlinks_escaping_the_bundle() {
         let temp = tempfile::tempdir().expect("tempdir");
