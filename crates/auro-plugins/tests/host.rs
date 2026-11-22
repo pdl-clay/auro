@@ -711,7 +711,10 @@ fn outside_grant_and_unresolved_paths_are_typed_errors() {
             ID,
             2,
             PluginCommand::ReadFile {
-                path: canonical_string(&fixture.allowed) + "/missing.txt",
+                path: std::path::Path::new(&canonical_string(&fixture.allowed))
+                    .join("missing.txt")
+                    .to_string_lossy()
+                    .into_owned(),
             },
         )
         .expect_err("missing file");
