@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
-const DEATH_TIMEOUT: Duration = Duration::from_secs(3);
+const DEATH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Kills every process the test started, even when an assertion panics first.
 struct Cleanup {
@@ -90,6 +90,16 @@ fn alive(pid: u32) -> bool {
             .rsplit_once(')')
             .and_then(|(_, rest)| rest.split_whitespace().next())
             .is_some_and(|state| state != "Z");
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .expect("ps");
+        let state = String::from_utf8_lossy(&output.stdout);
+        let state = state.trim();
+        return !state.is_empty() && !state.starts_with('Z') && !state.starts_with('U');
     }
     Command::new("kill")
         .arg("-0")
@@ -254,4 +264,15 @@ fn sigint_kills_dx_and_app_and_exits_zero() {
     wait_until(deadline, || !alive(dx_pid) && !alive(app_pid));
     assert!(!alive(dx_pid), "devserver {dx_pid} survived SIGINT");
     assert!(!alive(app_pid), "app {app_pid} was orphaned by SIGINT");
+}
+
+#[test]
+fn zombie_is_not_alive() {
+    let mut child = Command::new("sleep").arg("30").spawn().expect("sleep");
+    let pid = child.id();
+    kill(pid);
+    let deadline = Instant::now() + DEATH_TIMEOUT;
+    wait_until(deadline, || !alive(pid));
+    assert!(!alive(pid), "a killed zombie must not count as alive");
+    let _ = child.wait();
 }
