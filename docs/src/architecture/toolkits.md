@@ -50,6 +50,27 @@ the windows. `app.windows[].theme` is passed through; the toolkit decides what i
 toolkit with one global theme can honor one theme per app, not a different theme per window.
 `auro doctor` reports a non-system theme as toolkit-owned.
 
+
+## Assets and `svg().path()`
+
+GPUI elements that load bytes by path — most visibly `svg().path("icons/logo.svg")` — read them
+from the GPUI asset source. Auro does not install one by default, so an app that uses file-backed
+elements must call `App::assets` on the builder. The trait is GPUI's own, re-exported as
+`auro::gpui::AssetSource`; Auro does not introduce a second trait.
+
+```rust,ignore
+App::new()
+    .assets(auro::assets::FileAssets::new("assets"))
+    .root::<View>("main")
+    .run();
+```
+
+`FileAssets` scopes every lookup to the chosen directory: absolute paths, drive prefixes, `..` and
+symlinks that resolve outside the root are rejected before the bytes are read. `EmbeddedAssets`
+wraps a static `&[(&str, &[u8])]` table for apps that prefer `include_bytes!`; an app can also
+implement `AssetSource` itself. The source is type-erased behind `Arc<dyn AssetSource>` in the
+builder and applied to `Application::new().with_assets(...)` once, before the event loop starts.
+
 ## Versions are part of the choice
 
 `gpui-component` tracks GPUI; Auro pins GPUI exactly. The compatibility line matters:

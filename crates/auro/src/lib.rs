@@ -14,6 +14,9 @@ pub use auro_core::{Autosave, ReloadSnapshot, ResetReason, Restored, Snapshot};
 pub use auro_macros::{command, generate_handler};
 pub use auro_ui::gpui;
 
+/// Asset sources for GPUI elements, including `svg().path()`.
+pub mod assets;
+
 pub mod perms {
     pub use auro_perms::{Capability, Denied, Grant, Policy, PolicyError, UnknownCapability};
 }

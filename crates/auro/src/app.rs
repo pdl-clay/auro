@@ -11,6 +11,7 @@ use auro_core::{
     AppInstance, AuroError, Config, EventSender, InstanceMessage, LifecycleEvent, State,
     StateStore, WindowConfig,
 };
+use auro_ui::gpui::AssetSource;
 use auro_ui::{
     AnyWindowHandle, App as GpuiApp, AppContext, Application, Bounds, Entity, Global, Pixels,
     Render, Size, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
@@ -104,6 +105,7 @@ pub struct App {
     single_instance: bool,
     #[cfg(feature = "services")]
     deep_links: Option<auro_services::AppLinks>,
+    assets: Option<Arc<dyn AssetSource>>,
     activate_on_second_instance: bool,
 }
 
@@ -121,6 +123,7 @@ impl App {
             event_rx: Some(receiver),
             sender: sender.clone(),
             single_instance: false,
+            assets: None,
             activate_on_second_instance: false,
             #[cfg(feature = "services")]
             deep_links: None,
@@ -168,6 +171,17 @@ impl App {
     pub fn activate_on_second_instance(mut self) -> Self {
         self.single_instance = true;
         self.activate_on_second_instance = true;
+        self
+    }
+
+    /// Installs the GPUI asset source used by `svg().path()` and other file-backed elements.
+    ///
+    /// The source is type-erased behind an `Arc<dyn AssetSource>` and applied to the GPUI
+    /// `Application` in [`Self::try_run`]. Without this call GPUI has no assets, so `svg().path()`
+    /// does not resolve. [`crate::assets::FileAssets`] and [`crate::assets::EmbeddedAssets`] cover
+    /// the common cases; an app can implement `auro::gpui::AssetSource` itself.
+    pub fn assets(mut self, source: impl AssetSource) -> Self {
+        self.assets = Some(Arc::new(source));
         self
     }
 
@@ -348,6 +362,7 @@ impl App {
             lifecycle,
             events,
             event_rx,
+            assets,
             ..
         } = self;
 
@@ -371,7 +386,12 @@ impl App {
             });
         }
 
-        Application::new().run(move |cx| {
+        let application = Application::new();
+        let application = match assets {
+            Some(source) => application.with_assets(crate::assets::ErasedAssets(source)),
+            None => application,
+        };
+        application.run(move |cx| {
             // Held for the process lifetime: commands resolve state through this store.
             let _states = states;
 

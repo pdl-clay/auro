@@ -120,6 +120,23 @@ auro build --dir .
 auro bundle --dir .
 ```
 
+
+## 6. Assets for file-backed elements
+
+`svg().path("icons/logo.svg")` and other file-backed GPUI elements need an asset source. Auro
+installs none by default; configure one on the builder:
+
+```rust,ignore
+App::new()
+    .assets(auro::assets::FileAssets::new("assets"))
+    // ...
+```
+
+Use `EmbeddedAssets` for a static `include_bytes!` table, or implement
+`auro::gpui::AssetSource` directly. `FileAssets` rejects `..`, absolute paths and symlinks that
+leave the chosen directory; see [toolkits](architecture/toolkits.md#assets-and-svgpath) for the
+boundary and the embedding option.
+
 ## Where to go next
 
 |If you want to|Read|

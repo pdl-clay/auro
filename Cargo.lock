@@ -591,6 +591,7 @@ dependencies = [
  "gpui",
  "serde_json",
  "subsecond",
+ "tempfile",
  "tokio",
  "tracing",
  "wayland-client",

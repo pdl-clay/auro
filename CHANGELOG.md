@@ -23,6 +23,12 @@ breaking change bumps the minor version; the patch version is for compatible fix
   stage 3 work (spec 0035).
 - `auro-perms` stays pure and string-based; plugin grants live in `auro-plugins` behind `PluginPolicyExt`, which takes an opaque `VerifiedSubject`. Only `PluginRegistry::resolve` can produce that token after index signature, hash/digest, allowlist and instance checks, so a forged subject string cannot obtain another plugin's grant. The non-sandbox limit is stated in `SECURITY.md` (spec 0016 D2/D5; spec 0034; RFC 0002).
 
+- `auro::assets`: `App::assets(impl AssetSource)` installs GPUI's asset source (type-erased behind
+  `Arc<dyn AssetSource>`) before the event loop, so `svg().path()` and other file-backed GPUI
+  elements can resolve. `FileAssets` scopes filesystem lookups to an app-chosen root and rejects
+  traversal and escaping symlinks; `EmbeddedAssets` wraps a static byte table. No new trait: the
+  source remains `auro::gpui::AssetSource`.
+
 ### Fixed
 
 - `auro-plugins`: the private channel directory is validated with `symlink_metadata` before any
