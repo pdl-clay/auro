@@ -1,6 +1,6 @@
 # 0004 - Hot reload
 
-**Status:** Draft - opt-in hot mode integrated (four-crate data boundary; Linux median 368 ms, Windows 813 ms, macOS 509.5-956 ms across three shared CI runs); `auro dev` still relaunches by default
+**Status:** GA declared 2026-11-22 with revised per-OS targets (Linux < 500 ms; Windows and macOS < 1 s), backed by the published four-crate D6 runs (Linux median 368 ms, Windows 813 ms, macOS 509.5-956 ms across three shared CI runs); `auro dev` still relaunches by default, hot mode remains opt-in
 
 Spec 0001 closed Phase 0 with a relaunch loop and recorded ~60 s save-to-visible on the development
 machine (relink dominates). This spec defines the contract that must replace that loop for UI work:
@@ -826,10 +826,11 @@ surviving app pid. Item 1 has a headless
 fixture for mounting the view, changing the boundary output and keeping state
 (`crates/auro/tests/hot_fixture.rs`); it does not load a patch dylib, and the snapshot roundtrip is
 covered by the `auro-core` tests. Item 4 rests on the crate boundary (`ui` does not depend on `data`, only
-`hot`-wrapped calls read the jump table); item 8 is the repository gates. The Linux median is now
-under 500 ms for the documented warm case, macOS is above the target on a shared CI runner and
-Windows remains above it, so the target is not met platform-wide and experimental mode must not
-claim it.
+`hot`-wrapped calls read the jump table); item 8 is the repository gates. The maintainer revised the
+target per OS on 2026-11-22: Linux keeps < 500 ms and is measured at 368 ms; Windows and macOS use
+< 1 s, with recorded medians of 813 ms (N=9, historical) and 509.5/837/956 ms on a shared
+runner. The revised targets are met by those medians; no platform claims 500 ms without a Linux
+measurement.
 
 **Platform limitation (2026-11-22):** PR CI's Linux and Windows runners have no interactive
 desktop, so the real-display scaffold smoke is dispatch-only. The macOS hot-exit job waits for a
@@ -840,9 +841,16 @@ link failed with `Undefined symbols for architecture arm64: _IOSurfaceCreate` (a
 runner/toolchain cannot build the GUI scaffold, so no macOS exit-semantics result is claimed from
 it; the assertions remain in the workflow for a runner that can build and render the app.
 
-GA additionally requires: measured < 500 ms save-to-visible for the documented warm view-only case on
-each Tier 1 platform (or an explicit, approved revision of the target recorded in the performance
-budget), published numbers, and a stable documented author contract for reloadable state.
+**GA decision (maintainer, 2026-11-22): declared with revised per-OS targets.** Linux < 500 ms
+(368 ms median, N=12, p95 394); Windows < 1 s (813 ms median, N=9, historical and below the D6
+N>=10 gate); macOS < 1 s (509.5/837/956 ms medians, N=12 per run on a shared runner). The published
+numbers and D6 method are in the [performance budget](../reference/performance-budget.md). The
+versioned-snapshot restart fallback stays in the contract and is always labelled
+`restarted (state restored|reset)`, never `hot reloaded`. Hot mode remains opt-in and `auro dev`
+relaunches by default. Out of scope for 0.x GA: hot reload of plugins or plugin hosts, a stable
+reload ABI for third parties, and any macOS exit-semantics result (the dispatch run could not build
+the scaffold on the shared runner, as recorded above). No platform claims 500 ms without a
+measurement on that platform.
 
 ## Open questions
 
