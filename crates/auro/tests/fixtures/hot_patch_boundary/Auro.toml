@@ -1,0 +1,17 @@
+[app]
+identifier = "com.example.auro.hotpatchboundary"
+product-name = "auro-hot-patch-boundary"
+version = "0.1.0"
+
+[[app.windows]]
+label = "main"
+title = "auro-hot-patch-boundary"
+width = 640
+height = 480
+
+[dev]
+watch = ["src"]
+hot = true
+
+[bundle]
+icon = []

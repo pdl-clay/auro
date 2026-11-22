@@ -1,0 +1,3 @@
+[application]
+name = "auro-hot-patch-boundary"
+default_platform = "desktop"

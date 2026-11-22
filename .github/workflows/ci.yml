@@ -88,6 +88,74 @@ jobs:
           cargo run -p auro-cli --locked -- new target/auro-scaffold-smoke
           cargo test --workspace --manifest-path target/auro-scaffold-smoke/Cargo.toml
 
+  # A real dx patch needs linker interception, nm and a fixed ASLR base; that combination is
+  # Linux-only. The other OS legs keep the feature and scaffold gates above.
+  hot-patch-e2e:
+    name: real hot patch (Linux)
+    needs: detect
+    if: needs.detect.outputs.workspace == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
+            libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config \
+            binutils jq util-linux
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Install dx
+        run: cargo install dioxus-cli --version 0.7.10 --locked
+      - name: Build fixture, apply a real patch, run e2e
+        shell: bash
+        env:
+          CARGO_BUILD_JOBS: 2
+        run: |
+          set -euo pipefail
+          FIXTURE=crates/auro/tests/fixtures/hot_patch_boundary
+          CACHE="$RUNNER_TEMP/auro-dx-cache"
+          TARGET="$RUNNER_TEMP/auro-dx-target"
+          export CARGO_TARGET_DIR="$TARGET"
+          cd "$FIXTURE"
+          # A fresh target dir is required: dx intercepts the linker on the first build.
+          dx build --fat-binary --desktop --profile desktop-dev \
+            --session-cache-dir "$CACHE" --json-output > "$RUNNER_TEMP/auro-dx-build.json"
+          jq -r 'select(.json != null) | (.json | fromjson) | select(has("BuildsFinished")) | .BuildsFinished.client' \
+            "$RUNNER_TEMP/auro-dx-build.json" > "$RUNNER_TEMP/auro-dx-client.json"
+          EXE=$(jq -r '.exe' "$RUNNER_TEMP/auro-dx-client.json")
+          APP="$(jq -r '.path' "$RUNNER_TEMP/auro-dx-client.json")/auro-hot-patch-boundary"
+          # Pin ASLR: the jump table records absolute addresses of this exact build.
+          setarch "$(uname -m)" -R bash -c 'sleep 30 | "$1" >/dev/null 2>&1 & echo $! > "$2"' \
+            _ "$APP" "$RUNNER_TEMP/auro-fixture.pid"
+          sleep 1
+          PID=$(cat "$RUNNER_TEMP/auro-fixture.pid")
+          BASE=$(awk 'NR == 1 { split($1, parts, "-"); print parts[1] }' "/proc/$PID/maps")
+          kill "$PID"
+          test -n "$BASE"
+          MAIN=$(nm -C "$EXE" | awk '$3 == "main" { print $1 }' | head -1)
+          REF=$((16#$BASE + 16#$MAIN))
+          cp src/main.rs "$RUNNER_TEMP/auro-fixture-main.rs"
+          trap 'cp "$RUNNER_TEMP/auro-fixture-main.rs" "$FIXTURE/src/main.rs"' EXIT
+          cp src/main_patched.rs src/main.rs
+          dx tools hotpatch --desktop --profile desktop-dev --session-cache-dir "$CACHE" \
+            --aslr-reference "$REF" --json-output < "$RUNNER_TEMP/auro-dx-client.json" \
+            > "$RUNNER_TEMP/auro-dx-patch.json"
+          jq -r 'select(.json != null) | (.json | fromjson) | select(has("Hotpatch")) | .Hotpatch.jump_table' \
+            "$RUNNER_TEMP/auro-dx-patch.json" > "$RUNNER_TEMP/auro-jump-table.json"
+          cp "$RUNNER_TEMP/auro-fixture-main.rs" src/main.rs
+          printf '#!/bin/sh\nexec setarch %s -R "%s" "$@"\n' "$(uname -m)" "$APP" \
+            > "$RUNNER_TEMP/auro-fixture.sh"
+          chmod +x "$RUNNER_TEMP/auro-fixture.sh"
+          cd "$GITHUB_WORKSPACE"
+          # The fixture build used its own target dir; the workspace test must use the default.
+          unset CARGO_TARGET_DIR
+          AURO_TEST_PATCH_APP="$RUNNER_TEMP/auro-fixture.sh" \
+            AURO_TEST_PATCH_LIB="$RUNNER_TEMP/auro-jump-table.json" \
+            cargo test -p auro --features hot-reload --test hot_patch_e2e --locked
+
   # The support matrix promises Linux 22.04. ubuntu-latest is newer, so the floor
   # gets its own job against the documented minimum rather than being assumed.
   linux-floor:
