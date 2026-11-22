@@ -125,9 +125,6 @@ impl PluginChannel {
         let dir = dir.as_ref().to_path_buf();
         prepare_private_dir(&dir)?;
         let endpoint = endpoint_name(&dir, id, secret)?;
-        if endpoint.len() < SECRET_HEX_LEN + id.len() + 8 {
-            return Err(HostError::PredictableName);
-        }
         write_token(&dir, id, secret)?;
 
         let name = name_for_endpoint(&endpoint)?;
