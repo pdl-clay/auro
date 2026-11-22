@@ -286,15 +286,45 @@ context and is labelled honestly.
   `hot_frame` in `catch_unwind`, reports a rejected frame and keeps the previous values; removing a
   panic applied in 327 ms in the same process.
 
+
+## Author contract
+
+State preservation is opt-in. Only types that implement `ReloadSnapshot` are written into a
+`Snapshot`; merely being `Serialize` is not enough. The contract is enforced by the API, not by
+convention:
+
+- `KEY` is a stable, unique name for one logical entry within a dev session. Use a namespaced form
+  such as `ui.counter`. Renaming or removing a key resets that entry; it does not rename or migrate
+  it.
+- `VERSION` is per entry and must be bumped whenever the serialized layout changes. `Snapshot::restore`
+  compares it before decoding, so a stale entry resets on its own and reports
+  `ResetReason::VersionMismatch` rather than being silently coerced.
+- Restore consumes an entry. A version mismatch or a decode failure resets only that entry; the app
+  must surface `ResetReason::message()` so the user sees why state restarted from its default.
+- Host-managed `State<T>` whose type lives in host-stable code is **not** snapshotted: it survives a
+  patch because the host and its entity store are not replaced. Reloadable-owned state must be
+  copied into a small `ReloadSnapshot` type in the data boundary. There is no automatic bridge
+  between a managed `State<T>` and a snapshot entry in 0.x.
+- The four-crate scaffold (`bin`, `types`, `data`, `ui`) is the only supported layout in 0.x. `ui`
+  must not depend on `data`; `data` owns the versioned frame that crosses the hot boundary.
+
+Migration for Phase 0 projects: run `auro new` to see the four-crate shape, move the frame type into
+`types`, the small reloadable state and boundary function into `data`, and keep views and GPUI state
+in `ui`. Existing snapshot files remain JSON with a format version; entries whose key or version
+changed reset once with a visible diagnostic. Nothing in this contract claims the latency target is
+met on every platform; see [spec 0004](../specs/0004-hot-reload.md) for the measured status.
+
 ## Open problems
 
 - Hot mode is integrated behind `[dev] hot = true`; open: change classification for edits outside
   the boundary (currently a patched, unchanged boundary), forced fallback restart, and a headless
   reload fixture.
-- Project/layout/build strategy: the four-crate `data`/`ui`/`types`/bin shape is implemented and
-  documented, including migration for older scaffolds; the author contract for larger reloadable
-  units is open. Edits outside `data` restart the devserver/app and restore the snapshot.
-- Snapshot format/versioning, incompatible-change classification, and state migration/reset policy.
+- Project/layout/build strategy is decided for 0.x: the four-crate `data`/`ui`/`types`/bin shape is
+  the only supported layout, with the author contract above and migration from older scaffolds.
+  Edits outside `data` restart the devserver/app and restore the snapshot.
+- Snapshot format and reset policy are decided: JSON envelope, per-entry `KEY`/`VERSION`, and
+  per-entry reset with a visible reason. In-app diagnostics overlay and state migration beyond that
+  reset remain open.
 - Representative D6 measurements on Auro apps/scaffolds (cold/warm, debug/release, more hardware and
   Windows/macOS coverage); Linux, Windows and macOS each have one scaffold series.
 - Debugging, symbols, breakpoints, and backtraces through the chosen reload mechanism.

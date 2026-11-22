@@ -1,0 +1,30 @@
+[package]
+name = "auro-hot-patch-boundary"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+publish = false
+
+[dependencies]
+auro = { path = "../../../../auro", features = ["hot-reload"] }
+
+[features]
+hot-reload = ["auro/hot-reload"]
+
+# `dx serve`/`dx build --desktop` use this adhoc profile. debug = 1 is required for subsecond to
+# resolve `main`; incremental is off because ThinLink relinks the single tip crate per patch.
+[profile.desktop-dev]
+inherits = "dev"
+debug = 1
+incremental = false
+
+[profile.release]
+strip = "symbols"
+
+# Own workspace: a fixture must never be captured by the main workspace lock.
+[workspace]
+members = ["."]
+
+# gpui -> gpui_http_client -> zed-async-tar -> xattr 0.2.3 needs the vendored ENOATTR shim.
+[patch.crates-io]
+xattr = { path = "../../../../../vendor/xattr" }

@@ -392,9 +392,32 @@ mod platform {
         options.open(target)
     }
 
+    /// Volume serial and file index from an open handle, matching Unix's device/inode check.
+    fn identity(file: &File) -> Option<(u32, u64)> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+        };
+
+        let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+        // SAFETY: `file` owns a valid handle for the duration of this call, and `info` is a
+        // writable, correctly aligned BY_HANDLE_FILE_INFORMATION. A failed call leaves a zeroed
+        // struct, which the caller treats as no identity.
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+            return None;
+        }
+        Some((
+            info.dwVolumeSerialNumber,
+            (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+        ))
+    }
+
     fn verify(file: &File, canonical: &Path, path: &str, directory: bool) -> Result<()> {
         let opened = file.metadata()?;
-        let expected = std::fs::symlink_metadata(canonical)?;
+        // Open the canonical entry without following links so the identity comes from a handle
+        // too; a swap to a reparse point or a different file is rejected below.
+        let expected_file = open(canonical, directory)?;
+        let expected = expected_file.metadata()?;
         if opened.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
             || expected.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
         {
@@ -405,13 +428,8 @@ mod platform {
         }
         let opened_dir = opened.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0;
         let expected_dir = expected.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0;
-        let identity_matches = match (
-            opened.volume_serial_number(),
-            expected.volume_serial_number(),
-            opened.file_index(),
-            expected.file_index(),
-        ) {
-            (Some(left_volume), Some(right_volume), Some(left_index), Some(right_index)) => {
+        let identity_matches = match (identity(file), identity(&expected_file)) {
+            (Some((left_volume, left_index)), Some((right_volume, right_index))) => {
                 left_volume == right_volume && left_index == right_index
             }
             _ => false,
@@ -425,7 +443,7 @@ mod platform {
         Ok(())
     }
 
-    pub(super) fn open_file(root: &Path, parts: &[&str], path: &str) -> Result<Option<File>> {
+    pub(super) fn open_file(root: &Path, parts: &[&str], _path: &str) -> Result<Option<File>> {
         match open(&join_parts(root, parts), false) {
             Ok(file) => Ok(Some(file)),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),

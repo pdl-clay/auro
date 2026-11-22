@@ -10,6 +10,14 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Changed
+
+- Hot reload is declared GA with revised per-OS latency targets (Linux < 500 ms; Windows and macOS
+  < 1 s, maintainer decision 2026-11-22). The versioned-snapshot restart fallback remains part of
+  the contract and is always labelled as a restart. Windows' nine-sample series stays historical,
+  below the D6 N>=10 gate; no platform claims 500 ms without a measurement on that platform. This
+  is a documentation and target decision only: no runtime change.
+
 ## [0.1.0-alpha.12] - 2026-11-22
 
 ### Added

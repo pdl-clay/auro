@@ -482,7 +482,7 @@ Tauri and Electron.
 - `auro-ui` stays toolkit-free; optional integration crates (for example
   `auro-gpui-component`) wrap advanced widgets such as a virtualized data table, charts, markdown
   and syntax highlighting.
-- Hot reload GA with state preservation (mechanism/measurability per [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
+- Hot reload GA with state preservation and revised per-OS targets (Linux < 500 ms; Windows and macOS < 1 s, maintainer decision 2026-11-22), with a versioned-snapshot restart fallback that is always labelled as a restart (mechanism/measurability per [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
 
 Design gates before implementation, from the adversarial review of [RFC 0002](rfcs/0002-plugin-host.md):
 the plugin host is crash isolation, not a sandbox; a plugin runs as the same user and can bypass
@@ -493,10 +493,12 @@ and capability extension, then fail-closed typed RPC with effect-site canonicali
 isolation and limits, then a reference plugin (with issue #13 as the internal consumer), then hot
 reload GA.
 
-Hot reload GA does not meet the `< 500 ms` target on every platform today: spec 0004 records
-Linux at 368 ms, Windows at 813 ms (N=9) and macOS at 509-956 ms. The phase 3 criterion must be
-"measured and documented per OS with a versioned-snapshot restart fallback", not "target achieved".
-The phase 3 exit still depends on a plugin published by an author outside the core team.
+Spec 0004 records the measured per-OS results: Linux 368 ms (N=12, p95 394), Windows 813 ms
+(N=9, historical, below the D6 N>=10 gate) and macOS 509-956 ms on a shared runner. The maintainer
+decided on 2026-11-22 to declare hot reload GA with revised targets: < 500 ms on Linux and < 1 s on
+Windows and macOS. No platform claims 500 ms without its own measurement. The phase 3 exit still
+depends on a plugin published by an author outside the core team; hot reload GA alone does not
+claim phase 3 complete.
 
 
 **Progress (2026-11-22):** [RFC 0002](rfcs/0002-plugin-host.md) is Accepted and stages 1-3 of the
@@ -511,8 +513,8 @@ features are default-off; the default build is unchanged. The asset source API (
 in alpha.12 (recorded in the changelog). Adversarial reviews of all four fronts — trust anchor, RPC,
 stage 3 limits and supervision, and assets — closed with no medium-or-higher finding outstanding.
 The phase 3 exit is still **not claimed**: it depends on a plugin published by an author outside the
-core team, and hot reload GA remains a per-OS measured criterion with a versioned-snapshot restart
-fallback, not "target achieved".
+core team. Hot reload GA is declared with revised per-OS targets and the versioned-snapshot restart
+fallback, not with a platform-wide 500 ms claim.
 
 **Exit:** a third-party plugin published by someone outside the core team.
 

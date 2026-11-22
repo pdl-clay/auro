@@ -16,13 +16,94 @@
 //! Enabled by the `hot-reload` feature plus [`ENABLE_ENV`]. Off by default; `auro dev` keeps its
 //! rebuild-and-relaunch loop.
 
+use std::error::Error;
+use std::fmt;
 use std::panic::AssertUnwindSafe;
+use std::path::Path;
 use std::sync::Once;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use auro_ui::App as GpuiApp;
 use tokio::sync::watch;
+
+/// Which process and build a devserver patch is addressed to. Also returned by
+/// [`apply_patch_from_path`], which applies a patch without a devserver.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PatchVerdict {
+    Apply,
+    OtherProcess,
+    OtherBuild,
+}
+
+/// Why a patch artifact could not be applied from disk.
+#[cfg(any(test, feature = "hot-reload"))]
+#[derive(Debug)]
+pub enum PatchError {
+    /// The artifact path could not be read.
+    Read(std::io::Error),
+    /// The artifact is not a `subsecond::JumpTable` JSON document.
+    Decode(serde_json::Error),
+    /// The jump table was rejected by `subsecond::apply_patch`.
+    Apply(subsecond::PatchError),
+    /// A malformed jump table panicked inside `subsecond::apply_patch`.
+    Panic,
+}
+
+#[cfg(any(test, feature = "hot-reload"))]
+impl fmt::Display for PatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Read(error) => write!(f, "cannot read patch artifact: {error}"),
+            Self::Decode(error) => write!(f, "invalid patch artifact: {error}"),
+            Self::Apply(error) => write!(f, "patch rejected: {error}"),
+            Self::Panic => f.write_str("patch loader panicked"),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "hot-reload"))]
+impl Error for PatchError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Read(error) => Some(error),
+            Self::Decode(error) => Some(error),
+            Self::Apply(error) => Some(error),
+            Self::Panic => None,
+        }
+    }
+}
+
+/// Applies a `subsecond::JumpTable` artifact produced by `dx tools hotpatch`.
+///
+/// This is the disk-driven counterpart of [`connect_devserver`] for tests and tools: no devserver
+/// identity fields are available, so a readable artifact is applied to this process. The same
+/// panic containment as the devserver path keeps a malformed artifact from killing the host.
+#[cfg(any(test, feature = "hot-reload"))]
+pub fn apply_patch_from_path(path: &Path) -> Result<PatchVerdict, PatchError> {
+    let artifact = std::fs::read_to_string(path).map_err(PatchError::Read)?;
+    let table: subsecond::JumpTable =
+        serde_json::from_str(&artifact).map_err(PatchError::Decode)?;
+    // SAFETY: the caller supplies a dx-generated jump table for this process. `apply_patch` still
+    // unwraps while resolving the patch's `main` sentinel, so contain a malformed artifact exactly
+    // as `connect_devserver` does; a rejection leaves the previous jump table committed.
+    match std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+        subsecond::apply_patch(table)
+    })) {
+        Ok(Ok(())) => Ok(PatchVerdict::Apply),
+        Ok(Err(error)) => Err(PatchError::Apply(error)),
+        Err(_) => Err(PatchError::Panic),
+    }
+}
+
+/// True when code registered at `registered_revision` has been replaced by a later apply.
+///
+/// A callback captured from a boundary must check this before touching state owned by that
+/// boundary; after an apply (or rollback) the old code is stale even if it is still callable.
+#[cfg(any(test, feature = "hot-reload"))]
+pub fn is_stale(registered_revision: u64) -> bool {
+    registered_revision != revision()
+}
 
 static INSTALL: Once = Once::new();
 
@@ -101,14 +182,6 @@ fn connect_devserver() {
             Err(_) => eprintln!("auro:trace hot_patch_failed patch loader panicked"),
         }
     });
-}
-
-/// Which process and build a devserver patch is addressed to.
-#[derive(Debug, PartialEq, Eq)]
-enum PatchVerdict {
-    Apply,
-    OtherProcess,
-    OtherBuild,
 }
 
 fn patch_verdict(
@@ -257,5 +330,52 @@ mod tests {
             patch_verdict(Some(7), Some(12), 7, None),
             PatchVerdict::Apply
         );
+    }
+
+    #[test]
+    fn apply_failure_is_contained() {
+        assert_eq!(
+            patch_verdict(Some(999), Some(11), 7, Some(11)),
+            PatchVerdict::OtherProcess
+        );
+        assert_eq!(
+            patch_verdict(Some(7), Some(999), 7, Some(11)),
+            PatchVerdict::OtherBuild
+        );
+
+        let before = revision();
+        let table = subsecond::JumpTable {
+            lib: std::path::PathBuf::from("/auro/no-such-hot-patch.so"),
+            map: Default::default(),
+            aslr_reference: 0,
+            new_base_address: 0,
+            ifunc_count: 0,
+        };
+        // SAFETY: the library path does not exist, so apply_patch returns a Dlopen error before
+        // touching any executable memory; catch_unwind covers a malformed-table panic.
+        let applied = std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+            subsecond::apply_patch(table)
+        }));
+        assert!(
+            matches!(applied, Ok(Err(_)) | Err(_)),
+            "a bad patch must be rejected, not committed"
+        );
+        assert_eq!(
+            revision(),
+            before,
+            "a rejected patch must not advance the revision"
+        );
+    }
+
+    #[test]
+    fn disk_artifact_errors_are_reported_and_staleness_tracks_revision() {
+        let missing = std::env::temp_dir().join("auro-no-such-jump-table.json");
+        assert!(matches!(
+            apply_patch_from_path(&missing),
+            Err(PatchError::Read(_))
+        ));
+        let current = revision();
+        assert!(!is_stale(current));
+        assert!(is_stale(current.wrapping_add(1)));
     }
 }

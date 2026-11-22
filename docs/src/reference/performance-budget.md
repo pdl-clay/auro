@@ -8,7 +8,7 @@ a 40 MB binary has no reason to exist.
 | Cold start | < 80 ms | Local 5-run median **154.9 ms** (first-frame request, not painted frame) |
 | Idle RAM (hello world) | < 40 MB | Local 5-run median **105.3 MB** |
 | Hello-world binary (stripped) | < 6 MB | Local **15.6 MB** |
-| Edit to see (boundary data only) | < 500 ms | **Met on Linux for the documented warm case; above it on a shared macOS CI runner; not met on Windows.** Hot mode (opt-in), four-crate scaffold: Linux **368 ms** median save→render for edits in `data/src` (`view_data() -> HotData`), N=12, p95 394, 325-394, `debug=0` ThinLink, state preserved, patch→render 1-26 ms; the earlier single-crate scaffold measured 521 ms (N=11). Windows (WinBoat, MSVC, interactive session) **813 ms** median over nine steady-state patches with the guarded four-crate scaffold (p95 897, 752-897; a plain-boundary four-crate series measured 1168 over nine, and the earlier single-crate scaffold 1375 over five; patch→render 2-16 ms). macOS on a shared `macos-26-arm64` CI runner measured **509.5**, **837.0** and **956.0 ms** medians on three six-warmup runs (N=12 each, p95 1071/2096/1563, 372-2096); a host restart with snapshot restore passed. The runner variance is too large to claim the target there. Relaunch mode still measures 2730 ms save→repaint-requested; an earlier relink-dominated run measured ~60 s. See [spec 0004](../specs/0004-hot-reload.md) and [hot reload](../architecture/hot-reload.md) |
+| Edit to see (boundary data only) | GA: < 500 ms on Linux; < 1 s on Windows and macOS (revised 2026-11-22) | **Declared GA per OS with the recorded numbers; the 500 ms target applies only to Linux.** Hot mode (opt-in), four-crate scaffold: Linux **368 ms** median save→render for edits in `data/src` (`view_data() -> HotData`), N=12, p95 394, 325-394, `debug=0` ThinLink, state preserved, patch→render 1-26 ms; the earlier single-crate scaffold measured 521 ms (N=11). Windows (WinBoat, MSVC, interactive session) **813 ms** median over nine steady-state patches with the guarded four-crate scaffold (p95 897, 752-897; a plain-boundary four-crate series measured 1168 over nine, and the earlier single-crate scaffold 1375 over five; patch→render 2-16 ms). macOS on a shared `macos-26-arm64` CI runner measured **509.5**, **837.0** and **956.0 ms** medians on three six-warmup runs (N=12 each, p95 1071/2096/1563, 372-2096); a host restart with snapshot restore passed. The runner variance is too large to claim the 500 ms target there. Relaunch mode still measures 2730 ms save→repaint-requested; an earlier relink-dominated run measured ~60 s. See [spec 0004](../specs/0004-hot-reload.md), [hot reload](../architecture/hot-reload.md) and [Enforcement](#enforcement) |
 | Frame time | 16.6 ms at 60 fps | Inherited from GPUI, unverified |
 
 ## How each metric is defined
@@ -42,16 +42,59 @@ runs with a five-second idle sample: startup median **154.9 ms**, idle RSS media
 stripped binary **15.6 MB**. These are alpha measurements, not a published baseline or a Tauri/
 Electron comparison; the 1.0 targets above are not met yet.
 
+## Hot reload measurement pipeline
+
+`tools/hot-reload-measure/measure.py` aggregates the JSON lines that `auro dev` prints when
+`AURO_DEV_TRACE=1`. A `hot_reload` row carries `save_to_patch_ms`, `patch_to_render_ms`,
+`save_to_render_ms` and `patch_took_ms`; a `relaunch` row carries the fallback timings. Run it as
+`python3 tools/hot-reload-measure/measure.py --input measurements.jsonl --platform <linux|macos|windows>`.
+It prints one table row per outcome (`reloaded`, `restarted`) with N, median, p95 and spread
+(max - min); the `SUMMARY` JSON also carries `min_ms` and `max_ms` separately. Warm-up rows are
+excluded only when the capture step marks them `"warmup": true` or writes the measured rows to a
+separate JSONL file; the script never silently drops a row. An empty input, a null timing on a
+successful reload, an unknown event, or a group with fewer than ten samples is an error naming the
+stage, outcome or input; exit codes distinguish no measurements (4) from a short series (3) and a
+bad row (2).
+
+Published baseline, in milliseconds. `save_to_render_ms` is used for `reloaded` and
+`save_to_window_ms` for `restarted`. Every series applied data-only edits to the guarded four-crate
+scaffold after warm-up patches, with the same window and opted-in state:
+
+| Platform | Machine and method | N | Median | p95 | Spread | Status |
+|---|---|---:|---:|---:|---:|---|
+| Linux | Local niri/Wayland x86_64, 12 CPUs, rustc 1.99.1, gpui 0.2.2, dx/subsecond 0.7.10, `desktop-dev` `debug=0`, six warm-up edits | 12 | 368 | 394 | 325-394 | Valid D6 sample; under the 500 ms target |
+| macOS | Shared `macos-26-arm64` GitHub runner, six warm-up edits, three independent runs | 12 per run | 509.5 / 837 / 956 | 1071 / 2096 / 1563 | 372-2096 | Valid per run; target not met on this runner |
+| Windows | WinBoat MSVC interactive session, nine steady-state patches | 9 | 813 | 897 | 752-897 | Historical only: below the pipeline's N>=10 gate |
+
+The macOS `Hot reload macOS benchmark` workflow captures the raw `hot_reload` lines as an artifact
+and feeds them to the pipeline. Linux and Windows measurement jobs in CI are manual
+(`workflow_dispatch`) because the default hosted runners have no interactive desktop; they fail
+loudly when no render trace is produced rather than publishing a substitute number. A forced host
+restart is captured as a `relaunch` row and reported under `restarted`, never as a hot reload.
+
 ## Enforcement
 
-The roadmap commits to measuring these in CI and failing the build on regression. That is not
-implemented yet: the harness exists, but there is no committed baseline, pinned runner class or
-regression gate. When it lands:
+**Maintainer decision (2026-11-22):** hot reload is GA with revised per-OS targets. Linux keeps
+`< 500 ms`; Windows and macOS use `< 1 s` for the documented warm view-only edit. The recorded
+median is the compared statistic; N, p95 and spread are published beside it. A versioned-snapshot
+restart remains part of the contract and is always labelled `restarted (state restored|reset)`,
+never `hot reloaded`.
 
-- benchmarks run on a pinned runner class, and the runner is recorded with the result;
-- results are committed as a baseline file, so a pull request shows a delta;
-- a regression beyond a stated tolerance fails the job, with an explicit `perf-regression`
-  label override that requires maintainer approval.
+| Platform | GA target | Measured evidence | Gate status |
+|---|---|---:|---|
+| Linux | < 500 ms | 368 ms median, N=12, p95 394, 325-394 | Meets the target |
+| Windows | < 1 s | 813 ms median, N=9, p95 897, 752-897 | Meets the revised target; historical sample below the D6 N>=10 gate |
+| macOS | < 1 s | 509.5 / 837 / 956 ms medians, N=12 per run, p95 up to 2096 | Medians under the revised target on a shared runner; spread documented |
+
+D6 method: `auro dev` with `AURO_DEV_TRACE=1` emits one JSON line per reload (or fallback
+relaunch); the capture step removes warm-up edits explicitly, and
+`tools/hot-reload-measure/measure.py` rejects empty traces, null timing fields and groups with
+fewer than ten samples. The published table above is the baseline; every number states its
+machine, runner or desktop context and its outcome class. No regression gate over these numbers
+is claimed: the Linux and Windows measurement jobs need a desktop and are dispatch-only, and the
+macOS dispatch run `45063875118` could not link the scaffold on its shared runner. A forced
+fallback is reported as `restarted`, not as a reload, and is never used to satisfy a latency
+target.
 
 Micro-benchmarks use `criterion`; process-level measurements are separate harnesses, because they
 measure a binary rather than a function.

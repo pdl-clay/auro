@@ -17,7 +17,7 @@ features = ["services", "tray", "updater"]
 
 [features]
 # Experimental in-process hot boundaries (spec 0004). Off by default; `auro dev` relaunches.
-hot-reload = ["dep:subsecond", "dep:dioxus-devtools"]
+hot-reload = ["dep:subsecond", "dep:dioxus-devtools", "dep:serde_json"]
 # Signed update manifests and the staged updater runtime (specs 0012, 0013).
 updater = ["dep:auro-update"]
 # Platform services. Off by default so the facade does not pull OS integrations.
@@ -40,6 +40,7 @@ auro-ui.workspace = true
 auro-update = { workspace = true, optional = true }
 dioxus-devtools = { workspace = true, optional = true }
 subsecond = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 tokio.workspace = true
 tracing.workspace = true
 
@@ -48,12 +49,20 @@ tracing.workspace = true
 # FileAssets opens canonical paths with O_NOFOLLOW|O_CLOEXEC to close check/open races.
 libc.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+# FileAssets queries file identity from opened handles; std's MetadataExt accessors are unstable.
+windows-sys = { workspace = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # Startup preflight reads the compositor's advertised globals; gpui already pulls this crate.
 wayland-client = "0.31"
 
 [[test]]
 name = "hot"
+required-features = ["hot-reload"]
+
+[[test]]
+name = "hot_patch_e2e"
 required-features = ["hot-reload"]
 
 [dev-dependencies]
