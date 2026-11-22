@@ -667,8 +667,10 @@ fn predictable_name_and_occupied_channel_are_typed_errors() {
 
     let secret = auro_plugins::channel::generate_secret();
     let first = PluginChannel::new(&dir, ID, &secret).expect("first channel");
-    assert!(first.endpoint_name().contains(ID));
-    assert!(first.endpoint_name().contains(&secret));
+    // The endpoint carries a short id tag and half the secret; the full secret stays in the token
+    // file, so a long id cannot overflow sun_path on macOS.
+    assert!(!first.endpoint_name().contains(ID));
+    assert!(first.endpoint_name().contains(&secret[..16]));
     let conflict = PluginChannel::new(&dir, ID, &secret);
     assert!(matches!(conflict, Err(HostError::ChannelConflict(_))));
 }

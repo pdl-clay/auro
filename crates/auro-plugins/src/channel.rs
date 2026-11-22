@@ -2,8 +2,9 @@
 
 //! Private local-socket endpoint for one plugin instance.
 //!
-//! The endpoint name contains a 32-hex secret and the verified plugin id. The secret lives in a
-//! token file inside a per-user private directory; no globally predictable name is ever bound.
+//! The endpoint name contains an eight-hex id tag and sixteen hex digits of a 32-hex secret. The
+//! full secret lives in a token file inside a per-user private directory; no globally predictable
+//! name is ever bound. The short name keeps Unix `sun_path` within its 104-byte limit.
 //! Stage 3 adds peer-credential checks on accepted connections.
 
 use std::collections::hash_map::RandomState;
@@ -175,7 +176,7 @@ impl PluginChannel {
 /// The name is opaque to callers: it is either a private filesystem socket path (Unix) or a
 /// private named pipe (Windows). No global or predictable name is constructed here.
 pub fn connect(endpoint_name: &str) -> Result<Stream, HostError> {
-    if endpoint_name.len() < SECRET_HEX_LEN + 8 {
+    if endpoint_name.len() < 24 {
         return Err(HostError::PredictableName);
     }
     let name = name_for_endpoint(endpoint_name)?;
@@ -194,13 +195,21 @@ fn endpoint_name(
     id: &str,
     secret: &str,
 ) -> Result<String, HostError> {
+    // The id is hashed to keep the path within sun_path; sixteen secret hex digits still give
+    // 64 bits of unpredictability to another local user.
+    use sha2::{Digest as _, Sha256};
+    let tag = format!(
+        "{}-{}",
+        &crate::hex::encode(Sha256::digest(id.as_bytes()))[..8],
+        &secret[..16]
+    );
     #[cfg(windows)]
     {
-        Ok(format!(r"\\.\pipe\auro-{id}-{secret}"))
+        Ok(format!(r"\\.\pipe\auro-{tag}"))
     }
     #[cfg(not(windows))]
     {
-        let path = dir.join(format!("auro-{id}-{secret}.sock"));
+        let path = dir.join(format!("auro-{tag}.sock"));
         path.into_os_string()
             .into_string()
             .map_err(|_| HostError::InvalidChannelName)

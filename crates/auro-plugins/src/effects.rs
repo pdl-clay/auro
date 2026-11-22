@@ -147,7 +147,10 @@ impl EffectGateway {
 
 fn validate_lexical(value: &str) -> Result<(), EffectError> {
     let invalid = || EffectError::InvalidPath(value.to_owned());
-    let parts: Vec<&str> = value.split(['/', '\\']).collect();
+    // `canonicalize` on Windows returns a `\\?\` verbatim path; the prefix is not a duplicated
+    // separator and must be accepted at the effect site.
+    let lexical = value.strip_prefix(r"\\?\").unwrap_or(value);
+    let parts: Vec<&str> = lexical.split(['/', '\\']).collect();
     // The first empty part is the leading separator of an absolute path; any other empty part is
     // a duplicated separator and is rejected rather than silently normalized by canonicalize.
     if value.is_empty()
