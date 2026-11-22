@@ -443,7 +443,7 @@ mod platform {
         Ok(())
     }
 
-    pub(super) fn open_file(root: &Path, parts: &[&str], path: &str) -> Result<Option<File>> {
+    pub(super) fn open_file(root: &Path, parts: &[&str], _path: &str) -> Result<Option<File>> {
         match open(&join_parts(root, parts), false) {
             Ok(file) => Ok(Some(file)),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
