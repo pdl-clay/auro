@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 const DEATH_TIMEOUT: Duration = Duration::from_secs(10);
+const PID_SLOT_SETTLE: Duration = Duration::from_secs(1);
 
 /// Kills every process the test started, even when an assertion panics first.
 struct Cleanup {
@@ -248,6 +249,8 @@ fn sigint_kills_dx_and_app_and_exits_zero() {
         std::thread::sleep(Duration::from_millis(25));
     };
     cleanup.pids = vec![dx_pid, app_pid];
+    // The line is visible before the dev loop has consumed it and stored the pid for the handler.
+    std::thread::sleep(PID_SLOT_SETTLE);
 
     assert!(alive(dx_pid), "devserver {dx_pid} was not running");
     assert!(alive(app_pid), "app {app_pid} was not running");
