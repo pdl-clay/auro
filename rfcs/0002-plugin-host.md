@@ -1,6 +1,6 @@
 # 0002 - Plugin host: out-of-process RPC and opt-in in-process dylibs
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Author(s):** @pdl-clay
 - **Created:** 2026-11-22
 - **Supersedes:** none
