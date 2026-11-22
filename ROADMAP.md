@@ -449,15 +449,23 @@ the four residue fixes from #99-#102 (managed XDG base validation, umask-indepen
 modes, Windows-normalized deep-link segments and reserved names, and finalize through a symlinked
 target).
 
-**Maturation closed (2026-11-21):** `v0.1.0-alpha.10` is the final version of the maturation window.
-Two consecutive rounds of real use found no finding of medium severity or above; there will be no
-`alpha.11`. This does **not** meet the phase 2 exit: three real apps in production and published
+**Alpha.11 published (2026-11-22):** all eleven crates are `0.1.0-alpha.11` on crates.io, adding
+`App::assets` with root-scoped `FileAssets` and static `EmbeddedAssets` for `svg().path()` and other
+file-backed GPUI elements, plus the accepted plugin host stages 1-2 behind the default-off `plugins`
+feature (specs 0034/0035).
+
+**Maturation closed (2026-11-21):** `v0.1.0-alpha.10` closed the maturation window after two
+consecutive rounds of real use with no medium-or-higher finding. `alpha.11` follows with the GPUI
+asset source API and the accepted phase 3 plugin host stages 1-2 behind a default-off feature.
+This does **not** meet the phase 2 exit: three real apps in production and published
 startup/RAM/binary-size benchmarks against Tauri and Electron remain unfulfilled.
 
 **Entering phase 3 (a conscious decision with adoption debt):** the plugin host changes layering,
-the IPC contract and the capability model, so [RFC 0002](rfcs/0002-plugin-host.md) is open as a
-Draft PR for review before implementation. The phase 3 exit - a plugin published by someone outside
-the core team - depends on an external author and is not claimed by this entry or by the RFC.
+the IPC contract and the capability model; [RFC 0002](rfcs/0002-plugin-host.md) is Accepted and its
+stages 1-2 are implemented in [spec 0034](docs/src/specs/0034-plugin-manifest-index.md) and
+[spec 0035](docs/src/specs/0035-plugin-rpc.md), behind a default-off `plugins` feature. The phase 3
+exit - a plugin published by someone outside the core team - depends on an external author and is not
+claimed by this entry or by the RFC.
 
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.

@@ -6,9 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0. Before 1.0, a
 breaking change bumps the minor version; the patch version is for compatible fixes.
 
-**`0.1.0-alpha.10` is published on crates.io.** No stable release has been tagged.
+**`0.1.0-alpha.11` is published on crates.io.** No stable release has been tagged.
 
 ## [Unreleased]
+
+## [0.1.0-alpha.11] - 2026-11-22
 
 ### Added
 
@@ -22,7 +24,6 @@ breaking change bumps the minor version; the patch version is for compatible fix
   at the call site that opens the handle. Timeouts, bounded queues, child reaping and dylibs remain
   stage 3 work (spec 0035).
 - `auro-perms` stays pure and string-based; plugin grants live in `auro-plugins` behind `PluginPolicyExt`, which takes an opaque `VerifiedSubject`. Only `PluginRegistry::resolve` can produce that token after index signature, hash/digest, allowlist and instance checks, so a forged subject string cannot obtain another plugin's grant. The non-sandbox limit is stated in `SECURITY.md` (spec 0016 D2/D5; spec 0034; RFC 0002).
-
 - `auro::assets`: `App::assets(impl AssetSource)` installs GPUI's asset source (type-erased behind
   `Arc<dyn AssetSource>`) before the event loop, so `svg().path()` and other file-backed GPUI
   elements can resolve. `FileAssets` scopes filesystem lookups to an app-chosen root and rejects
