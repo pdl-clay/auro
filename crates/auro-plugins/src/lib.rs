@@ -12,6 +12,8 @@
 
 /// Private per-user channel for one plugin instance.
 pub mod channel;
+/// In-process native plugin backend behind the `plugins-dylib` feature.
+pub mod dylib;
 /// Capability-checked file effects at the call site.
 pub mod effects;
 /// Out-of-process host and typed command dispatch.

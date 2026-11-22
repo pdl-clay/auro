@@ -27,6 +27,8 @@ services = ["dep:auro-services"]
 tray = ["services", "auro-services/tray"]
 # Signed in-process plugin host (stage 1). Off by default; forwards to `auro-core`.
 plugins = ["auro-core/plugins"]
+# In-process dylib backend. Explicit opt-in; never pulled by the default facade build.
+plugins-dylib = ["plugins", "auro-core/plugins-dylib"]
 
 [dependencies]
 auro-core.workspace = true

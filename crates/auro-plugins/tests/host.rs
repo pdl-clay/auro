@@ -9,12 +9,16 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use auro_perms::Capability;
 use auro_plugins::PluginPolicyExt;
 use auro_plugins::channel::PluginChannel;
 use auro_plugins::effects::EffectError;
-use auro_plugins::host::{CommandPolicy, HostError, PluginHost};
+use auro_plugins::host::{
+    CommandPolicy, DEFAULT_CALL_TIMEOUT, HostError, PluginAvailability, PluginFailure, PluginHost,
+    PluginState, REQUEST_QUEUE_CAPACITY,
+};
 use auro_plugins::protocol::{
     self, HelloAck, NegotiationError, PROTOCOL_VERSION, PluginCommand, PluginReply,
 };
@@ -68,6 +72,9 @@ struct FixtureOptions {
     reply_kind: &'static str,
     reply_raw: Option<Value>,
     artifact_hash: Option<String>,
+    silent: bool,
+    child_action: Option<&'static str>,
+    reply_delay_ms: u64,
     expect_load_error: bool,
 }
 
@@ -81,6 +88,9 @@ impl Default for FixtureOptions {
             reply_kind: "ok",
             reply_raw: None,
             artifact_hash: None,
+            silent: false,
+            child_action: None,
+            reply_delay_ms: 0,
             expect_load_error: false,
         }
     }
@@ -216,6 +226,18 @@ fn fixture(mut options: FixtureOptions) -> Fixture {
     if let Some(raw) = options.reply_raw {
         host.set_child_env("AURO_PLUGIN_TEST_REPLY_RAW", raw.to_string());
     }
+    if options.silent {
+        host.set_child_env("AURO_PLUGIN_TEST_SILENT", "1");
+    }
+    if let Some(action) = options.child_action {
+        host.set_child_env("AURO_PLUGIN_TEST_CHILD_ACTION", action);
+    }
+    if options.reply_delay_ms != 0 {
+        host.set_child_env(
+            "AURO_PLUGIN_TEST_REPLY_DELAY_MS",
+            options.reply_delay_ms.to_string(),
+        );
+    }
     host.add_child_arg("--exact");
     host.add_child_arg("plugin_child_mode");
     let load_error = host.load(ID, VERSION, INSTANCE).err();
@@ -320,7 +342,31 @@ fn plugin_child_mode() {
         .and_then(|text| text.parse().ok());
     let kind = std::env::var("AURO_PLUGIN_TEST_REPLY").unwrap_or_default();
     let raw = std::env::var("AURO_PLUGIN_TEST_REPLY_RAW").ok();
+    if std::env::var_os("AURO_PLUGIN_TEST_SILENT").is_some() {
+        loop {
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    }
+    let action = std::env::var("AURO_PLUGIN_TEST_CHILD_ACTION").ok();
+    let delay = std::env::var("AURO_PLUGIN_TEST_REPLY_DELAY_MS")
+        .ok()
+        .and_then(|text| text.parse::<u64>().ok())
+        .unwrap_or(0);
     while let Ok(request) = protocol::read_frame::<_, protocol::Request>(&mut stream) {
+        if let Some(action) = &action {
+            match action.as_str() {
+                "abort" => std::process::abort(),
+                "exit" => std::process::exit(7),
+                "panic" => {
+                    std::panic::set_hook(Box::new(|_| {}));
+                    panic!("plugin panic");
+                }
+                _ => {}
+            }
+        }
+        if delay != 0 {
+            std::thread::sleep(Duration::from_millis(delay));
+        }
         let reply_id = forced_reply_id.unwrap_or(request.request_id);
         if let Some(raw) = &raw {
             let value: Value = serde_json::from_str(raw).expect("raw reply JSON");
@@ -855,5 +901,249 @@ fn unsafe_xdg_runtime_dir_is_ignored_by_the_fallback() {
     assert!(
         !chosen.starts_with(&xdg),
         "unsafe XDG_RUNTIME_DIR must be ignored: {chosen:?}"
+    );
+}
+
+#[test]
+fn flood_is_bounded_and_main_thread_stays_responsive() {
+    if in_child_mode() {
+        return;
+    }
+    let mut fixture = fixture(FixtureOptions {
+        commands: CommandPolicy::deny_all().allow_ping(),
+        reply_delay_ms: 5,
+        ..FixtureOptions::default()
+    });
+    assert_eq!(fixture.host.call_timeout(), DEFAULT_CALL_TIMEOUT);
+    fixture.host.set_call_timeout(Duration::from_secs(2));
+    fixture.host.handshake(ID).expect("valid handshake");
+
+    // Submitting never waits for a reply. The bounded queue must push back long before 10k calls
+    // are accepted, and the submitting thread must remain responsive.
+    let started = Instant::now();
+    let mut pending = Vec::new();
+    let mut rejected = 0;
+    for request_id in 0..10_000 {
+        match fixture.host.submit(ID, request_id, PluginCommand::Ping) {
+            Ok(call) => pending.push(call),
+            Err(HostError::QueueFull { .. }) => {
+                rejected += 1;
+                break;
+            }
+            Err(error) => panic!("unexpected submit error: {error:?}"),
+        }
+    }
+    assert!(rejected > 0, "10k submissions must hit backpressure");
+    assert!(
+        pending.len() <= REQUEST_QUEUE_CAPACITY + 16,
+        "queue is bounded"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "submitting must not block on replies"
+    );
+
+    for call in pending {
+        let request_id = call.request_id();
+        let reply = fixture.host.wait(call).expect("queued reply");
+        assert!(
+            matches!(reply, PluginReply::Ok { request_id: found } if found == request_id),
+            "{reply:?}"
+        );
+    }
+    let reply = fixture
+        .host
+        .call(ID, 10_001, PluginCommand::Ping)
+        .expect("host still responsive after the flood");
+    assert!(matches!(reply, PluginReply::Ok { request_id: 10_001 }));
+}
+
+#[test]
+fn silent_plugin_times_out_and_releases_grants() {
+    if in_child_mode() {
+        return;
+    }
+    let mut fixture = fixture(FixtureOptions {
+        grant_fs: true,
+        commands: CommandPolicy::deny_all().allow_ping(),
+        silent: true,
+        ..FixtureOptions::default()
+    });
+    fixture.host.set_call_timeout(Duration::from_secs(2));
+    fixture
+        .host
+        .handshake(ID)
+        .expect("silent child still says hello");
+    fixture.host.set_call_timeout(Duration::from_millis(250));
+    let subject = fixture.host.loaded(ID).expect("loaded").subject().clone();
+    let path = canonical_string(&fixture.allowed.join("ok.txt"));
+
+    let started = Instant::now();
+    let error = fixture
+        .host
+        .call(ID, 1, PluginCommand::Ping)
+        .expect_err("a silent plugin must time out");
+    assert!(
+        matches!(error, HostError::Timeout { ref id, duration } if id.as_str() == ID && duration == Duration::from_millis(250)),
+        "{error:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "timeout must bound the wait"
+    );
+    assert_eq!(
+        fixture.host.loaded(ID).expect("loaded").state(),
+        PluginState::Failed
+    );
+    assert!(
+        fixture
+            .host
+            .child_status(ID)
+            .expect("child status")
+            .is_some(),
+        "timed-out child must be reaped"
+    );
+    assert!(
+        fixture
+            .host
+            .effects()
+            .policy()
+            .check_plugin(&subject, Capability::Fs, Some(path.as_str()))
+            .is_err(),
+        "the failed subject's grants must be released"
+    );
+    let events = fixture.host.take_events();
+    assert!(
+        events.iter().any(|event: &PluginAvailability| {
+            event.id == ID
+                && event.state == PluginState::Failed
+                && event.cause == Some(PluginFailure::Timeout)
+        }),
+        "{events:?}"
+    );
+    let retry = fixture.host.call(ID, 2, PluginCommand::Ping);
+    assert!(
+        matches!(retry, Err(HostError::HandshakeRequired)),
+        "{retry:?}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn process_counts() -> (usize, usize) {
+    let threads = fs::read_dir("/proc/self/task").expect("task dir").count();
+    let fds = fs::read_dir("/proc/self/fd").expect("fd dir").count();
+    (threads, fds)
+}
+
+#[test]
+fn abort_exit_and_panic_children_are_typed_and_reaped() {
+    if in_child_mode() {
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    let before = process_counts();
+
+    for action in ["exit", "abort", "panic"] {
+        let mut fixture = fixture(FixtureOptions {
+            commands: CommandPolicy::deny_all().allow_ping(),
+            child_action: Some(action),
+            ..FixtureOptions::default()
+        });
+        fixture.host.set_call_timeout(Duration::from_secs(2));
+        fixture.host.handshake(ID).expect("valid handshake");
+        let error = fixture
+            .host
+            .call(ID, 1, PluginCommand::Ping)
+            .expect_err("child death must be typed");
+        assert!(
+            matches!(
+                error,
+                HostError::PluginExited { ref id, .. } | HostError::ChildDied { ref id }
+                    if id.as_str() == ID
+            ),
+            "{action}: {error:?}"
+        );
+        assert!(
+            fixture
+                .host
+                .child_status(ID)
+                .expect("child status")
+                .is_some(),
+            "{action}: child must be reaped"
+        );
+        let events = fixture.host.take_events();
+        assert!(
+            events.iter().any(|event| {
+                event.id == ID
+                    && event.state == PluginState::Failed
+                    && matches!(
+                        event.cause,
+                        Some(PluginFailure::Exited { .. } | PluginFailure::ChildDied)
+                    )
+            }),
+            "{action}: {events:?}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let after = process_counts();
+        assert!(
+            after.0 <= before.0 + 8,
+            "thread count grew from {before:?} to {after:?}"
+        );
+        assert!(
+            after.1 <= before.1 + 16,
+            "fd count grew from {before:?} to {after:?}"
+        );
+    }
+}
+
+#[test]
+fn availability_events_track_ready_and_failed_transitions() {
+    if in_child_mode() {
+        return;
+    }
+    let mut fixture = fixture(FixtureOptions {
+        commands: CommandPolicy::deny_all().allow_ping(),
+        ..FixtureOptions::default()
+    });
+    assert!(fixture.host.take_events().iter().any(|event| {
+        event.id == ID && event.state == PluginState::Starting && event.cause.is_none()
+    }));
+    fixture.host.handshake(ID).expect("valid handshake");
+    assert!(fixture.host.take_events().iter().any(|event| {
+        event.id == ID && event.state == PluginState::Ready && event.cause.is_none()
+    }));
+    assert!(fixture.host.take_events().is_empty());
+
+    let reply = fixture
+        .host
+        .call(ID, 1, PluginCommand::Ping)
+        .expect("responsive child");
+    assert!(matches!(reply, PluginReply::Ok { request_id: 1 }));
+
+    let mut mismatch = crate::fixture(FixtureOptions {
+        commands: CommandPolicy::deny_all().allow_ping(),
+        reply_id: 2,
+        ..FixtureOptions::default()
+    });
+    mismatch.host.handshake(ID).expect("valid handshake");
+    let error = mismatch
+        .host
+        .call(ID, 1, PluginCommand::Ping)
+        .expect_err("mismatched reply");
+    assert!(
+        matches!(error, HostError::ReplyMismatch { .. }),
+        "{error:?}"
+    );
+    let events = mismatch.host.take_events();
+    assert!(
+        events.iter().any(|event| {
+            event.id == ID
+                && event.state == PluginState::Failed
+                && event.cause == Some(PluginFailure::Protocol)
+        }),
+        "{events:?}"
     );
 }

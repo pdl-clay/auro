@@ -10,6 +10,12 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Added
+
+- `auro-plugins` (stage 3): bounded RPC with per-call timeout and backpressure, child supervision
+  with reaping and typed availability events, and an in-process `dylib` backend behind the
+  default-off `plugins-dylib` feature (spec 0036, ADR 0025). No hot reload or sandbox is implied.
+
 ## [0.1.0-alpha.11] - 2026-11-22
 
 ### Added

@@ -1,22 +1,32 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Out-of-process plugin host with fail-closed negotiation and effect-site checks.
+//! Out-of-process plugin host with fail-closed negotiation, effect-site checks and supervision.
 //!
 //! The host spawns one child process per loaded plugin, passes a private endpoint through an
 //! environment variable and dispatches only typed [`PluginCommand`] values. No subject, grant or
 //! command name from the wire selects a handler: the loaded instance supplies its own
 //! [`VerifiedSubject`] to [`EffectGateway`].
 //!
-//! Stage 2 intentionally has no timeouts, bounded queues, backpressure, crash handling or child
-//! reaping. A `Child` handle is stored so stage 3 can add supervision; this stage never waits on
-//! it. A plugin that never replies can therefore stall a call. The host is crash isolation, not a
-//! sandbox: plugin native code runs as the same OS user and can bypass host-mediated effects.
+//! Each instance owns one I/O thread. The thread accepts the single connection, performs the exact
+//! handshake and serializes calls on the stream. Calls are submitted through a bounded queue:
+//! [`PluginHost::submit`] applies backpressure with [`HostError::QueueFull`], and
+//! [`PluginHost::wait`] bounds the reply wait with a per-call timeout. A silent child therefore
+//! produces [`HostError::Timeout`] instead of hanging a caller. On EOF, child exit, abort or
+//! timeout the instance is marked failed, its child is reaped, its grants are removed from the
+//! host's effect policy and a typed [`PluginAvailability`] event is queued.
+//!
+//! The host is crash isolation, not a sandbox: plugin native code runs as the same OS user and can
+//! bypass host-mediated effects. No same-user hostile plugin is in scope.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, ExitStatus};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use auro_perms::Policy;
 use interprocess::local_socket::Stream;
@@ -25,14 +35,27 @@ use thiserror::Error;
 
 use crate::channel::{self, PluginChannel};
 use crate::effects::{EffectError, EffectGateway};
-use crate::manifest::{ManifestError, PluginManifest};
+use crate::manifest::{ManifestError, ManifestGrant, PluginManifest};
 use crate::protocol::{
-    self, Hello, HelloAck, NegotiationError, PROTOCOL_VERSION, PluginCommand, PluginReply,
+    self, Hello, HelloAck, NegotiationError, PROTOCOL_VERSION, PluginCommand, PluginReply, Request,
 };
 use crate::registry::{PluginLoadError, PluginRegistry, VerifiedSubject};
 
 /// Environment variable through which the host passes the private endpoint to the child.
 pub const ENDPOINT_ENV: &str = "AURO_PLUGIN_ENDPOINT";
+
+/// Default maximum time a single handshake or call waits for a plugin reply.
+pub const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Maximum number of outstanding calls queued for one plugin instance.
+pub const REQUEST_QUEUE_CAPACITY: usize = 64;
+
+/// How long a failed instance's I/O thread is given to exit before it is detached.
+///
+/// An I/O thread blocked in `accept` cannot be cancelled; the child is killed before this wait, so
+/// a connected child's thread always finishes. A child that never connects leaves one detached
+/// thread which exits when its endpoint is released.
+const WORKER_JOIN_GRACE: Duration = Duration::from_millis(200);
 
 /// Typed allowlist of commands an app exposes to plugins.
 ///
@@ -93,14 +116,55 @@ enum HandshakeState {
     Failed,
 }
 
+/// Public lifecycle reported through [`PluginAvailability`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PluginState {
+    /// The child was spawned but no handshake has completed.
+    Starting,
+    /// The exact handshake completed; typed calls may be dispatched.
+    Ready,
+    /// The instance is terminal. Its child was reaped and its grants were released.
+    Failed,
+}
+
+/// Why an instance became unavailable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PluginFailure {
+    /// The plugin did not answer within the configured call timeout.
+    Timeout,
+    /// More calls were submitted than the bounded request queue can hold.
+    QueueFull,
+    /// The child died without an exit status (abort, signal, EOF or forced termination).
+    ChildDied,
+    /// The child exited with `code`; `None` means it was killed by a signal.
+    Exited { code: Option<i32> },
+    /// A protocol or handshake error closed the channel.
+    Protocol,
+}
+
+/// A typed change in one plugin instance's availability.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PluginAvailability {
+    /// Id of the instance whose state changed.
+    pub id: String,
+    /// The new state.
+    pub state: PluginState,
+    /// The terminal cause, present only when `state` is [`PluginState::Failed`].
+    pub cause: Option<PluginFailure>,
+}
+
 /// One loaded plugin instance and the host-side resources it owns.
 #[derive(Debug)]
 pub struct LoadedPlugin {
     subject: VerifiedSubject,
     manifest: PluginManifest,
-    channel: PluginChannel,
+    channel: Arc<PluginChannel>,
     child: Child,
-    stream: Option<Stream>,
+    commands: Option<SyncSender<WorkerCommand>>,
+    worker: Option<JoinHandle<()>>,
     state: HandshakeState,
 }
 
@@ -122,17 +186,32 @@ impl LoadedPlugin {
 
     /// The child process handle.
     ///
-    /// Stage 2 stores it but never waits on or reaps it; supervision arrives in stage 3.
+    /// The host reaps it on failure and on drop; [`PluginHost::child_status`] polls it without
+    /// taking a mutable borrow of the handle.
     pub fn child(&self) -> &Child {
         &self.child
     }
 
-    fn ensure_stream(&mut self) -> Result<&mut Stream, HostError> {
-        let stream = match self.stream.take() {
-            Some(stream) => stream,
-            None => self.channel.accept()?,
-        };
-        Ok(self.stream.insert(stream))
+    /// The instance's current lifecycle state.
+    pub fn state(&self) -> PluginState {
+        match self.state {
+            HandshakeState::NotConnected | HandshakeState::Handshaking => PluginState::Starting,
+            HandshakeState::Ready => PluginState::Ready,
+            HandshakeState::Failed => PluginState::Failed,
+        }
+    }
+}
+
+impl Drop for LoadedPlugin {
+    fn drop(&mut self) {
+        if let Some(commands) = self.commands.take() {
+            let _ = commands.try_send(WorkerCommand::Stop);
+        }
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+        join_worker(&mut self.worker);
     }
 }
 
@@ -205,7 +284,7 @@ pub enum HostError {
     #[error("plugin load failed: {0}")]
     Load(#[from] PluginLoadError),
 
-    /// The child process could not be spawned.
+    /// The child process or its I/O thread could not be spawned.
     #[error("plugin process could not be spawned: {0}")]
     Spawn(#[source] io::Error),
 
@@ -237,6 +316,72 @@ pub enum HostError {
         /// Request id carried by the reply.
         found: u64,
     },
+
+    /// The plugin did not reply within the configured timeout.
+    #[error("plugin `{id}` timed out after {duration:?}")]
+    Timeout {
+        /// Id of the timed-out instance.
+        id: String,
+        /// The timeout that elapsed.
+        duration: Duration,
+    },
+
+    /// The bounded request queue for this instance was full.
+    #[error("plugin `{id}` request queue is full")]
+    QueueFull {
+        /// Id of the instance whose queue was full.
+        id: String,
+    },
+
+    /// The plugin process exited on its own.
+    #[error("plugin `{id}` exited with status {status}")]
+    PluginExited {
+        /// Id of the exited instance.
+        id: String,
+        /// Reaped exit status.
+        status: ExitStatus,
+    },
+
+    /// The plugin process died without a normal exit status, or its channel reached EOF.
+    #[error("plugin `{id}` process died before replying")]
+    ChildDied {
+        /// Id of the dead instance.
+        id: String,
+    },
+}
+
+/// A submitted call whose typed reply has not been collected yet.
+///
+/// Submitting applies the effect checks and enqueues the request; the reply is collected with
+/// [`PluginHost::wait`], which applies the per-call timeout and supervises the instance on failure.
+#[derive(Debug)]
+#[must_use = "a submitted call must be collected with PluginHost::wait"]
+pub struct PendingCall {
+    id: String,
+    _request_id: u64,
+    timeout: Duration,
+    receiver: Receiver<Result<PluginReply, HostError>>,
+}
+
+impl PendingCall {
+    /// The request id carried by this call's wire envelope.
+    pub fn request_id(&self) -> u64 {
+        self._request_id
+    }
+}
+
+/// Command sent from the host thread to one instance's I/O thread.
+#[derive(Debug)]
+enum WorkerCommand {
+    Handshake {
+        grants: Vec<ManifestGrant>,
+        reply: SyncSender<Result<(), HostError>>,
+    },
+    Call {
+        request: Request,
+        reply: SyncSender<Result<PluginReply, HostError>>,
+    },
+    Stop,
 }
 
 /// Spawns verified plugins and dispatches typed commands to them.
@@ -249,6 +394,8 @@ pub struct PluginHost {
     child_args: Vec<OsString>,
     child_env: HashMap<OsString, OsString>,
     plugins: HashMap<String, LoadedPlugin>,
+    call_timeout: Duration,
+    events: Arc<Mutex<VecDeque<PluginAvailability>>>,
 }
 
 impl PluginHost {
@@ -257,6 +404,7 @@ impl PluginHost {
     ///
     /// `registry` carries the signed index and app allowlist; it is the only producer of subjects.
     /// The plugin package for id `X` is read from `<root>/X/manifest.json` and its entrypoint.
+    /// Calls use [`DEFAULT_CALL_TIMEOUT`] until [`Self::set_call_timeout`] changes it.
     pub fn new(
         registry: PluginRegistry,
         policy: Policy,
@@ -274,7 +422,28 @@ impl PluginHost {
             child_args: Vec::new(),
             child_env: HashMap::new(),
             plugins: HashMap::new(),
+            call_timeout: DEFAULT_CALL_TIMEOUT,
+            events: Arc::new(Mutex::new(VecDeque::new())),
         }
+    }
+
+    /// Overrides the reply timeout for handshakes and calls.
+    ///
+    /// A zero duration still performs one poll of the reply channel before timing out.
+    pub fn set_call_timeout(&mut self, timeout: Duration) {
+        self.call_timeout = timeout;
+    }
+
+    /// Builder form of [`Self::set_call_timeout`].
+    #[must_use]
+    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
+        self.set_call_timeout(timeout);
+        self
+    }
+
+    /// The current per-call timeout.
+    pub fn call_timeout(&self) -> Duration {
+        self.call_timeout
     }
 
     /// Overrides the private channel directory, for tests that need an isolated directory.
@@ -285,7 +454,7 @@ impl PluginHost {
     /// Adds a host-controlled argument for spawned children.
     ///
     /// This is a fixture hook for driving the SDK's current-test-binary child mode; plugin
-    /// manifests never choose process arguments. Stage 3 replaces it with a fixed launcher.
+    /// manifests never choose process arguments. A production launcher replaces this hook.
     pub fn add_child_arg(&mut self, arg: impl Into<OsString>) {
         self.child_args.push(arg.into());
     }
@@ -311,6 +480,30 @@ impl PluginHost {
     /// The loaded instance with this id, if any.
     pub fn loaded(&self, id: &str) -> Option<&LoadedPlugin> {
         self.plugins.get(id)
+    }
+
+    /// Reaped status of a child, if it has exited.
+    ///
+    /// This is a non-blocking `try_wait`; the host already reaps failed children, so a failed
+    /// instance still reports its cached status here.
+    pub fn child_status(&mut self, id: &str) -> io::Result<Option<ExitStatus>> {
+        match self.plugins.get_mut(id) {
+            Some(plugin) => plugin.child.try_wait(),
+            None => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "plugin is not loaded",
+            )),
+        }
+    }
+
+    /// Drains queued availability events after polling children for unobserved exits.
+    pub fn take_events(&mut self) -> Vec<PluginAvailability> {
+        self.poll_children();
+        let mut events = self
+            .events
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        events.drain(..).collect()
     }
 
     /// Loads `<root>/<id>/manifest.json`, verifies the pinned artifact and spawns the child.
@@ -355,14 +548,28 @@ impl PluginHost {
             .resolve(id, version, &artifact_hash, manifest, instance_id)?;
 
         let secret = channel::generate_secret();
-        let channel = PluginChannel::new(&self.private_dir, id, &secret)?;
+        let channel = Arc::new(PluginChannel::new(&self.private_dir, id, &secret)?);
         let mut process = Command::new(&entrypoint);
         process
             .current_dir(self.root.join(id))
             .args(&self.child_args)
             .envs(&self.child_env)
             .env(ENDPOINT_ENV, channel.endpoint_name());
-        let child = process.spawn().map_err(HostError::Spawn)?;
+        let mut child = process.spawn().map_err(HostError::Spawn)?;
+        let (commands, receiver) = mpsc::sync_channel(REQUEST_QUEUE_CAPACITY);
+        let worker_id = id.to_owned();
+        let worker_channel = Arc::clone(&channel);
+        let worker = thread::Builder::new()
+            .name(format!("auro-plugin-{worker_id}"))
+            .spawn(move || run_worker(worker_id, worker_channel, receiver));
+        let worker = match worker {
+            Ok(handle) => handle,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(HostError::Spawn(error));
+            }
+        };
         self.plugins.insert(
             id.to_owned(),
             LoadedPlugin {
@@ -370,97 +577,364 @@ impl PluginHost {
                 manifest: manifest.clone(),
                 channel,
                 child,
-                stream: None,
+                commands: Some(commands),
+                worker: Some(worker),
                 state: HandshakeState::NotConnected,
             },
         );
+        self.push_event(PluginAvailability {
+            id: id.to_owned(),
+            state: PluginState::Starting,
+            cause: None,
+        });
         Ok(())
     }
 
     /// Reads and validates the plugin's `Hello`, then sends the exact `HelloAck`.
     ///
     /// Every mismatch is fatal and no command can be dispatched before a successful handshake.
+    /// The wait is bounded by the configured timeout.
     pub fn handshake(&mut self, id: &str) -> Result<(), HostError> {
-        let plugin = self
-            .plugins
-            .get_mut(id)
-            .ok_or_else(|| HostError::NotLoaded(id.to_owned()))?;
-        match plugin.state {
-            HandshakeState::Ready => return Ok(()),
-            HandshakeState::Failed => return Err(HostError::HandshakeRequired),
-            HandshakeState::NotConnected | HandshakeState::Handshaking => {}
-        }
-        plugin.state = HandshakeState::Handshaking;
-        let grants = plugin.manifest.capabilities.clone();
-        let result = (|| -> Result<(), HostError> {
-            let stream = plugin.ensure_stream()?;
-            let hello: Hello = protocol::read_frame(stream).map_err(NegotiationError::from)?;
-            protocol::validate_hello(&hello, &grants)?;
-            let ack = HelloAck {
-                protocol_version: PROTOCOL_VERSION,
-                capabilities_hash: protocol::capabilities_hash(&grants),
+        let (commands, grants) = {
+            let plugin = self
+                .plugins
+                .get_mut(id)
+                .ok_or_else(|| HostError::NotLoaded(id.to_owned()))?;
+            match plugin.state {
+                HandshakeState::Ready => return Ok(()),
+                HandshakeState::Failed => return Err(HostError::HandshakeRequired),
+                HandshakeState::NotConnected | HandshakeState::Handshaking => {}
+            }
+            plugin.state = HandshakeState::Handshaking;
+            let commands = plugin
+                .commands
+                .as_ref()
+                .ok_or_else(|| HostError::ChildDied { id: id.to_owned() })?
+                .clone();
+            (commands, plugin.manifest.capabilities.clone())
+        };
+        let (reply_sender, reply_receiver) = mpsc::sync_channel(1);
+        if let Err(error) = commands.try_send(WorkerCommand::Handshake {
+            grants,
+            reply: reply_sender,
+        }) {
+            let cause = match error {
+                TrySendError::Full(_) => HostError::QueueFull { id: id.to_owned() },
+                TrySendError::Disconnected(_) => HostError::ChildDied { id: id.to_owned() },
             };
-            protocol::write_frame(stream, &ack).map_err(HostError::ProtocolIo)
-        })();
-        match result {
-            Ok(()) => {
-                plugin.state = HandshakeState::Ready;
+            return Err(self.fail_instance(id, cause));
+        }
+        match reply_receiver.recv_timeout(self.call_timeout) {
+            Ok(Ok(())) => {
+                if let Some(plugin) = self.plugins.get_mut(id) {
+                    plugin.state = HandshakeState::Ready;
+                }
+                self.push_event(PluginAvailability {
+                    id: id.to_owned(),
+                    state: PluginState::Ready,
+                    cause: None,
+                });
                 Ok(())
             }
-            Err(error) => {
-                // A rejected or broken negotiation is terminal for this instance. Drop the stream
-                // so no later call can reuse an unauthenticated channel.
-                plugin.state = HandshakeState::Failed;
-                plugin.stream = None;
-                Err(error)
+            Ok(Err(error)) => Err(self.fail_instance(id, error)),
+            Err(RecvTimeoutError::Timeout) => Err(self.fail_instance(
+                id,
+                HostError::Timeout {
+                    id: id.to_owned(),
+                    duration: self.call_timeout,
+                },
+            )),
+            Err(RecvTimeoutError::Disconnected) => {
+                Err(self.fail_instance(id, HostError::ChildDied { id: id.to_owned() }))
             }
         }
     }
 
-    /// Applies the typed effect, sends `command` and returns the matching typed reply.
+    /// Applies the typed effect, then queues `command` without waiting for its reply.
     ///
-    /// The command allowlist is checked first and the effect runs before any frame is sent, so a
-    /// denied effect never reaches the child. No string from the wire selects the effect.
+    /// The allowlist and effect checks run before the request is queued, so a denied effect never
+    /// reaches the child. A full bounded queue is reported immediately as
+    /// [`HostError::QueueFull`]; the caller is never blocked on a busy queue.
+    pub fn submit(
+        &mut self,
+        id: &str,
+        request_id: u64,
+        command: PluginCommand,
+    ) -> Result<PendingCall, HostError> {
+        if !self.commands.allows(&command) {
+            return Err(HostError::CommandNotAllowed(command_name(&command)));
+        }
+        let (commands, subject) = {
+            let plugin = self
+                .plugins
+                .get(id)
+                .ok_or_else(|| HostError::NotLoaded(id.to_owned()))?;
+            if plugin.state != HandshakeState::Ready {
+                return Err(HostError::HandshakeRequired);
+            }
+            let commands = plugin
+                .commands
+                .as_ref()
+                .ok_or_else(|| HostError::ChildDied { id: id.to_owned() })?
+                .clone();
+            (commands, plugin.subject.clone())
+        };
+        match &command {
+            PluginCommand::ReadFile { path } => {
+                let _ = self.effects.read_file(&subject, path)?;
+            }
+            PluginCommand::WriteFile { path, bytes } => {
+                self.effects.write_file(&subject, path, bytes)?;
+            }
+            PluginCommand::Ping => {}
+        }
+        let (reply_sender, receiver) = mpsc::sync_channel(1);
+        let request = Request {
+            request_id,
+            command,
+        };
+        match commands.try_send(WorkerCommand::Call {
+            request,
+            reply: reply_sender,
+        }) {
+            Ok(()) => Ok(PendingCall {
+                id: id.to_owned(),
+                _request_id: request_id,
+                timeout: self.call_timeout,
+                receiver,
+            }),
+            Err(TrySendError::Full(_)) => Err(HostError::QueueFull { id: id.to_owned() }),
+            Err(TrySendError::Disconnected(_)) => {
+                Err(self.fail_instance(id, HostError::ChildDied { id: id.to_owned() }))
+            }
+        }
+    }
+
+    /// Collects a submitted call's typed reply within the per-call timeout.
+    ///
+    /// A timeout, EOF, child death or protocol error fails the instance: the child is reaped, the
+    /// subject's grants are released and a [`PluginState::Failed`] event is queued.
+    pub fn wait(&mut self, pending: PendingCall) -> Result<PluginReply, HostError> {
+        let PendingCall {
+            id,
+            _request_id,
+            timeout,
+            receiver,
+        } = pending;
+        match receiver.recv_timeout(timeout) {
+            Ok(Ok(reply)) => Ok(reply),
+            Ok(Err(error)) => Err(self.fail_instance(&id, error)),
+            Err(RecvTimeoutError::Timeout) => Err(self.fail_instance(
+                &id,
+                HostError::Timeout {
+                    id: id.clone(),
+                    duration: timeout,
+                },
+            )),
+            Err(RecvTimeoutError::Disconnected) => {
+                Err(self.fail_instance(&id, HostError::ChildDied { id: id.clone() }))
+            }
+        }
+    }
+
+    /// Applies the typed effect, queues the call and waits for its reply.
     pub fn call(
         &mut self,
         id: &str,
         request_id: u64,
         command: PluginCommand,
     ) -> Result<PluginReply, HostError> {
-        if !self.commands.allows(&command) {
-            return Err(HostError::CommandNotAllowed(command_name(&command)));
-        }
-        let plugin = self
+        let pending = self.submit(id, request_id, command)?;
+        self.wait(pending)
+    }
+
+    /// Polls live children for exits that no call observed and fails those instances.
+    fn poll_children(&mut self) {
+        let exited: Vec<(String, ExitStatus)> = self
             .plugins
-            .get_mut(id)
-            .ok_or_else(|| HostError::NotLoaded(id.to_owned()))?;
-        if plugin.state != HandshakeState::Ready || plugin.stream.is_none() {
-            return Err(HostError::HandshakeRequired);
+            .iter_mut()
+            .filter_map(|(id, plugin)| {
+                if plugin.state == HandshakeState::Failed {
+                    return None;
+                }
+                match plugin.child.try_wait() {
+                    Ok(Some(status)) => Some((id.clone(), status)),
+                    _ => None,
+                }
+            })
+            .collect();
+        for (id, status) in exited {
+            let _ = self.fail_instance(
+                &id,
+                HostError::PluginExited {
+                    id: id.clone(),
+                    status,
+                },
+            );
         }
-        match &command {
-            PluginCommand::ReadFile { path } => {
-                self.effects.read_file(&plugin.subject, path)?;
+    }
+
+    /// Fails one instance terminally and normalizes the reported error after reaping.
+    fn fail_instance(&mut self, id: &str, error: HostError) -> HostError {
+        let (subject, status) = {
+            let plugin = match self.plugins.get_mut(id) {
+                Some(plugin) => plugin,
+                None => return error,
+            };
+            plugin.state = HandshakeState::Failed;
+            if let Some(commands) = plugin.commands.take() {
+                let _ = commands.try_send(WorkerCommand::Stop);
             }
-            PluginCommand::WriteFile { path, bytes } => {
-                self.effects.write_file(&plugin.subject, path, bytes)?;
-            }
-            PluginCommand::Ping => {}
-        }
-        let stream = plugin.ensure_stream()?;
-        let request = protocol::Request {
-            request_id,
-            command,
+            let status = match plugin.child.try_wait() {
+                Ok(Some(status)) => Some(status),
+                Ok(None) => {
+                    let _ = plugin.child.kill();
+                    plugin.child.wait().ok()
+                }
+                Err(_) => None,
+            };
+            join_worker(&mut plugin.worker);
+            (plugin.subject.clone(), status)
         };
-        protocol::write_frame(stream, &request).map_err(HostError::ProtocolIo)?;
-        let reply: PluginReply = protocol::read_frame(stream).map_err(HostError::ProtocolIo)?;
-        let found = reply_request_id(&reply);
-        if found != request_id {
-            return Err(HostError::ReplyMismatch {
-                expected: request_id,
-                found,
-            });
+        self.release_grants(&subject);
+        self.push_event(PluginAvailability {
+            id: id.to_owned(),
+            state: PluginState::Failed,
+            cause: Some(cause_of(&error, status)),
+        });
+        let replacement = match &error {
+            HostError::ChildDied { id } => status.map(|status| HostError::PluginExited {
+                id: id.clone(),
+                status,
+            }),
+            _ => None,
+        };
+        replacement.unwrap_or(error)
+    }
+
+    /// Rebuilds the effect policy without any grant for `subject`.
+    fn release_grants(&mut self, subject: &VerifiedSubject) {
+        let mut policy = Policy::deny_all();
+        let mut changed = false;
+        for grant in self.effects.policy().grants() {
+            if grant.subject() == subject.as_str() {
+                changed = true;
+            } else {
+                policy = policy.allow(grant.clone());
+            }
         }
-        Ok(reply)
+        if changed {
+            self.effects = EffectGateway::new(policy, self.root.clone());
+        }
+    }
+
+    /// Queues an availability event for the host's accessor.
+    fn push_event(&self, event: PluginAvailability) {
+        let mut events = self
+            .events
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        events.push_back(event);
+    }
+}
+
+/// Maps a terminal host error to the cause carried by an availability event.
+fn cause_of(error: &HostError, status: Option<ExitStatus>) -> PluginFailure {
+    match error {
+        HostError::Timeout { .. } => PluginFailure::Timeout,
+        HostError::QueueFull { .. } => PluginFailure::QueueFull,
+        HostError::PluginExited { status, .. } => PluginFailure::Exited {
+            code: status.code(),
+        },
+        HostError::ChildDied { .. } => match status {
+            Some(status) => PluginFailure::Exited {
+                code: status.code(),
+            },
+            None => PluginFailure::ChildDied,
+        },
+        _ => PluginFailure::Protocol,
+    }
+}
+
+/// Bounded join for a failed instance's I/O thread.
+///
+/// A connected child's thread unblocks as soon as the child is killed; an `accept`-blocked thread
+/// is detached rather than risking an unbounded wait.
+fn join_worker(worker: &mut Option<JoinHandle<()>>) {
+    if let Some(handle) = worker.take() {
+        let deadline = Instant::now() + WORKER_JOIN_GRACE;
+        while Instant::now() < deadline && !handle.is_finished() {
+            thread::sleep(Duration::from_millis(2));
+        }
+        if handle.is_finished() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// Owns one instance's stream and serializes its handshake and calls.
+fn run_worker(id: String, channel: Arc<PluginChannel>, commands: Receiver<WorkerCommand>) {
+    let mut stream: Option<Stream> = None;
+    while let Ok(command) = commands.recv() {
+        match command {
+            WorkerCommand::Handshake { grants, reply } => {
+                let result = (|| -> Result<(), HostError> {
+                    let active = match stream.take() {
+                        Some(accepted) => accepted,
+                        None => channel.accept()?,
+                    };
+                    let active = stream.insert(active);
+                    let hello: Hello =
+                        protocol::read_frame(active).map_err(NegotiationError::from)?;
+                    protocol::validate_hello(&hello, &grants)?;
+                    let ack = HelloAck {
+                        protocol_version: PROTOCOL_VERSION,
+                        capabilities_hash: protocol::capabilities_hash(&grants),
+                    };
+                    protocol::write_frame(active, &ack).map_err(HostError::ProtocolIo)
+                })();
+                let failed = result.is_err();
+                let _ = reply.try_send(result);
+                if failed {
+                    break;
+                }
+            }
+            WorkerCommand::Call { request, reply } => {
+                let request_id = request.request_id;
+                let result = (|| -> Result<PluginReply, HostError> {
+                    let active = stream.as_mut().ok_or(HostError::HandshakeRequired)?;
+                    protocol::write_frame(active, &request)
+                        .map_err(|error| classify_io(error, &id))?;
+                    let answer: PluginReply =
+                        protocol::read_frame(active).map_err(|error| classify_io(error, &id))?;
+                    let found = reply_request_id(&answer);
+                    if found != request_id {
+                        return Err(HostError::ReplyMismatch {
+                            expected: request_id,
+                            found,
+                        });
+                    }
+                    Ok(answer)
+                })();
+                let failed = result.is_err();
+                let _ = reply.try_send(result);
+                if failed {
+                    break;
+                }
+            }
+            WorkerCommand::Stop => break,
+        }
+    }
+}
+
+/// Distinguishes a dead peer from other framed I/O failures.
+fn classify_io(error: io::Error, id: &str) -> HostError {
+    match error.kind() {
+        io::ErrorKind::UnexpectedEof
+        | io::ErrorKind::BrokenPipe
+        | io::ErrorKind::ConnectionReset
+        | io::ErrorKind::NotConnected => HostError::ChildDied { id: id.to_owned() },
+        _ => HostError::ProtocolIo(error),
     }
 }
 
