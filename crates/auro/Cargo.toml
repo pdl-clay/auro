@@ -49,6 +49,10 @@ tracing.workspace = true
 # FileAssets opens canonical paths with O_NOFOLLOW|O_CLOEXEC to close check/open races.
 libc.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+# FileAssets queries file identity from opened handles; std's MetadataExt accessors are unstable.
+windows-sys = { workspace = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # Startup preflight reads the compositor's advertised globals; gpui already pulls this crate.
 wayland-client = "0.31"
