@@ -99,15 +99,18 @@ fn alive(pid: u32) -> bool {
             .expect("ps");
         let state = String::from_utf8_lossy(&output.stdout);
         let state = state.trim();
-        return !state.is_empty() && !state.starts_with('Z') && !state.starts_with('U');
+        !state.is_empty() && !state.starts_with('Z') && !state.starts_with('U')
     }
-    Command::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+    #[cfg(not(target_os = "macos"))]
+    {
+        Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
 }
 
 fn read_pid(path: &Path) -> Option<u32> {
