@@ -15,7 +15,12 @@ breaking change bumps the minor version; the patch version is for compatible fix
 - `auro-plugins` (stage 1 of the accepted RFC 0002): versioned plugin manifests with closed fields
   and explicit limits, verified subjects derived from a signed static index plus artifact hash and
   instance id, a pinned embedded index with no runtime fetch, and an app allowlist in `Auro.toml`
-  under `[plugins]`. Load failures are named errors; no process is spawned and no RPC exists yet.
+  under `[plugins]`. Load failures are named errors.
+- `auro-plugins` (stage 2): out-of-process host with a private per-user channel, spawn from the
+  pinned verified entrypoint, exact protocol/SDK/schema/capability negotiation, typed versioned
+  messages with no subject on the wire, a typed command allowlist, and minimal `fs` effects checked
+  at the call site that opens the handle. Timeouts, bounded queues, child reaping and dylibs remain
+  stage 3 work (spec 0035).
 - `auro-perms` stays pure and string-based; plugin grants live in `auro-plugins` behind `PluginPolicyExt`, which takes an opaque `VerifiedSubject`. Only `PluginRegistry::resolve` can produce that token after index signature, hash/digest, allowlist and instance checks, so a forged subject string cannot obtain another plugin's grant. The non-sandbox limit is stated in `SECURITY.md` (spec 0016 D2/D5; spec 0034; RFC 0002).
 
 ## [0.1.0-alpha.10] - 2026-11-21

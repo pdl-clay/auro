@@ -10,10 +10,18 @@
 //! This crate performs no process spawning, no IPC, no network access and no path I/O. The only
 //! embedded bytes are the shipped index, included at build time with `include_str!`.
 
+/// Private per-user channel for one plugin instance.
+pub mod channel;
+/// Capability-checked file effects at the call site.
+pub mod effects;
+/// Out-of-process host and typed command dispatch.
+pub mod host;
 /// The signed, static index and its verification rules.
 pub mod index;
 /// Hostile-input validation of plugin manifests.
 pub mod manifest;
+/// Typed, versioned RPC messages and fail-closed negotiation.
+pub mod protocol;
 /// Verification of plugin identity into effective subjects.
 pub mod registry;
 
