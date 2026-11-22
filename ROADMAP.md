@@ -449,6 +449,16 @@ the four residue fixes from #99-#102 (managed XDG base validation, umask-indepen
 modes, Windows-normalized deep-link segments and reserved names, and finalize through a symlinked
 target).
 
+**Maturation closed (2026-11-21):** `v0.1.0-alpha.10` is the final version of the maturation window.
+Two consecutive rounds of real use found no finding of medium severity or above; there will be no
+`alpha.11`. This does **not** meet the phase 2 exit: three real apps in production and published
+startup/RAM/binary-size benchmarks against Tauri and Electron remain unfulfilled.
+
+**Entering phase 3 (a conscious decision with adoption debt):** the plugin host changes layering,
+the IPC contract and the capability model, so [RFC 0002](rfcs/0002-plugin-host.md) is open as a
+Draft PR for review before implementation. The phase 3 exit - a plugin published by someone outside
+the core team - depends on an external author and is not claimed by this entry or by the RFC.
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 
@@ -461,6 +471,20 @@ Tauri and Electron.
   `auro-gpui-component`) wrap advanced widgets such as a virtualized data table, charts, markdown
   and syntax highlighting.
 - Hot reload GA with state preservation (mechanism/measurability per [spec 0004](docs/src/specs/0004-hot-reload.md) / [ADR 0008](docs/src/decisions/0008-hot-reload-mechanism-revision.md)).
+
+Design gates before implementation, from the adversarial review of [RFC 0002](rfcs/0002-plugin-host.md):
+the plugin host is crash isolation, not a sandbox; a plugin runs as the same user and can bypass
+host-mediated capabilities. The effective subject comes from the verified artifact, not a manifest
+field, and the index is signed and pinned with no runtime fetch in phase 3. Plugins are not
+window-scoped (issue #26 stays open for app windows only). Sequence: manifest/subject/signed index
+and capability extension, then fail-closed typed RPC with effect-site canonicalization, then crash
+isolation and limits, then a reference plugin (with issue #13 as the internal consumer), then hot
+reload GA.
+
+Hot reload GA does not meet the `< 500 ms` target on every platform today: spec 0004 records
+Linux at 368 ms, Windows at 813 ms (N=9) and macOS at 509-956 ms. The phase 3 criterion must be
+"measured and documented per OS with a versioned-snapshot restart fallback", not "target achieved".
+The phase 3 exit still depends on a plugin published by an author outside the core team.
 
 **Exit:** a third-party plugin published by someone outside the core team.
 
