@@ -458,6 +458,13 @@ feature (specs 0034/0035).
 the `FileAssets` check/open race with fd-verified reads and Windows reparse-point rejection, and
 carrying the stage 3 plugin host hardening (RPC limits, child supervision, opt-in dylib backend).
 
+**Alpha.13 published (2026-11-22):** all twelve crates are `0.1.0-alpha.13` on crates.io, closing
+the hot reload GA readiness plan: a documented reloadable-state contract, failure-path and
+stale-code regressions, a real dx patch e2e test, the D6 measurement pipeline with published
+per-OS evidence, and clean dev-session exit semantics. Hot reload GA uses per-OS targets: Linux
+< 500 ms, Windows and macOS < 1 s with recorded context; no platform claims 500 ms without its own
+measurement, and the versioned-snapshot restart fallback remains labelled as a restart.
+
 **Maturation closed (2026-11-21):** `v0.1.0-alpha.10` closed the maturation window after two
 consecutive rounds of real use with no medium-or-higher finding. `alpha.11` follows with the GPUI
 asset source API and the accepted phase 3 plugin host stages 1-2 behind a default-off feature.

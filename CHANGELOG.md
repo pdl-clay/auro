@@ -6,17 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0. Before 1.0, a
 breaking change bumps the minor version; the patch version is for compatible fixes.
 
-**`0.1.0-alpha.12` is published on crates.io.** No stable release has been tagged.
+**`0.1.0-alpha.13` is published on crates.io.** No stable release has been tagged.
 
 ## [Unreleased]
 
+## [0.1.0-alpha.13] - 2026-11-22
+
+### Added
+
+- Hot reload D6 measurement pipeline (`tools/hot-reload-measure/measure.py`) with unittest coverage,
+  an explicit empty-trace gate and a published per-OS baseline in the performance budget.
+- Real dx patch end-to-end tests apply a genuine jump table to a live boundary, verify that state
+  survives, and reject callbacks registered before the patch as stale.
+
 ### Changed
 
-- Hot reload is declared GA with revised per-OS latency targets (Linux < 500 ms; Windows and macOS
-  < 1 s, maintainer decision 2026-11-22). The versioned-snapshot restart fallback remains part of
-  the contract and is always labelled as a restart. Windows' nine-sample series stays historical,
-  below the D6 N>=10 gate; no platform claims 500 ms without a measurement on that platform. This
-  is a documentation and target decision only: no runtime change.
+- Hot reload GA is declared with revised per-OS latency targets: Linux < 500 ms, Windows and macOS
+  < 1 s, with recorded machine and runner context. The versioned-snapshot restart fallback remains
+  part of the contract and is always labelled `restarted (state restored|reset)`, never
+  `hot reloaded`. Windows' nine-sample series stays historical below the D6 N>=10 gate; no platform
+  claims 500 ms without a measurement on that platform.
+- The reloadable-state author contract is normative: opt-in entries, unique keys, version bumps on
+  layout changes, per-entry reset with a visible diagnostic, and a four-crate scaffold layout in 0.x.
+- `auro dev` labels failed boundary builds, rejected patches and forced restarts honestly: a failed
+  save keeps the previous UI live and a forced fallback is reported as a restart.
+- Hot-mode exit semantics are regression-tested: SIGINT stops `dx` and its app, exits 0 and leaves
+  no orphaned process; runner limitations are recorded explicitly instead of silently skipped.
 
 ## [0.1.0-alpha.12] - 2026-11-22
 

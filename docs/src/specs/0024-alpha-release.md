@@ -3,7 +3,7 @@
 **Status:** Implemented (2026-11-18 for `v0.1.0-alpha.1`; 2026-11-19 for `v0.1.0-alpha.2`;
 2026-11-20 for `v0.1.0-alpha.3` and `v0.1.0-alpha.4`; 2026-11-21 for `v0.1.0-alpha.5`,
 `v0.1.0-alpha.6`, `v0.1.0-alpha.7`, `v0.1.0-alpha.8`, `v0.1.0-alpha.9`, `v0.1.0-alpha.10`,
-`v0.1.0-alpha.11` and `v0.1.0-alpha.12`). All twelve crates are published; final README copy and
+`v0.1.0-alpha.11`, `v0.1.0-alpha.12` and `v0.1.0-alpha.13`). All twelve crates are published; final
 screenshots remain follow-ups.
 
 The first public alpha publishes the workspace crates as `0.1.0-alpha.1`. This spec collects the
@@ -204,6 +204,17 @@ ordinary feature PR.
 - The release closes the `FileAssets` check/open race with fd-verified reads and carries the stage 3
   plugin host hardening (specs 0035/0036, ADR 0025).
 - Tag `v0.1.0-alpha.12` points at the release commit.
+
+### Publication (2026-11-22) - `0.1.0-alpha.13`
+
+- Workspace version and internal requirements are `0.1.0-alpha.13`; all twelve crates report it as
+  their maximum published version on crates.io.
+- The release closes the hot reload GA readiness plan: the reloadable-state author contract,
+  failure-path and stale-code regressions, a real dx patch e2e test, the D6 measurement pipeline
+  with published per-OS evidence, and clean dev-session exit semantics. Hot reload GA uses per-OS
+  targets (Linux < 500 ms, Windows and macOS < 1 s) with a labelled snapshot-restart fallback; no
+  platform claims 500 ms without its own measurement.
+- Tag `v0.1.0-alpha.13` points at the release commit.
 
 ## Open questions
 
