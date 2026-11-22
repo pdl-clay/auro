@@ -51,3 +51,4 @@ same pull request. The roadmap is the plan; the RFC is why the plan changed.
 | # | Title | Status |
 |---|---|---|
 | [0001](0001-update-metadata-trust.md) | Update metadata trust: freshness, rotation and revocation | Draft |
+| [0002](0002-plugin-host.md) | Plugin host: out-of-process RPC and opt-in in-process dylibs | Draft |
