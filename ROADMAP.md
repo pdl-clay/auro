@@ -439,6 +439,11 @@ the twenty fixes from #70-#79 and #81-#90 (forwarding sequence and worker pool, 
 build-arg resolution, update preflight and macOS extraction budgets, symlink-safe autostart,
 deep-link and signing writes, Windows pipe DACL, and typed window config errors).
 
+**Alpha.9 published (2026-11-21):** all eleven crates are `0.1.0-alpha.9` on crates.io, carrying
+the six security fixes from #92-#97 (umask-independent autostart/deep-link directories, real-byte
+macOS zip budgets, per-user Windows pipe tokens and lock DACL validation, IPv6-only bracketed
+deep-link hosts and drive-prefix rejection, and canonical backup validation in `finalize`).
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 
