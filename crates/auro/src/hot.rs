@@ -258,4 +258,39 @@ mod tests {
             PatchVerdict::Apply
         );
     }
+
+    #[test]
+    fn apply_failure_is_contained() {
+        assert_eq!(
+            patch_verdict(Some(999), Some(11), 7, Some(11)),
+            PatchVerdict::OtherProcess
+        );
+        assert_eq!(
+            patch_verdict(Some(7), Some(999), 7, Some(11)),
+            PatchVerdict::OtherBuild
+        );
+
+        let before = revision();
+        let table = subsecond::JumpTable {
+            lib: std::path::PathBuf::from("/auro/no-such-hot-patch.so"),
+            map: Default::default(),
+            aslr_reference: 0,
+            new_base_address: 0,
+            ifunc_count: 0,
+        };
+        // SAFETY: the library path does not exist, so apply_patch returns a Dlopen error before
+        // touching any executable memory; catch_unwind covers a malformed-table panic.
+        let applied = std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+            subsecond::apply_patch(table)
+        }));
+        assert!(
+            matches!(applied, Ok(Err(_)) | Err(_)),
+            "a bad patch must be rejected, not committed"
+        );
+        assert_eq!(
+            revision(),
+            before,
+            "a rejected patch must not advance the revision"
+        );
+    }
 }

@@ -348,7 +348,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
     let mut saved_at: Option<Instant> = None;
     let mut patched_at: Option<Instant> = None;
     let mut patch_took: Option<u128> = None;
-    let mut build_failed = false;
+    let mut hot_labels = HotLabelTracker::default();
     // A pid change is a devserver relaunch, not a hot reload. The app's snapshot report after it
     // must be labelled as a restart (spec 0004, D4).
     let mut known_pid: Option<u32> = None;
@@ -369,7 +369,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
             saved_at = Some(when);
             patched_at = None;
             patch_took = None;
-            build_failed = false;
+            hot_labels.note_save();
             let outside_boundary =
                 outside_boundary_change(&paths, dir, &boundary_root, has_boundary);
             if let Some(path) = outside_boundary {
@@ -385,7 +385,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                 saved_at = None;
                 patched_at = None;
                 patch_took = None;
-                build_failed = false;
+                hot_labels = HotLabelTracker::default();
                 continue;
             }
         }
@@ -412,6 +412,10 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     known_pid = Some(pid);
                     host_rebuild = false;
                     *app_pid.lock().expect("app pid lock") = Some(pid);
+                }
+
+                for label in hot_labels.observe(&plain, relaunches) {
+                    println!("auro: {label}");
                 }
 
                 if let Some(took) = patch_took_ms(&line) {
@@ -444,17 +448,18 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     patch_took = None;
                 }
 
-                if let Some(reason) = trace_text(&plain, "auro:trace hot_patch_failed ") {
+                if trace_text(&plain, "auro:trace hot_patch_failed ").is_some() {
                     // The app keeps its previous jump table; dx heads for a full rebuild. There is
                     // no render to measure, so this save must not produce a timing line later.
-                    println!("auro: patch rejected by the app: {reason}");
                     saved_at = None;
                     patched_at = None;
                     patch_took = None;
                 }
 
                 if trace_u64(&plain, "auro:trace hot_render ").is_some() {
-                    if let Some(saved) = saved_at {
+                    if hot_labels.may_trace_reload()
+                        && let Some(saved) = saved_at
+                    {
                         let save_to_render = saved.elapsed();
                         println!(
                             "{}",
@@ -473,7 +478,7 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     saved_at = None;
                     patched_at = None;
                     patch_took = None;
-                    build_failed = false;
+                    hot_labels.note_render();
                 }
 
                 if host_rebuild && plain.contains("Build completed successfully") {
@@ -490,21 +495,8 @@ fn run_hot(dir: &Path, config: &Config, patch: Option<&str>) -> Result<(), AuroE
                     }
                 }
 
-                if saved_at.is_some() && !build_failed && build_failed_line(&plain) {
-                    build_failed = true;
-                    println!("auro: build failed, previous UI still running");
-                }
-
                 if plain.contains("Starting full rebuild") {
                     println!("auro: hot patch failed, dev server is rebuilding the app");
-                }
-
-                // The app's own snapshot report only labels a relaunch. The first launch and an
-                // in-process patch have no restart to report.
-                if relaunches > 0
-                    && let Some(label) = relaunch_label(&plain)
-                {
-                    println!("auro: {label}");
                 }
 
                 if plain.contains("exited gracefully") {
@@ -872,6 +864,58 @@ fn relaunch_label(line: &str) -> Option<String> {
     }
     let (_, reason) = line.split_once("auro: state reset: ")?;
     Some(format!("restarted (state reset: {reason})"))
+}
+
+/// Outcome labels for the failure paths of one hot-mode save.
+///
+/// A failed build or a rejected patch must never produce a "reloaded" label or a timing trace,
+/// even if the old UI emits a late `hot_render` marker (spec 0004, D4/D6).
+#[derive(Debug, Default)]
+struct HotLabelTracker {
+    save_pending: bool,
+    build_failed: bool,
+}
+
+impl HotLabelTracker {
+    /// Starts measuring a new save.
+    fn note_save(&mut self) {
+        self.save_pending = true;
+        self.build_failed = false;
+    }
+
+    /// Whether the current save may still produce a hot-reload trace and label.
+    fn may_trace_reload(&self) -> bool {
+        self.save_pending && !self.build_failed
+    }
+
+    /// Called after the render marker has been handled, successful or not.
+    fn note_render(&mut self) {
+        self.save_pending = false;
+        self.build_failed = false;
+    }
+
+    /// Maps one devserver/app line to the labels it must print.
+    fn observe(&mut self, plain: &str, relaunches: u32) -> Vec<String> {
+        let mut labels = Vec::new();
+        if build_failed_line(plain) && self.save_pending && !self.build_failed {
+            self.build_failed = true;
+            labels.push("build failed, previous UI still running".to_owned());
+        }
+        if let Some(reason) = trace_text(plain, "auro:trace hot_patch_failed ") {
+            labels.push(format!("patch rejected by the app: {reason}"));
+            self.save_pending = false;
+            self.build_failed = false;
+        }
+        if self.build_failed && trace_u64(plain, "auro:trace hot_render ").is_some() {
+            labels.push("build failed, previous UI still running".to_owned());
+        }
+        if relaunches > 0
+            && let Some(label) = relaunch_label(plain)
+        {
+            labels.push(label);
+        }
+        labels
+    }
 }
 
 /// One machine-readable line per save, so save-to-visible can be computed without a stopwatch.
@@ -1696,5 +1740,89 @@ watch = ["srcc"]
         assert!(!dx_compatible("dioxus 0.6.3"));
         assert!(!dx_compatible("0.7.10"));
         assert!(!dx_compatible(""));
+    }
+
+    #[test]
+    fn failed_patch_build_keeps_previous_ui_label() {
+        let mut labels = HotLabelTracker::default();
+        labels.note_save();
+        assert!(labels.observe("auro:trace hot_render 1", 0).is_empty());
+
+        labels.note_save();
+        let failed = labels.observe("12.1s ERROR Build failed: cargo failed with status 101", 0);
+        assert!(
+            failed
+                .iter()
+                .any(|label| label == "build failed, previous UI still running"),
+            "{failed:?}"
+        );
+        // A late render marker from the old UI must not report a reload for the failed save.
+        let late = labels.observe("auro:trace hot_render 2", 0);
+        assert!(
+            late.iter()
+                .any(|label| label == "build failed, previous UI still running"),
+            "{late:?}"
+        );
+        assert!(!labels.may_trace_reload());
+    }
+
+    #[test]
+    fn apply_failure_does_not_claim_reload() {
+        let mut labels = HotLabelTracker::default();
+        labels.note_save();
+        let failed = labels.observe(
+            "auro:trace hot_patch_failed Failed to load library: file too short",
+            0,
+        );
+        assert!(
+            failed
+                .iter()
+                .any(|label| label.starts_with("patch rejected by the app:")),
+            "{failed:?}"
+        );
+        assert!(
+            failed
+                .iter()
+                .all(|label| !label.contains("reloaded") && !label.contains("hot reload")),
+            "{failed:?}"
+        );
+        assert!(!labels.may_trace_reload());
+    }
+
+    #[test]
+    fn forced_fallback_is_labelled_restarted() {
+        let mut labels = HotLabelTracker::default();
+        labels.note_save();
+        labels.observe("auro:trace pid 4242", 1);
+        let restarted = labels.observe("auro: state restored from /tmp/snapshot.json", 1);
+        assert!(
+            restarted
+                .iter()
+                .any(|label| label == "restarted (state restored)"),
+            "{restarted:?}"
+        );
+        assert!(
+            restarted
+                .iter()
+                .all(|label| !label.contains("reloaded") && !label.contains("hot reload")),
+            "{restarted:?}"
+        );
+    }
+
+    #[test]
+    fn reset_reason_is_visible() {
+        let mut labels = HotLabelTracker::default();
+        labels.observe("auro:trace pid 4242", 1);
+        let reset = labels.observe(
+            "auro: state reset: snapshot entry version 2 cannot be read",
+            1,
+        );
+        assert!(
+            reset.iter().any(|label| {
+                label.contains("state reset")
+                    && label.contains("snapshot entry version 2 cannot be read")
+            }),
+            "{reset:?}"
+        );
     }
 }
