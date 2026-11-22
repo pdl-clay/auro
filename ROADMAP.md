@@ -444,6 +444,11 @@ the six security fixes from #92-#97 (umask-independent autostart/deep-link direc
 macOS zip budgets, per-user Windows pipe tokens and lock DACL validation, IPv6-only bracketed
 deep-link hosts and drive-prefix rejection, and canonical backup validation in `finalize`).
 
+**Alpha.10 published (2026-11-21):** all eleven crates are `0.1.0-alpha.10` on crates.io, carrying
+the four residue fixes from #99-#102 (managed XDG base validation, umask-independent macOS bundle
+modes, Windows-normalized deep-link segments and reserved names, and finalize through a symlinked
+target).
+
 **Exit:** three real apps shipped to real users. Startup/RAM/size benchmarks published against
 Tauri and Electron.
 
