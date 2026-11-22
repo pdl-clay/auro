@@ -449,10 +449,14 @@ the four residue fixes from #99-#102 (managed XDG base validation, umask-indepen
 modes, Windows-normalized deep-link segments and reserved names, and finalize through a symlinked
 target).
 
-**Alpha.11 published (2026-11-22):** all eleven crates are `0.1.0-alpha.11` on crates.io, adding
+**Alpha.11 published (2026-11-22):** all twelve crates are `0.1.0-alpha.11` on crates.io, adding
 `App::assets` with root-scoped `FileAssets` and static `EmbeddedAssets` for `svg().path()` and other
 file-backed GPUI elements, plus the accepted plugin host stages 1-2 behind the default-off `plugins`
 feature (specs 0034/0035).
+
+**Alpha.12 published (2026-11-22):** all twelve crates are `0.1.0-alpha.12` on crates.io, closing
+the `FileAssets` check/open race with fd-verified reads and Windows reparse-point rejection, and
+carrying the stage 3 plugin host hardening (RPC limits, child supervision, opt-in dylib backend).
 
 **Maturation closed (2026-11-21):** `v0.1.0-alpha.10` closed the maturation window after two
 consecutive rounds of real use with no medium-or-higher finding. `alpha.11` follows with the GPUI

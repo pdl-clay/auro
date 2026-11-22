@@ -2,9 +2,9 @@
 
 **Status:** Implemented (2026-11-18 for `v0.1.0-alpha.1`; 2026-11-19 for `v0.1.0-alpha.2`;
 2026-11-20 for `v0.1.0-alpha.3` and `v0.1.0-alpha.4`; 2026-11-21 for `v0.1.0-alpha.5`,
-`v0.1.0-alpha.6`, `v0.1.0-alpha.7`, `v0.1.0-alpha.8`, `v0.1.0-alpha.9`, `v0.1.0-alpha.10` and
-`v0.1.0-alpha.11`). All eleven crates are published; final README copy and screenshots remain
-follow-ups.
+`v0.1.0-alpha.6`, `v0.1.0-alpha.7`, `v0.1.0-alpha.8`, `v0.1.0-alpha.9`, `v0.1.0-alpha.10`,
+`v0.1.0-alpha.11` and `v0.1.0-alpha.12`). All twelve crates are published; final README copy and
+screenshots remain follow-ups.
 
 The first public alpha publishes the workspace crates as `0.1.0-alpha.1`. This spec collects the
 release contract that is not owned by an earlier feature spec: versioning, publish order, crate
@@ -191,11 +191,19 @@ ordinary feature PR.
 
 ### Publication (2026-11-22) - `0.1.0-alpha.11`
 
-- Workspace version and internal requirements are `0.1.0-alpha.11`; all eleven crates report it as
+- Workspace version and internal requirements are `0.1.0-alpha.11`; all twelve crates report it as
   their maximum published version on crates.io.
 - The release adds the GPUI asset source API (`App::assets`, `FileAssets`, `EmbeddedAssets`) and the
   accepted plugin host stages 1-2 behind the default-off `plugins` feature (specs 0034/0035).
 - Tag `v0.1.0-alpha.11` points at the release commit.
+
+### Publication (2026-11-22) - `0.1.0-alpha.12`
+
+- Workspace version and internal requirements are `0.1.0-alpha.12`; all twelve crates report it as
+  their maximum published version on crates.io.
+- The release closes the `FileAssets` check/open race with fd-verified reads and carries the stage 3
+  plugin host hardening (specs 0035/0036, ADR 0025).
+- Tag `v0.1.0-alpha.12` points at the release commit.
 
 ## Open questions
 
