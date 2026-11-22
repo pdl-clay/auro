@@ -133,9 +133,10 @@ App::new()
 ```
 
 Use `EmbeddedAssets` for a static `include_bytes!` table, or implement
-`auro::gpui::AssetSource` directly. `FileAssets` rejects `..`, absolute paths and symlinks that
-leave the chosen directory; see [toolkits](architecture/toolkits.md#assets-and-svgpath) for the
-boundary and the embedding option.
+`auro::gpui::AssetSource` directly. `FileAssets` rejects `..` and absolute paths, and checks the
+opened file handle against the canonical path before reading; symlinked path components are
+rejected on Unix, and Windows directory listing is reported as unsupported rather than guessed.
+See [toolkits](architecture/toolkits.md#assets-and-svgpath) for the exact boundary.
 
 ## Where to go next
 

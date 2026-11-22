@@ -589,6 +589,7 @@ dependencies = [
  "auro-update",
  "dioxus-devtools",
  "gpui",
+ "libc",
  "serde_json",
  "subsecond",
  "tempfile",

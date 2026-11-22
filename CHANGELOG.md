@@ -16,6 +16,14 @@ breaking change bumps the minor version; the patch version is for compatible fix
   with reaping and typed availability events, and an in-process `dylib` backend behind the
   default-off `plugins-dylib` feature (spec 0036, ADR 0025). No hot reload or sandbox is implied.
 
+### Fixed
+
+- `auro::assets::FileAssets`: loads are resolved against the canonical root, opened via `openat`
+  with `O_NOFOLLOW|O_CLOEXEC` on Unix (reparse-point rejection and handle identity comparison on
+  Windows), and read from the verified handle instead of reopening by path. A symlink swapped after
+  the check can no longer return out-of-root content. Unix listings use the same fd chain; Windows
+  listings return a typed `Unsupported` error rather than falling back to an unverified path.
+
 ## [0.1.0-alpha.11] - 2026-11-22
 
 ### Added

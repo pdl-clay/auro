@@ -8,7 +8,8 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeSet;
-use std::io;
+use std::fmt;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -37,14 +38,455 @@ fn invalid_path(path: &str, reason: &str) -> io::Error {
     )
 }
 
+/// A validated asset was changed, or cannot be accessed safely on this platform.
+///
+/// These errors are returned as typed values inside GPUI's `anyhow::Result`, so callers can use
+/// `downcast_ref::<AssetAccessError>()` to distinguish a swap from an ordinary I/O failure.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum AssetAccessError {
+    /// A symlink or reparse point was found where the validated path requires a real entry.
+    Link {
+        /// The asset path that was rejected.
+        path: String,
+    },
+    /// The opened handle is not the canonical target (type, device, inode or index differs).
+    IdentityMismatch {
+        /// The asset path that was rejected.
+        path: String,
+    },
+    /// This platform cannot perform the operation without an unsafe path-based race.
+    Unsupported {
+        /// The asset path that was rejected.
+        path: String,
+        /// The operation that cannot be performed safely.
+        operation: &'static str,
+    },
+}
+
+impl AssetAccessError {
+    /// The I/O error category for this rejection.
+    pub fn kind(&self) -> io::ErrorKind {
+        match self {
+            Self::Unsupported { .. } => io::ErrorKind::Unsupported,
+            Self::Link { .. } | Self::IdentityMismatch { .. } => io::ErrorKind::InvalidData,
+        }
+    }
+}
+
+impl fmt::Display for AssetAccessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Link { path } => {
+                write!(
+                    f,
+                    "asset `{path}` became a symlink or reparse point after validation"
+                )
+            }
+            Self::IdentityMismatch { path } => {
+                write!(f, "asset `{path}` changed between validation and open")
+            }
+            Self::Unsupported { path, operation } => {
+                write!(
+                    f,
+                    "cannot safely {operation} asset `{path}` on this platform"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for AssetAccessError {}
+
 /// An [`AssetSource`] rooted at a filesystem directory chosen by the app.
 ///
-/// Asset paths use `/` (and reject `\`) regardless of the host OS. The root is canonicalized on
-/// every lookup; a path is accepted only when it stays under that root after symlink resolution.
-/// Absolute paths, drive prefixes, empty components and `.`/`..` are rejected before any I/O.
+/// Asset paths use `/` (and reject `\`) regardless of the host OS. Absolute paths, drive prefixes,
+/// empty components and `.`/`..` are rejected before any I/O. The root and target are canonicalized
+/// to check containment; the file is then opened through directory descriptors with no symlink
+/// following, and the opened object's identity must match the canonical target before any byte is
+/// read. On Windows the final handle is opened with `FILE_FLAG_OPEN_REPARSE_POINT` and checked the
+/// same way. See [`AssetAccessError`] for the typed rejections.
 #[derive(Clone, Debug)]
 pub struct FileAssets {
     root: PathBuf,
+}
+
+fn split_path(path: &str) -> Result<Vec<&str>> {
+    if path.contains('\\') {
+        return Err(invalid_path(path, "backslashes are not allowed").into());
+    }
+    if path.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut parts = Vec::new();
+    for component in path.split('/') {
+        match component {
+            "" | "." | ".." => {
+                return Err(invalid_path(path, "non-normal component").into());
+            }
+            part if part.contains(':') => {
+                return Err(invalid_path(path, "absolute or drive-prefixed component").into());
+            }
+            part => parts.push(part),
+        }
+    }
+    Ok(parts)
+}
+
+fn join_parts(root: &Path, parts: &[&str]) -> PathBuf {
+    let mut target = root.to_path_buf();
+    for part in parts {
+        target.push(part);
+    }
+    target
+}
+
+fn canonicalize_target(root: &Path, parts: &[&str], path: &str) -> Result<PathBuf> {
+    let canonical = std::fs::canonicalize(join_parts(root, parts))?;
+    if !canonical.starts_with(root) {
+        return Err(invalid_path(path, "resolves outside the asset root").into());
+    }
+    Ok(canonical)
+}
+
+#[cfg(unix)]
+mod platform {
+    use std::collections::BTreeSet;
+    use std::ffi::{CStr, CString, OsStr};
+    use std::fs::File;
+    use std::io;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    use std::path::{Component, Path};
+
+    use super::{AssetAccessError, Result, invalid_path};
+
+    // Every component is opened without following links; parents must be directories.
+    const FILE_FLAGS: libc::c_int = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW;
+    const DIR_FLAGS: libc::c_int = FILE_FLAGS | libc::O_DIRECTORY;
+
+    struct Dir(*mut libc::DIR);
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` came from a successful `fdopendir` and is closed only here.
+            unsafe { libc::closedir(self.0) };
+        }
+    }
+
+    fn link(path: &str) -> AssetAccessError {
+        AssetAccessError::Link {
+            path: path.to_owned(),
+        }
+    }
+
+    fn mismatch(path: &str) -> AssetAccessError {
+        AssetAccessError::IdentityMismatch {
+            path: path.to_owned(),
+        }
+    }
+
+    fn c_name(name: &OsStr, path: &str) -> Result<CString> {
+        CString::new(name.as_bytes()).map_err(|_| invalid_path(path, "interior NUL byte").into())
+    }
+
+    fn open_at(dir: libc::c_int, name: &CStr, flags: libc::c_int) -> io::Result<OwnedFd> {
+        // SAFETY: `name` is NUL-terminated, `dir` is an open directory fd (or `AT_FDCWD`), and a
+        // successful `openat` returns a new fd that this function exclusively owns.
+        let raw = unsafe { libc::openat(dir, name.as_ptr(), flags) };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `openat` succeeded, so `raw` is a fresh fd not owned by anyone else.
+        Ok(unsafe { OwnedFd::from_raw_fd(raw) })
+    }
+
+    fn open_required(
+        dir: libc::c_int,
+        name: &CStr,
+        flags: libc::c_int,
+        path: &str,
+    ) -> Result<OwnedFd> {
+        match open_at(dir, name, flags) {
+            Ok(fd) => Ok(fd),
+            Err(error)
+                if matches!(
+                    error.raw_os_error(),
+                    Some(libc::ELOOP) | Some(libc::ENOTDIR)
+                ) =>
+            {
+                Err(link(path).into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn open_optional(
+        dir: libc::c_int,
+        name: &CStr,
+        flags: libc::c_int,
+        path: &str,
+    ) -> Result<Option<OwnedFd>> {
+        match open_at(dir, name, flags) {
+            Ok(fd) => Ok(Some(fd)),
+            Err(error) if error.raw_os_error() == Some(libc::ENOENT) => Ok(None),
+            Err(error)
+                if matches!(
+                    error.raw_os_error(),
+                    Some(libc::ELOOP) | Some(libc::ENOTDIR)
+                ) =>
+            {
+                Err(link(path).into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn open_canonical_root(root: &Path, path: &str) -> Result<OwnedFd> {
+        // Walk from `/` with O_NOFOLLOW so no ancestor of the canonical root can be swapped for a
+        // symlink between the canonicalization and the open.
+        let mut current = open_required(libc::AT_FDCWD, c"/", DIR_FLAGS, path)?;
+        for component in root.components() {
+            if let Component::Normal(name) = component {
+                let name = c_name(name, path)?;
+                current = open_required(current.as_raw_fd(), &name, DIR_FLAGS, path)?;
+            }
+        }
+        Ok(current)
+    }
+
+    fn open_chain(
+        root: &Path,
+        parts: &[&str],
+        path: &str,
+        final_flags: libc::c_int,
+    ) -> Result<Option<OwnedFd>> {
+        let mut current = open_canonical_root(root, path)?;
+        for (index, part) in parts.iter().enumerate() {
+            let flags = if index + 1 == parts.len() {
+                final_flags
+            } else {
+                DIR_FLAGS
+            };
+            let name = c_name(OsStr::new(part), path)?;
+            match open_optional(current.as_raw_fd(), &name, flags, path)? {
+                Some(next) => current = next,
+                None => return Ok(None),
+            }
+        }
+        Ok(Some(current))
+    }
+
+    fn verify(raw: libc::c_int, canonical: &Path, path: &str, directory: bool) -> Result<()> {
+        let mut info: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: zeroed `libc::stat` is a valid value, `info` is writable, and `raw` is an open fd.
+        if unsafe { libc::fstat(raw, &mut info) } < 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        let expected_type = if directory {
+            libc::S_IFDIR
+        } else {
+            libc::S_IFREG
+        };
+        if info.st_mode & libc::S_IFMT != expected_type {
+            return Err(mismatch(path).into());
+        }
+        let metadata = std::fs::symlink_metadata(canonical)?;
+        let expected_type_ok = if directory {
+            metadata.file_type().is_dir()
+        } else {
+            metadata.file_type().is_file()
+        };
+        if !expected_type_ok
+            || metadata.dev() != info.st_dev as u64
+            || metadata.ino() != info.st_ino as u64
+        {
+            return Err(mismatch(path).into());
+        }
+        Ok(())
+    }
+
+    fn enumerate(fd: &OwnedFd) -> Result<Vec<String>> {
+        // `fdopendir` takes ownership on success, so hand it a close-on-exec duplicate and keep
+        // the original fd.
+        // SAFETY: `fd` is a valid, open directory fd; `fcntl` returns a fresh fd or -1.
+        let duplicate = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
+        if duplicate < 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        // SAFETY: `duplicate` is an fd we own; `fdopendir` owns it only when it succeeds.
+        let dir = unsafe { libc::fdopendir(duplicate) };
+        if dir.is_null() {
+            let error = io::Error::last_os_error();
+            // SAFETY: `fdopendir` failed, so ownership of `duplicate` was not transferred.
+            unsafe { libc::close(duplicate) };
+            return Err(error.into());
+        }
+        let dir = Dir(dir);
+        let mut names = BTreeSet::new();
+        loop {
+            // SAFETY: `dir.0` is a valid `DIR`; `readdir` returns a valid entry or null.
+            let entry = unsafe { libc::readdir(dir.0) };
+            if entry.is_null() {
+                break;
+            }
+            // SAFETY: a non-null `dirent` has a NUL-terminated `d_name` inside the struct.
+            let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
+            let name = OsStr::from_bytes(name.to_bytes()).to_string_lossy();
+            if name.as_ref() == "." || name.as_ref() == ".." {
+                continue;
+            }
+            if !name.contains('/') && !name.contains('\\') {
+                names.insert(name.into_owned());
+            }
+        }
+        Ok(names.into_iter().collect())
+    }
+
+    pub(super) fn open_file(root: &Path, parts: &[&str], path: &str) -> Result<Option<File>> {
+        Ok(open_chain(root, parts, path, FILE_FLAGS)?.map(File::from))
+    }
+
+    pub(super) fn verify_file(file: &File, canonical: &Path, path: &str) -> Result<()> {
+        verify(file.as_raw_fd(), canonical, path, false)
+    }
+
+    pub(super) fn list_dir(
+        root: &Path,
+        parts: &[&str],
+        canonical: &Path,
+        path: &str,
+    ) -> Result<Vec<String>> {
+        let Some(fd) = open_chain(root, parts, path, DIR_FLAGS)? else {
+            return Err(io::Error::from(io::ErrorKind::NotFound).into());
+        };
+        verify(fd.as_raw_fd(), canonical, path, true)?;
+        enumerate(&fd)
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use std::fs::{File, OpenOptions};
+    use std::io;
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use std::path::Path;
+
+    use super::{AssetAccessError, Result, join_parts};
+
+    // Win32 file flags and attributes (no new dependency for these constants).
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+
+    fn open(target: &Path, directory: bool) -> io::Result<File> {
+        let flags = if directory {
+            FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS
+        } else {
+            FILE_FLAG_OPEN_REPARSE_POINT
+        };
+        let mut options = OpenOptions::new();
+        options.read(true).custom_flags(flags);
+        options.open(target)
+    }
+
+    fn verify(file: &File, canonical: &Path, path: &str, directory: bool) -> Result<()> {
+        let opened = file.metadata()?;
+        let expected = std::fs::symlink_metadata(canonical)?;
+        if opened.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || expected.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        {
+            return Err(AssetAccessError::Link {
+                path: path.to_owned(),
+            }
+            .into());
+        }
+        let opened_dir = opened.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0;
+        let expected_dir = expected.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0;
+        let identity_matches = match (
+            opened.volume_serial_number(),
+            expected.volume_serial_number(),
+            opened.file_index(),
+            expected.file_index(),
+        ) {
+            (Some(left_volume), Some(right_volume), Some(left_index), Some(right_index)) => {
+                left_volume == right_volume && left_index == right_index
+            }
+            _ => false,
+        };
+        if opened_dir != directory || expected_dir != directory || !identity_matches {
+            return Err(AssetAccessError::IdentityMismatch {
+                path: path.to_owned(),
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn open_file(root: &Path, parts: &[&str], path: &str) -> Result<Option<File>> {
+        match open(&join_parts(root, parts), false) {
+            Ok(file) => Ok(Some(file)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(super) fn verify_file(file: &File, canonical: &Path, path: &str) -> Result<()> {
+        verify(file, canonical, path, false)
+    }
+
+    pub(super) fn list_dir(
+        root: &Path,
+        parts: &[&str],
+        canonical: &Path,
+        path: &str,
+    ) -> Result<Vec<String>> {
+        // The handle can be verified, but std has no fd/handle-based directory enumeration on
+        // Windows. Falling back to `read_dir(canonical)` would reopen by path, so report that
+        // limitation instead of claiming the containment check is race-free.
+        let file = open(&join_parts(root, parts), true)?;
+        verify(&file, canonical, path, true)?;
+        Err(AssetAccessError::Unsupported {
+            path: path.to_owned(),
+            operation: "directory listing",
+        }
+        .into())
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+mod platform {
+    use std::fs::File;
+    use std::path::Path;
+
+    use super::{AssetAccessError, Result};
+
+    pub(super) fn open_file(_root: &Path, _parts: &[&str], path: &str) -> Result<Option<File>> {
+        Err(AssetAccessError::Unsupported {
+            path: path.to_owned(),
+            operation: "file access",
+        }
+        .into())
+    }
+
+    pub(super) fn verify_file(_file: &File, _canonical: &Path, _path: &str) -> Result<()> {
+        Ok(())
+    }
+
+    pub(super) fn list_dir(
+        _root: &Path,
+        _parts: &[&str],
+        _canonical: &Path,
+        path: &str,
+    ) -> Result<Vec<String>> {
+        Err(AssetAccessError::Unsupported {
+            path: path.to_owned(),
+            operation: "directory listing",
+        }
+        .into())
+    }
 }
 
 impl FileAssets {
@@ -57,50 +499,30 @@ impl FileAssets {
     pub fn root(&self) -> &Path {
         &self.root
     }
-
-    fn resolve(&self, path: &str) -> Result<PathBuf> {
-        let root = std::fs::canonicalize(&self.root)?;
-        let mut target = root.clone();
-        if !path.is_empty() {
-            for component in path.split(['/', '\\']) {
-                if component.is_empty() || component == "." || component == ".." {
-                    return Err(invalid_path(path, "non-normal component").into());
-                }
-                if component.contains(':') {
-                    return Err(invalid_path(path, "absolute or drive-prefixed component").into());
-                }
-                target.push(component);
-            }
-        }
-        let canonical = std::fs::canonicalize(&target)?;
-        if !canonical.starts_with(&root) {
-            return Err(invalid_path(path, "resolves outside the asset root").into());
-        }
-        Ok(canonical)
-    }
 }
 
 impl AssetSource for FileAssets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        let target = self.resolve(path)?;
-        match std::fs::read(&target) {
-            Ok(bytes) => Ok(Some(Cow::Owned(bytes))),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error.into()),
-        }
+        let parts = split_path(path)?;
+        let root = std::fs::canonicalize(&self.root)?;
+        let Some(mut file) = platform::open_file(&root, &parts, path)? else {
+            return Ok(None);
+        };
+        let canonical = canonicalize_target(&root, &parts, path)?;
+        platform::verify_file(&file, &canonical, path)?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        Ok(Some(Cow::Owned(bytes)))
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        let target = self.resolve(path)?;
-        let mut names = BTreeSet::new();
-        for entry in std::fs::read_dir(&target)? {
-            let name = entry?.file_name();
-            let name = name.to_string_lossy();
-            if !name.contains('/') && !name.contains('\\') {
-                names.insert(name.into_owned());
-            }
-        }
-        Ok(names.into_iter().map(SharedString::from).collect())
+        let parts = split_path(path)?;
+        let root = std::fs::canonicalize(&self.root)?;
+        let canonical = canonicalize_target(&root, &parts, path)?;
+        Ok(platform::list_dir(&root, &parts, &canonical, path)?
+            .into_iter()
+            .map(SharedString::from)
+            .collect())
     }
 }
 

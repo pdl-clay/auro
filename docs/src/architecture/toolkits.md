@@ -66,10 +66,20 @@ App::new()
 ```
 
 `FileAssets` scopes every lookup to the chosen directory: absolute paths, drive prefixes, `..` and
-symlinks that resolve outside the root are rejected before the bytes are read. `EmbeddedAssets`
-wraps a static `&[(&str, &[u8])]` table for apps that prefer `include_bytes!`; an app can also
-implement `AssetSource` itself. The source is type-erased behind `Arc<dyn AssetSource>` in the
-builder and applied to `Application::new().with_assets(...)` once, before the event loop starts.
+empty components are rejected. On Unix it canonicalizes the root, then re-walks that canonical
+path from `/` with `openat` and `O_NOFOLLOW|O_CLOEXEC`, compares the opened fd's identity with the
+canonical target, and reads from the fd; a symlink swapped after the check is rejected rather than
+followed. Directory listings use the same fd chain. On Windows the file is opened with
+`FILE_FLAG_OPEN_REPARSE_POINT`, reparse points are rejected and the handle's volume/index is compared
+with the canonical target; Windows directory listing is **not** supported by `FileAssets` because std
+cannot enumerate entries from an already-verified handle — it returns a typed `Unsupported` error
+instead of silently falling back to a path-based `read_dir`.
+
+`EmbeddedAssets` wraps a static `&[(&str, &[u8])]` table for apps that prefer `include_bytes!`; an
+app can also implement `AssetSource` itself. The source is type-erased behind `Arc<dyn AssetSource>`
+in the builder and applied to `Application::new().with_assets(...)` once, before the event loop
+starts. The Unix fd walk rejects symlinks anywhere in an asset path, including links that stay
+inside the root; the app chooses whether that restriction fits its asset layout.
 
 ## Versions are part of the choice
 
