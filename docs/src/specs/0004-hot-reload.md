@@ -815,10 +815,14 @@ restores the snapshot and is labelled `restarted (state restored)`. Item 6 is de
 on Linux (N=12, median 368 ms, p95 394, min 325, max 394, patch-to-render 1-26 ms), Windows (N=9, median
 813 ms, p95 897, 752-897, patch-to-render 2-16 ms) and macOS (two runs, N=12 after warm-up, medians 509.5, 837.0 and
 956.0 ms, p95 1071/2096/1563, 372-2096,
-patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is partially
-demonstrated (same window, pid and host state across patches on Linux, Windows and macOS; host
-restart with state restored on Linux, Windows and macOS CI; graceful exit and Ctrl-C cleanup on
-Linux and Windows) for boundary-only edits. Item 1 has a headless
+patch-to-render 2-17 ms), each recorded with machine and method in D6. Item 7 is demonstrated for
+boundary-only edits: the same window, pid and state survive patches on Linux, Windows and macOS,
+host restarts restore the snapshot on all three, and SIGINT now has an automated CLI regression
+(`crates/auro-cli/tests/dev_exit.rs`, Unix): `auro dev` kills both `dx` and its app, exits 0 and
+leaves no process behind. A unit test pins the `shutdown_hot` seam and pid retirement. The Windows
+handler uses `taskkill /T /F` and is supported by the WinBoat recording, not by a fresh CI run.
+The macOS scaffold smoke in the manual hot-exit job and benchmark workflow asserts exit 0 and no
+surviving app pid. Item 1 has a headless
 fixture for mounting the view, changing the boundary output and keeping state
 (`crates/auro/tests/hot_fixture.rs`); it does not load a patch dylib, and the snapshot roundtrip is
 covered by the `auro-core` tests. Item 4 rests on the crate boundary (`ui` does not depend on `data`, only
@@ -826,6 +830,12 @@ covered by the `auro-core` tests. Item 4 rests on the crate boundary (`ui` does 
 under 500 ms for the documented warm case, macOS is above the target on a shared CI runner and
 Windows remains above it, so the target is not met platform-wide and experimental mode must not
 claim it.
+
+**Platform limitation (2026-11-22):** PR CI's Linux and Windows runners have no interactive
+desktop, so the real-display scaffold smoke is dispatch-only. The macOS hot-exit job waits for a
+`window_requested` trace; when a runner has no window server it fails with the dev log instead of
+skipping silently, and the absence of a verified macOS smoke remains recorded here. No exit
+semantics result is claimed from a run that never rendered.
 
 GA additionally requires: measured < 500 ms save-to-visible for the documented warm view-only case on
 each Tier 1 platform (or an explicit, approved revision of the target recorded in the performance

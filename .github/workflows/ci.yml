@@ -245,6 +245,91 @@ jobs:
             ${{ github.workspace }}/target/hot-measure/measurements-summary.txt
           if-no-files-found: ignore
 
+  # Real-display scaffold smoke for Ctrl-C semantics. Linux/Windows exit paths are covered by the
+  # cross-platform CLI test in cargo test; macOS needs a window server, so this is dispatch-only.
+  # A runner without a display fails with a log tail rather than skipping silently.
+  hot-exit-macos:
+    name: hot exit semantics (macOS)
+    needs: detect
+    if: needs.detect.outputs.workspace == 'true' && github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Install dx
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64) arch=aarch64 ;;
+            x86_64) arch=x86_64 ;;
+            *) echo "unsupported architecture: $(uname -m)"; exit 1 ;;
+          esac
+          url="https://github.com/DioxusLabs/dioxus/releases/download/v0.7.10/dx-${arch}-apple-darwin.tar.gz"
+          curl -L --fail --silent --show-error -o "$RUNNER_TEMP/dx.tar.gz" "$url"
+          tar -xzf "$RUNNER_TEMP/dx.tar.gz" -C "$RUNNER_TEMP"
+          chmod +x "$RUNNER_TEMP/dx"
+          sudo mv "$RUNNER_TEMP/dx" /usr/local/bin/dx
+          dx --version
+      - name: Build CLI and scaffold a hot app
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          set -euo pipefail
+          cargo build -p auro-cli --locked
+          rm -rf target/hot-exit
+          ./target/debug/auro new target/hot-exit
+          perl -pi -e 's/hot = false/hot = true/' target/hot-exit/Auro.toml
+          grep -n 'hot = true' target/hot-exit/Auro.toml
+      - name: Start, interrupt and assert clean exit
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+          AURO_DEV_TRACE: "1"
+        run: |
+          set -euo pipefail
+          cd target/hot-exit
+          ../../target/debug/auro dev > hot.log 2>&1 &
+          devpid=$!
+          ready=0
+          for _ in $(seq 1 120); do
+            if grep -q 'auro:trace window_requested' hot.log; then ready=1; break; fi
+            if ! kill -0 "$devpid" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "no display or no render trace; macOS exit smoke cannot run on this runner"
+            tail -100 hot.log
+            kill -INT "$devpid" 2>/dev/null || true
+            exit 1
+          fi
+          kill -INT "$devpid"
+          if wait "$devpid"; then
+            echo "auro dev exited 0 after SIGINT"
+          else
+            status=$?
+            echo "auro dev did not exit cleanly after SIGINT: $status"
+            tail -100 hot.log
+            exit 1
+          fi
+          app_pid=$(awk '/auro:trace pid / { pid = $NF } END { if (pid) print pid }' hot.log)
+          if [ -n "$app_pid" ] && kill -0 "$app_pid" 2>/dev/null; then
+            echo "app pid $app_pid survived SIGINT"
+            kill -9 "$app_pid" 2>/dev/null || true
+            exit 1
+          fi
+          echo "no app process survived SIGINT"
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hot-macos-exit-log
+          path: ${{ github.workspace }}/target/hot-exit/hot.log
+          if-no-files-found: ignore
+
   # The support matrix promises Linux 22.04. ubuntu-latest is newer, so the floor
   # gets its own job against the documented minimum rather than being assumed.
   linux-floor:

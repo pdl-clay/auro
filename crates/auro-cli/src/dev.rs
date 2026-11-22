@@ -973,13 +973,20 @@ fn install_ctrl_c_hot(
     app_pid: Arc<Mutex<Option<u32>>>,
 ) -> Result<(), AuroError> {
     ctrlc::set_handler(move || {
-        stop(&slot);
-        if let Some(pid) = *app_pid.lock().expect("app pid lock") {
-            kill_process(pid);
-        }
+        shutdown_hot(&slot, &app_pid);
         std::process::exit(0);
     })
     .map_err(|error| AuroError::Message(format!("cannot install the Ctrl-C handler: {error}")))
+}
+
+/// Stops the devserver and the app it owns, forgetting the app pid so a repeated shutdown cannot
+/// signal a recycled process.
+fn shutdown_hot(slot: &Arc<Mutex<Option<Child>>>, app_pid: &Arc<Mutex<Option<u32>>>) {
+    stop(slot);
+    let mut app_pid = app_pid.lock().expect("app pid lock");
+    if let Some(pid) = app_pid.take() {
+        kill_process(pid);
+    }
 }
 
 /// Ends the process the devserver launched, ignoring an already-dead pid.
@@ -1824,5 +1831,44 @@ watch = ["srcc"]
             }),
             "{reset:?}"
         );
+    }
+
+    /// The Ctrl-C seam must retire both processes and forget the app pid so a second shutdown
+    /// cannot signal a recycled pid.
+    #[test]
+    #[cfg(unix)]
+    fn shutdown_hot_stops_both_processes_and_clears_the_slot() {
+        fn process_gone(pid: u32) -> bool {
+            let output = Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid.to_string()])
+                .output()
+                .expect("ps");
+            let state = String::from_utf8_lossy(&output.stdout);
+            let state = state.trim();
+            state.is_empty() || state.starts_with('Z')
+        }
+
+        let devserver = Command::new("sleep").arg("30").spawn().expect("devserver");
+        let mut app = Command::new("sleep").arg("30").spawn().expect("app");
+        let app_id = app.id();
+        let slot = Arc::new(Mutex::new(Some(devserver)));
+        let app_pid = Arc::new(Mutex::new(Some(app_id)));
+
+        shutdown_hot(&slot, &app_pid);
+
+        assert!(slot.lock().expect("dev slot").is_none());
+        assert!(app_pid.lock().expect("app pid").is_none());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !process_gone(app_id) {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        assert!(
+            process_gone(app_id),
+            "the app process survived shutdown_hot"
+        );
+        let _ = app.wait();
+
+        // Idempotent: no stale pid is signalled on a repeated shutdown.
+        shutdown_hot(&slot, &app_pid);
     }
 }
