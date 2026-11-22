@@ -32,7 +32,10 @@ links over 4096 bytes, empty hosts, `.`/`..` path segments, and hosts that are n
 sequence or an IPv6 literal. A bracketed host must parse as `std::net::Ipv6Addr`; `[..]`, `[C:]` and
 other hex-looking strings are rejected. Path segments reject `/`, `\`, `.`, `..` and `:` (a drive
 prefix or an NTFS alternate-data separator), and any segment that is a Windows prefix, root or parent
-component. The app sees only links it asked for.
+component. A segment ending in `.` or space, whose trailing-dot/space trim is empty or `.`/`..`, or
+whose stem is a reserved Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,
+`LPT1`-`LPT9`) is also rejected: Windows trims those characters when it resolves a component, so
+`.. ` would otherwise arrive as `..` (#95, #101). The app sees only links it asked for.
 `register_scheme` validates the RFC 3986 grammar: the first character is ASCII alphabetic and the
 rest are ASCII alphanumerics or `+`, `-`, `.`. A leading digit and `_` are rejected; `+` is accepted.
 
@@ -131,12 +134,18 @@ for link in links.drain() {
 5. Bracketed hosts must be IPv6 literals and drive-prefixed segments are rejected
    (`rejects_non_ipv6_bracketed_hosts`, `accepts_ipv6_literal_hosts`,
    `rejects_drive_prefixed_and_encoded_separator_segments`, `accepts_ordinary_path_segments`).
-6. The Linux `applications` directory is created `0755` under `umask 002`, and a group-writable or
-   symlinked directory is refused (`applications_directory_is_created_private_under_umask`,
+6. Segments whose trailing dot/space would normalize to `.`/`..`, and reserved Windows device
+   names, are rejected while an internal dot stays valid
+   (`rejects_segments_that_windows_normalizes_to_traversal`,
+   `rejects_windows_reserved_segments`, `accepts_segments_with_internal_dots`).
+7. The Linux `applications` directory is created `0755` under `umask 002`, a group-writable or
+   symlinked directory is refused, and the managed data base itself is validated
+   (`applications_directory_is_created_private_under_umask`,
    `registration_refuses_a_group_writable_applications_directory`,
-   `registration_refuses_a_symlinked_applications_directory`).
-7. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
-8. `cargo fmt --all --check`,
+   `registration_refuses_a_symlinked_applications_directory`,
+   `registration_refuses_a_group_writable_data_base`).
+8. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
+9. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 

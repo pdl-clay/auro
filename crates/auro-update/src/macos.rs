@@ -214,8 +214,12 @@ fn extract_archive(archive_path: &Path, destination: &Path) -> Result<(), Update
         let written = io::copy(&mut (&mut entry).take(limit + 1), &mut output)?;
         drop(output);
         charge_expansion(written, declared, &mut written_total, archive_path)?;
-        set_file_mode(&out_path, mode)?;
+        apply_file_mode(&out_path, mode)?;
     }
+    // Every directory below the extraction root ends at 0755, including parents created implicitly
+    // for an archive that omits directory entries. The walk runs before the bundle is renamed into
+    // place, so the installed `.app` never inherits the helper's umask (#100).
+    normalize_directory_modes(destination)?;
     Ok(())
 }
 
@@ -341,18 +345,51 @@ fn symlink_stays_within(link: &Path, target: &Path) -> bool {
     true
 }
 
+/// Applies the installed mode for a regular file, independent of the umask and the header.
+///
+/// A `.app` bundle needs the execute bit only on declared executables; everything else is `0644`.
+/// Setuid/setgid/sticky bits from a hostile archive are never reproduced, and a missing
+/// `unix_mode` does not fall back to `0666 & ~umask` (#100).
 #[cfg(unix)]
-fn set_file_mode(path: &Path, mode: Option<u32>) -> Result<(), UpdateError> {
+fn apply_file_mode(path: &Path, declared: Option<u32>) -> Result<(), UpdateError> {
     use std::os::unix::fs::PermissionsExt as _;
 
-    if let Some(mode) = mode {
-        fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o7777))?;
+    let executable = declared.is_some_and(|mode| mode & 0o111 != 0);
+    let mode = if executable { 0o755 } else { 0o644 };
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn apply_file_mode(_path: &Path, _declared: Option<u32>) -> Result<(), UpdateError> {
+    Ok(())
+}
+
+/// Sets every directory below `root` to `0755`.
+///
+/// `create_dir_all` honors the process umask, so a helper started with `umask 002` would install a
+/// group-writable bundle. The walk covers directory entries and parents created implicitly for an
+/// archive that lists only files.
+#[cfg(unix)]
+fn normalize_directory_modes(root: &Path) -> Result<(), UpdateError> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    for entry in fs::read_dir(root)? {
+        let path = entry?.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        if metadata.is_dir() {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+            normalize_directory_modes(&path)?;
+        }
     }
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn set_file_mode(_path: &Path, _mode: Option<u32>) -> Result<(), UpdateError> {
+fn normalize_directory_modes(_root: &Path) -> Result<(), UpdateError> {
     Ok(())
 }
 
@@ -945,6 +982,95 @@ mod tests {
         assert!(
             fs::symlink_metadata(destination.join("Demo.app/Contents/escape")).is_err(),
             "escaping symlink must not be created"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extraction_modes_do_not_inherit_the_umask() {
+        const CHILD_ENV: &str = "AURO_ZIP_UMASK_CHILD";
+        if std::env::var_os(CHILD_ENV).is_some() {
+            return; // the child entry point below owns the check
+        }
+        // The umask is process-global, so the check runs in a dedicated test-binary child rather
+        // than mutating the mask shared by the other tests.
+        let status = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args([
+                "--exact",
+                "macos::tests::extraction_modes_under_umask_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CHILD_ENV, "1")
+            .status()
+            .expect("spawn the umask child");
+        assert!(status.success(), "the umask child failed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extraction_modes_under_umask_child() {
+        const CHILD_ENV: &str = "AURO_ZIP_UMASK_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            return; // executed by `extraction_modes_do_not_inherit_the_umask`
+        }
+        // SAFETY: this is the dedicated child process; it exits after the assertions and never
+        // restores or shares the mask with another test.
+        unsafe {
+            libc::umask(0o002);
+        }
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive_path = temp.path().join("Demo.app.zip");
+        let file = fs::File::create(&archive_path).expect("zip");
+        let mut writer = zip::ZipWriter::new(file);
+        writer
+            .add_directory("Demo.app", SimpleFileOptions::default())
+            .expect("directory entry");
+        writer
+            .start_file("Demo.app/Contents/Info.plist", SimpleFileOptions::default())
+            .expect("file entry");
+        writer.write_all(b"plist").expect("file bytes");
+        writer
+            .start_file(
+                "Demo.app/Contents/MacOS/Demo",
+                SimpleFileOptions::default().unix_permissions(0o4755),
+            )
+            .expect("executable entry");
+        writer.write_all(b"binary").expect("executable bytes");
+        writer.finish().expect("finish zip");
+
+        let destination = temp.path().join("extracted");
+        fs::create_dir_all(&destination).expect("destination");
+        extract_archive(&archive_path, &destination).expect("extract");
+
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = |path: &Path| {
+            fs::metadata(path)
+                .expect("extracted path")
+                .permissions()
+                .mode()
+                & 0o7777
+        };
+        assert_eq!(
+            mode(&destination.join("Demo.app")),
+            0o755,
+            "directory entries must not inherit the umask"
+        );
+        assert_eq!(
+            mode(&destination.join("Demo.app/Contents")),
+            0o755,
+            "implicit directories must not inherit the umask"
+        );
+        assert_eq!(
+            mode(&destination.join("Demo.app/Contents/Info.plist")),
+            0o644,
+            "files without a declared mode must not inherit the umask"
+        );
+        assert_eq!(
+            mode(&destination.join("Demo.app/Contents/MacOS/Demo")),
+            0o755,
+            "declared executables keep 0755 and drop setuid"
         );
     }
 }

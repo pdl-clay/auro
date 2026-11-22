@@ -10,6 +10,19 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Fixed
+
+- `auro-services`: the managed XDG base itself is validated, not just the child Auro creates, so a
+  group-writable `~/.config`/`~/.local/share` is refused before an autostart or deep-link entry can
+  be replaced; a symlinked base now reports that it is a symlink (#99).
+- `auro-update`: macOS `.app.zip` extraction applies explicit modes independent of the umask
+  (directories `0755`, files `0644`, declared executables `0755`), strips setuid/setgid, and
+  normalizes implicit parent directories before the bundle is renamed into place (#100).
+- `auro-services`: deep-link segments that end in a dot or space, or that Windows would normalize
+  to `.`/`..` or a reserved device name, are rejected before an app sees them (#101).
+- `auro-update`: `ApplyJournal::finalize` canonicalizes the target file as well as the parents, so
+  an AppImage launched through a symlink finalizes and removes its backup and journal (#102).
+
 ## [0.1.0-alpha.9] - 2026-11-21
 
 ### Fixed

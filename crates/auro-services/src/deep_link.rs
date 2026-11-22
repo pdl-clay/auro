@@ -148,25 +148,7 @@ fn parse(raw: &str, schemes: &[String]) -> Option<DeepLink> {
     let mut segments = Vec::new();
     for segment in parts.filter(|segment| !segment.is_empty()) {
         let segment = percent_decode(segment)?;
-        // A colon is either an NTFS alternate-data-stream separator or a Windows drive prefix;
-        // on Unix it is harmless, but rejecting it keeps the cross-platform contract. The
-        // component walk adds the Windows drive/root/parent rules for decoded segments.
-        if segment == "."
-            || segment == ".."
-            || segment.contains('/')
-            || segment.contains('\\')
-            || segment.contains(':')
-            || std::path::Path::new(&segment)
-                .components()
-                .any(|component| {
-                    matches!(
-                        component,
-                        std::path::Component::Prefix(_)
-                            | std::path::Component::RootDir
-                            | std::path::Component::ParentDir
-                    )
-                })
-        {
+        if !valid_segment(&segment) {
             return None;
         }
         segments.push(segment);
@@ -212,6 +194,53 @@ fn percent_decode(raw: &str) -> Option<String> {
     }
     let decoded = String::from_utf8(decoded).ok()?;
     (!decoded.chars().any(char::is_control)).then_some(decoded)
+}
+
+/// Whether a percent-decoded deep-link path segment is safe to hand to an app.
+///
+/// A colon is either an NTFS alternate-data-stream separator or a Windows drive prefix; on Unix it
+/// is harmless, but rejecting it keeps the cross-platform contract. Windows also trims trailing
+/// dots and spaces from each component (without the `\\?\` prefix), so `.. ` and `%2e%2e%20` would
+/// resolve as `..` in a downstream app; such segments are rejected before the app sees them, as are
+/// the reserved device names that Windows cannot create in a directory (#101).
+fn valid_segment(segment: &str) -> bool {
+    if segment.is_empty()
+        || segment.ends_with('.')
+        || segment.ends_with(' ')
+        || segment.contains('/')
+        || segment.contains('\\')
+        || segment.contains(':')
+    {
+        return false;
+    }
+    let trimmed = segment.trim_end_matches(['.', ' ']);
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        return false;
+    }
+    if std::path::Path::new(segment).components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::Prefix(_)
+                | std::path::Component::RootDir
+                | std::path::Component::ParentDir
+        )
+    }) {
+        return false;
+    }
+    !is_windows_reserved(trimmed)
+}
+
+/// Whether `name` is a reserved Windows device name (`CON`, `NUL`, `COM1`-`COM9`, ...).
+fn is_windows_reserved(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return true;
+    }
+    let bytes = stem.as_bytes();
+    bytes.len() == 4
+        && (stem.starts_with("COM") || stem.starts_with("LPT"))
+        && bytes[3].is_ascii_digit()
+        && bytes[3] != b'0'
 }
 
 /// Whether a percent-decoded deep-link host is a single DNS-style label sequence or IPv6 literal.
@@ -539,8 +568,10 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
 
         let _lock = crate::test_support::lock();
-        let _umask = crate::test_support::UmaskGuard::set(0o002);
+        // Create the base before changing the mask: the managed base is validated, and a tempdir
+        // created under `umask 002` would be 0775 and correctly refused.
         let data_home = tempfile::tempdir().expect("tempdir");
+        let _umask = crate::test_support::UmaskGuard::set(0o002);
         let error = register_linux_in(
             data_home.path(),
             "probe",
@@ -620,6 +651,73 @@ mod tests {
                 .is_none(),
             "must not write through the symlink"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn registration_refuses_a_group_writable_data_base() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let _lock = crate::test_support::lock();
+        let parent = tempfile::tempdir().expect("tempdir");
+        let data_home = parent.path().join("data");
+        std::fs::create_dir(&data_home).expect("data base");
+        std::fs::set_permissions(&data_home, std::fs::Permissions::from_mode(0o775)).expect("mode");
+
+        let error = register_linux_in(
+            &data_home,
+            "probe",
+            std::path::Path::new("/tmp/app"),
+            std::path::Path::new("/definitely/missing/xdg-mime"),
+        )
+        .expect_err("a group-writable managed base must be refused");
+        assert!(
+            error.to_string().contains(&data_home.display().to_string()),
+            "{error}"
+        );
+        assert!(
+            error.to_string().contains("mode 0775"),
+            "the error must name the mode: {error}"
+        );
+    }
+
+    #[test]
+    fn rejects_segments_that_windows_normalizes_to_traversal() {
+        let links = AppLinks::new(vec!["probe".to_owned()]);
+        for raw in [
+            "probe://host/..%20/x",
+            "probe://host/%2e%2e%20/x",
+            "probe://host/.../x",
+            "probe://host/foo./x",
+            "probe://host/foo%20/x",
+        ] {
+            links.push(raw);
+        }
+        assert!(links.drain().is_empty());
+    }
+
+    #[test]
+    fn rejects_windows_reserved_segments() {
+        let links = AppLinks::new(vec!["probe".to_owned()]);
+        for raw in [
+            "probe://host/CON",
+            "probe://host/nul.txt",
+            "probe://host/COM1",
+            "probe://host/lpt9.log",
+            "probe://host/Aux ",
+        ] {
+            links.push(raw);
+        }
+        assert!(links.drain().is_empty());
+    }
+
+    #[test]
+    fn accepts_segments_with_internal_dots() {
+        let links = AppLinks::new(vec!["probe".to_owned()]);
+        links.push("probe://host/v1.2/report.final/.hidden");
+        let links = links.drain();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].segments, ["v1.2", "report.final", ".hidden"]);
     }
 
     #[cfg(target_os = "linux")]
