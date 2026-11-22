@@ -93,6 +93,14 @@ and no bytes are read or written.
   is explicitly deferred to stage 3 and documented in the host API.
 - The check/open re-canonicalization narrows but does not eliminate TOCTOU. A fully handle-based
   `openat` chain is a later hardening step; the current contract fails closed on mismatch.
+- A private directory is validated with `symlink_metadata` before any `mkdir` or `chmod`. An
+  inherited `$XDG_RUNTIME_DIR` must already be a real, user-owned directory with no group/other
+  bits; an unsafe value is ignored in favour of the per-user temporary directory. A rejected path
+  is never mutated. The post-open device/inode comparison remains a second defence, not the first.
+- Negotiation is a terminal per-instance state: `NotConnected -> Handshaking -> Ready | Failed`.
+  Any error while reading `Hello`, validating it or writing `HelloAck` drops the stream and marks
+  the instance `Failed`; later `call` attempts return `HandshakeRequired` even if the originally
+  reported error was a protocol error.
 
 ## Acceptance
 
@@ -105,8 +113,12 @@ and no bytes are read or written.
    loaded `VerifiedSubject`.
 5. File effects inside a grant succeed; a denial, `..`, a symlink escape and a Windows reparse point
    fail with typed errors and no write.
-6. A predictable endpoint name and an occupied/unsafe private directory fail before spawn.
-7. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`
+6. A predictable endpoint name and an occupied/unsafe private directory fail before spawn; a
+   symlinked private directory is rejected without changing the target's mode, and an unsafe
+   inherited `$XDG_RUNTIME_DIR` is ignored.
+7. After any failed handshake, including a future protocol version, `call` returns
+   `HandshakeRequired` and a retry on the same instance is refused.
+8. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`
    (default and `--all-features`), `cargo test --workspace --locked`, the Windows-target check and
    `mdbook build docs` pass.
 

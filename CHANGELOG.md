@@ -23,6 +23,13 @@ breaking change bumps the minor version; the patch version is for compatible fix
   stage 3 work (spec 0035).
 - `auro-perms` stays pure and string-based; plugin grants live in `auro-plugins` behind `PluginPolicyExt`, which takes an opaque `VerifiedSubject`. Only `PluginRegistry::resolve` can produce that token after index signature, hash/digest, allowlist and instance checks, so a forged subject string cannot obtain another plugin's grant. The non-sandbox limit is stated in `SECURITY.md` (spec 0016 D2/D5; spec 0034; RFC 0002).
 
+### Fixed
+
+- `auro-plugins`: the private channel directory is validated with `symlink_metadata` before any
+  create or chmod, so a symlinked or unsafe inherited `$XDG_RUNTIME_DIR` is rejected without
+  changing the target; a failed handshake is now terminal for that instance and later calls fail
+  closed with `HandshakeRequired` (spec 0035).
+
 ## [0.1.0-alpha.10] - 2026-11-21
 
 ### Fixed

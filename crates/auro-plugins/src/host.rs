@@ -82,6 +82,17 @@ impl CommandPolicy {
     }
 }
 
+/// Lifecycle of a loaded plugin instance's negotiation.
+///
+/// A failed negotiation is terminal for that instance: no command may be dispatched after it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HandshakeState {
+    NotConnected,
+    Handshaking,
+    Ready,
+    Failed,
+}
+
 /// One loaded plugin instance and the host-side resources it owns.
 #[derive(Debug)]
 pub struct LoadedPlugin {
@@ -90,6 +101,7 @@ pub struct LoadedPlugin {
     channel: PluginChannel,
     child: Child,
     stream: Option<Stream>,
+    state: HandshakeState,
 }
 
 impl LoadedPlugin {
@@ -359,6 +371,7 @@ impl PluginHost {
                 channel,
                 child,
                 stream: None,
+                state: HandshakeState::NotConnected,
             },
         );
         Ok(())
@@ -372,15 +385,36 @@ impl PluginHost {
             .plugins
             .get_mut(id)
             .ok_or_else(|| HostError::NotLoaded(id.to_owned()))?;
+        match plugin.state {
+            HandshakeState::Ready => return Ok(()),
+            HandshakeState::Failed => return Err(HostError::HandshakeRequired),
+            HandshakeState::NotConnected | HandshakeState::Handshaking => {}
+        }
+        plugin.state = HandshakeState::Handshaking;
         let grants = plugin.manifest.capabilities.clone();
-        let stream = plugin.ensure_stream()?;
-        let hello: Hello = protocol::read_frame(stream).map_err(NegotiationError::from)?;
-        protocol::validate_hello(&hello, &grants)?;
-        let ack = HelloAck {
-            protocol_version: PROTOCOL_VERSION,
-            capabilities_hash: protocol::capabilities_hash(&grants),
-        };
-        protocol::write_frame(stream, &ack).map_err(HostError::ProtocolIo)
+        let result = (|| -> Result<(), HostError> {
+            let stream = plugin.ensure_stream()?;
+            let hello: Hello = protocol::read_frame(stream).map_err(NegotiationError::from)?;
+            protocol::validate_hello(&hello, &grants)?;
+            let ack = HelloAck {
+                protocol_version: PROTOCOL_VERSION,
+                capabilities_hash: protocol::capabilities_hash(&grants),
+            };
+            protocol::write_frame(stream, &ack).map_err(HostError::ProtocolIo)
+        })();
+        match result {
+            Ok(()) => {
+                plugin.state = HandshakeState::Ready;
+                Ok(())
+            }
+            Err(error) => {
+                // A rejected or broken negotiation is terminal for this instance. Drop the stream
+                // so no later call can reuse an unauthenticated channel.
+                plugin.state = HandshakeState::Failed;
+                plugin.stream = None;
+                Err(error)
+            }
+        }
     }
 
     /// Applies the typed effect, sends `command` and returns the matching typed reply.
@@ -400,7 +434,7 @@ impl PluginHost {
             .plugins
             .get_mut(id)
             .ok_or_else(|| HostError::NotLoaded(id.to_owned()))?;
-        if plugin.stream.is_none() {
+        if plugin.state != HandshakeState::Ready || plugin.stream.is_none() {
             return Err(HostError::HandshakeRequired);
         }
         match &command {

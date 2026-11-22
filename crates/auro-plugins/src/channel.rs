@@ -57,14 +57,15 @@ pub fn generate_secret() -> String {
 
 /// Returns the per-user directory used for plugin tokens and sockets.
 ///
-/// Unix uses `$XDG_RUNTIME_DIR/auro-plugin` when that variable is an absolute path, otherwise an
-/// `auro-<uid>` directory under the system temporary directory. The directory is created and
-/// validated by [`PluginChannel::new`].
+/// Unix uses `$XDG_RUNTIME_DIR/auro-plugin` when that variable is an absolute path to an already
+/// safe directory, otherwise an `auro-<uid>` directory under the system temporary directory. The
+/// inherited value is validated before it is trusted: a symlink, a foreign owner or group/other
+/// write bits must not redirect the channel before [`PluginChannel::new`] runs.
 #[cfg(unix)]
 pub fn default_private_dir() -> PathBuf {
     if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR").filter(|value| !value.is_empty()) {
         let runtime = PathBuf::from(runtime);
-        if runtime.is_absolute() {
+        if runtime.is_absolute() && validate_existing_private_dir(&runtime).is_ok() {
             return runtime.join("auro-plugin");
         }
     }
@@ -237,23 +238,77 @@ fn map_channel_error(error: io::Error) -> HostError {
     }
 }
 
+/// Validates an existing private directory without changing it.
+///
+/// This runs before any `mkdir` or `chmod`: `create_dir_all` and `set_permissions` both follow a
+/// pre-existing symlink, so mutating first would change the target even when the directory is later
+/// rejected. The caller must use a path obtained from `symlink_metadata`.
+#[cfg(unix)]
+fn validate_existing_private_dir(path: &Path) -> Result<std::fs::Metadata, HostError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let meta = std::fs::symlink_metadata(path).map_err(HostError::PrivateDirectory)?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(HostError::InsecureDirectory(path.display().to_string()));
+    }
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    if meta.uid() != uid || meta.mode() & 0o077 != 0 {
+        return Err(HostError::InsecureDirectory(path.display().to_string()));
+    }
+    Ok(meta)
+}
+
 fn prepare_private_dir(dir: &Path) -> Result<(), HostError> {
-    std::fs::create_dir_all(dir).map_err(map_channel_error)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
-            .map_err(HostError::PrivateDirectory)?;
-        let meta = std::fs::symlink_metadata(dir).map_err(HostError::PrivateDirectory)?;
-        if meta.file_type().is_symlink() || !meta.is_dir() {
-            return Err(HostError::InsecureDirectory(dir.display().to_string()));
+        // Find the deepest existing ancestor and validate it before touching anything.
+        let mut ancestor = dir.to_path_buf();
+        loop {
+            match std::fs::symlink_metadata(&ancestor) {
+                Ok(_) => {
+                    validate_existing_private_dir(&ancestor)?;
+
+                    break;
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => match ancestor.parent() {
+                    Some(parent) if !parent.as_os_str().is_empty() => {
+                        ancestor = parent.to_path_buf();
+                    }
+                    _ => return Err(HostError::PrivateDirectory(error)),
+                },
+                Err(error) => return Err(HostError::PrivateDirectory(error)),
+            }
         }
-        // SAFETY: geteuid has no preconditions.
-        let uid = unsafe { libc::geteuid() };
-        if meta.uid() != uid || meta.mode() & 0o077 != 0 {
-            return Err(HostError::InsecureDirectory(dir.display().to_string()));
+        let nearest = ancestor;
+        let relative = dir.strip_prefix(&nearest).map_err(|_| {
+            HostError::PrivateDirectory(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("`{}` is not below `{}`", dir.display(), nearest.display()),
+            ))
+        })?;
+        let mut current = nearest;
+        for component in relative.components() {
+            current.push(component);
+            match std::fs::symlink_metadata(&current) {
+                Ok(_) => {
+                    validate_existing_private_dir(&current)?;
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    std::fs::create_dir(&current).map_err(map_channel_error)?;
+                    // Only directories created here are chmodded; an existing one was validated
+                    // above and is never modified.
+                    std::fs::set_permissions(&current, std::fs::Permissions::from_mode(0o700))
+                        .map_err(HostError::PrivateDirectory)?;
+                    validate_existing_private_dir(&current)?;
+                }
+                Err(error) => return Err(HostError::PrivateDirectory(error)),
+            }
         }
+
+        let meta = validate_existing_private_dir(dir)?;
         let handle = std::fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY | libc::O_CLOEXEC)
@@ -266,9 +321,33 @@ fn prepare_private_dir(dir: &Path) -> Result<(), HostError> {
     }
     #[cfg(windows)]
     {
-        if !dir.is_dir() || is_reparse_point(dir).map_err(HostError::PrivateDirectory)? {
+        // Reject a reparse point before creating or chmodding anything under it.
+        let mut ancestor = dir.to_path_buf();
+        loop {
+            match std::fs::symlink_metadata(&ancestor) {
+                Ok(_) => {
+                    if is_reparse_point(&ancestor).map_err(HostError::PrivateDirectory)? {
+                        return Err(HostError::InsecureDirectory(ancestor.display().to_string()));
+                    }
+                    break;
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => match ancestor.parent() {
+                    Some(parent) if !parent.as_os_str().is_empty() => {
+                        ancestor = parent.to_path_buf();
+                    }
+                    _ => return Err(HostError::PrivateDirectory(error)),
+                },
+                Err(error) => return Err(HostError::PrivateDirectory(error)),
+            }
+        }
+        std::fs::create_dir_all(dir).map_err(map_channel_error)?;
+        if is_reparse_point(dir).map_err(HostError::PrivateDirectory)? {
             return Err(HostError::InsecureDirectory(dir.display().to_string()));
         }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        std::fs::create_dir_all(dir).map_err(map_channel_error)?;
     }
     Ok(())
 }

@@ -93,8 +93,25 @@ struct Fixture {
     load_error: Option<HostError>,
 }
 
+/// A tempdir whose own mode is 0700: the host validates existing ancestors before creating the
+/// private channel directory, and `tempfile::tempdir()` uses the process umask (often 0755).
+fn tempdir_private() -> TempDir {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tempfile::Builder::new()
+            .permissions(fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .expect("temp dir")
+    }
+    #[cfg(windows)]
+    {
+        tempfile::tempdir().expect("temp dir")
+    }
+}
+
 fn fixture(mut options: FixtureOptions) -> Fixture {
-    let temp = tempfile::tempdir().expect("temp dir");
+    let temp = tempdir_private();
     let root = temp.path().join("root");
     let package = root.join(ID);
     fs::create_dir_all(&package).expect("package dir");
@@ -243,6 +260,39 @@ fn assert_handshake_error(hello: Option<Value>, check: impl Fn(&HostError) -> bo
     let error = fixture.host.handshake(ID).expect_err("handshake must fail");
     assert!(check(&error), "unexpected error: {error:?}");
     assert!(matches!(error, HostError::Handshake(_)));
+}
+
+#[test]
+fn failed_negotiation_disables_all_later_calls() {
+    if in_child_mode() {
+        return;
+    }
+    let mut fixture = fixture(FixtureOptions {
+        hello: hello_with(|hello| {
+            hello["protocol_version"] = json!(999);
+        }),
+        commands: CommandPolicy::deny_all().allow_ping(),
+        ..FixtureOptions::default()
+    });
+    let error = fixture.host.handshake(ID).expect_err("future protocol");
+    assert!(
+        matches!(
+            error,
+            HostError::Handshake(NegotiationError::UnsupportedProtocol { .. })
+        ),
+        "{error:?}"
+    );
+    // The instance is terminal: no command and no retry may reuse the refused channel.
+    let call = fixture.host.call(ID, 1, PluginCommand::Ping);
+    assert!(
+        matches!(call, Err(HostError::HandshakeRequired)),
+        "{call:?}"
+    );
+    let retry = fixture.host.handshake(ID);
+    assert!(
+        matches!(retry, Err(HostError::HandshakeRequired)),
+        "{retry:?}"
+    );
 }
 
 /// Child fixture: speaks the wire protocol from inside this test binary.
@@ -660,7 +710,7 @@ fn predictable_name_and_occupied_channel_are_typed_errors() {
     if in_child_mode() {
         return;
     }
-    let temp = tempfile::tempdir().expect("temp dir");
+    let temp = tempdir_private();
     let dir = temp.path().join("private");
     let predictable = PluginChannel::new(&dir, ID, "short");
     assert!(matches!(predictable, Err(HostError::PredictableName)));
@@ -739,4 +789,30 @@ fn call_before_handshake_is_typed_error() {
         .call(ID, 1, PluginCommand::Ping)
         .expect_err("handshake is required");
     assert!(matches!(error, HostError::HandshakeRequired), "{error:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_private_dir_is_rejected_without_chmodding_the_target() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let temp = tempdir_private();
+    let victim = temp.path().join("victim");
+    fs::create_dir(&victim).expect("victim dir");
+    fs::set_permissions(&victim, fs::Permissions::from_mode(0o755)).expect("victim mode");
+    let link = temp.path().join("link");
+    symlink(&victim, &link).expect("symlink");
+
+    let error = PluginChannel::new(&link, ID, &auro_plugins::channel::generate_secret())
+        .expect_err("a symlinked private dir is not trusted");
+    assert!(
+        matches!(error, HostError::InsecureDirectory(_)),
+        "{error:?}"
+    );
+    let mode = fs::metadata(&victim)
+        .expect("victim metadata")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o755, "rejection must not chmod the symlink target");
 }
