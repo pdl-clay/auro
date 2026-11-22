@@ -479,4 +479,16 @@ mod tests {
             .check_scope("app", Capability::Clipboard, "ignored")
             .expect("clipboard");
     }
+
+    #[test]
+    fn raw_plugin_subject_string_has_no_implicit_grant() {
+        let policy = Policy::deny_all();
+        let subject = "plugin:notes@1.0.0.deadbeef.inst_1";
+        assert!(policy.check(subject, Capability::Clipboard).is_err());
+        assert!(
+            policy
+                .check_scope(subject, Capability::Fs, "/var/lib/notes/a.txt")
+                .is_err()
+        );
+    }
 }

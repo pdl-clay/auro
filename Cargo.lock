@@ -628,6 +628,7 @@ name = "auro-core"
 version = "0.1.0-alpha.10"
 dependencies = [
  "auro-ipc",
+ "auro-plugins",
  "interprocess",
  "libc",
  "semver",
@@ -667,6 +668,20 @@ name = "auro-perms"
 version = "0.1.0-alpha.10"
 dependencies = [
  "globset",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "auro-plugins"
+version = "0.1.0-alpha.10"
+dependencies = [
+ "auro-perms",
+ "auro-sign",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

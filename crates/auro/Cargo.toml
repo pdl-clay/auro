@@ -25,6 +25,8 @@ services = ["dep:auro-services"]
 # Tray icon support requires the platform services. On Linux it speaks StatusNotifierItem over
 # D-Bus and needs no GTK.
 tray = ["services", "auro-services/tray"]
+# Signed in-process plugin host (stage 1). Off by default; forwards to `auro-core`.
+plugins = ["auro-core/plugins"]
 
 [dependencies]
 auro-core.workspace = true

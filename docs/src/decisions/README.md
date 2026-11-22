@@ -65,3 +65,4 @@ ADR keeps the conclusion.
 | [0021](0021-opt-in-package-rollback.md) | Opt-in rollback after a failed package apply | Accepted |
 | [0022](0022-hot-reload-boundary-crate.md) | Hot reload boundary is a separate crate with a fixed frame | Accepted |
 | [0023](0023-update-journal-trust.md) | The update journal is a local trust boundary | Accepted |
+| [0024](0024-plugin-host-stage-1.md) | Plugin host stage 1: trust anchor before RPC | Accepted |

@@ -12,8 +12,13 @@ categories = ["gui", "config"]
 authors.workspace = true
 publish = ["crates-io"]
 
+[features]
+# Signed in-process plugin host (stage 1). Off by default so default builds do not compile it.
+plugins = ["dep:auro-plugins"]
+
 [dependencies]
 auro-ipc.workspace = true
+auro-plugins = { workspace = true, optional = true }
 interprocess.workspace = true
 semver.workspace = true
 serde.workspace = true
