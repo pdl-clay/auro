@@ -42,6 +42,35 @@ runs with a five-second idle sample: startup median **154.9 ms**, idle RSS media
 stripped binary **15.6 MB**. These are alpha measurements, not a published baseline or a Tauri/
 Electron comparison; the 1.0 targets above are not met yet.
 
+## Hot reload measurement pipeline
+
+`tools/hot-reload-measure/measure.py` aggregates the JSON lines that `auro dev` prints when
+`AURO_DEV_TRACE=1`. A `hot_reload` row carries `save_to_patch_ms`, `patch_to_render_ms`,
+`save_to_render_ms` and `patch_took_ms`; a `relaunch` row carries the fallback timings. Run it as
+`python3 tools/hot-reload-measure/measure.py --input measurements.jsonl --platform <linux|macos|windows>`.
+It prints one table row per outcome (`reloaded`, `restarted`) with N, median, p95 and spread
+(max - min); the `SUMMARY` JSON also carries `min_ms` and `max_ms` separately. Warm-up rows are
+excluded only when the capture step marks them `"warmup": true` or writes the measured rows to a
+separate JSONL file; the script never silently drops a row. A null timing on a successful reload,
+an unknown event, or a group with fewer than ten samples is an error naming the stage or outcome
+and N.
+
+Published baseline, in milliseconds. `save_to_render_ms` is used for `reloaded` and
+`save_to_window_ms` for `restarted`. Every series applied data-only edits to the guarded four-crate
+scaffold after warm-up patches, with the same window and opted-in state:
+
+| Platform | Machine and method | N | Median | p95 | Spread | Status |
+|---|---|---:|---:|---:|---:|---|
+| Linux | Local niri/Wayland x86_64, 12 CPUs, rustc 1.99.1, gpui 0.2.2, dx/subsecond 0.7.10, `desktop-dev` `debug=0`, six warm-up edits | 12 | 368 | 394 | 325-394 | Valid D6 sample; under the 500 ms target |
+| macOS | Shared `macos-26-arm64` GitHub runner, six warm-up edits, three independent runs | 12 per run | 509.5 / 837 / 956 | 1071 / 2096 / 1563 | 372-2096 | Valid per run; target not met on this runner |
+| Windows | WinBoat MSVC interactive session, nine steady-state patches | 9 | 813 | 897 | 752-897 | Historical only: below the pipeline's N>=10 gate |
+
+The macOS `Hot reload macOS benchmark` workflow captures the raw `hot_reload` lines as an artifact
+and feeds them to the pipeline. Linux and Windows measurement jobs in CI are manual
+(`workflow_dispatch`) because the default hosted runners have no interactive desktop; they fail
+loudly when no render trace is produced rather than publishing a substitute number. A forced host
+restart is captured as a `relaunch` row and reported under `restarted`, never as a hot reload.
+
 ## Enforcement
 
 The roadmap commits to measuring these in CI and failing the build on regression. That is not

@@ -156,6 +156,95 @@ jobs:
             AURO_TEST_PATCH_LIB="$RUNNER_TEMP/auro-jump-table.json" \
             cargo test -p auro --features hot-reload --test hot_patch_e2e --locked
 
+  # D6 measurement needs an interactive desktop. Hosted Linux/Windows runners do not provide one,
+  # so this job is manual only; it fails loudly when no render trace appears instead of substituting
+  # a number. The published per-OS table lists the desktop sessions that produced each result.
+  hot-reload-measure:
+    name: hot reload measure (${{ matrix.platform }})
+    needs: detect
+    if: needs.detect.outputs.workspace == 'true' && github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
+            libvulkan-dev libasound2-dev libfontconfig-dev libssl-dev pkg-config
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Install dx
+        shell: bash
+        run: cargo install dioxus-cli --version 0.7.10 --locked
+      - name: Build CLI and scaffold a hot app
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          set -euo pipefail
+          cargo build -p auro-cli --locked
+          rm -rf target/hot-measure
+          ./target/debug/auro new target/hot-measure
+          perl -pi -e 's/hot = false/hot = true/' target/hot-measure/Auro.toml
+          grep -n 'hot = true' target/hot-measure/Auro.toml
+      - name: Apply warm and measured boundary edits
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+          AURO_DEV_TRACE: "1"
+        run: |
+          set -euo pipefail
+          cd target/hot-measure
+          ../../target/debug/auro dev > hot.log 2>&1 &
+          devpid=$!
+          ready=0
+          for _ in $(seq 1 120); do
+            if grep -q 'auro:trace window_requested' hot.log; then ready=1; break; fi
+            if ! kill -0 "$devpid" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "app did not render; no D6 measurements were produced"
+            tail -100 hot.log
+            kill -INT "$devpid" 2>/dev/null || true
+            exit 1
+          fi
+          # Six edits warm the linker; the next twelve are the measured set.
+          for i in $(seq 1 18); do
+            perl -pi -e "s/title: \"[^\"]*\"/title: \"Edit$i\"/" data/src/lib.rs
+            sleep 4
+          done
+          sleep 2
+          kill -INT "$devpid" 2>/dev/null || true
+          wait "$devpid" 2>/dev/null || true
+          grep '^{"event":"hot_reload"' hot.log > all-measurements.jsonl || true
+          tail -n 12 all-measurements.jsonl > measurements.jsonl
+          python3 "$GITHUB_WORKSPACE/tools/hot-reload-measure/measure.py" \
+            --input measurements.jsonl --platform "${{ matrix.platform }}" \
+            | tee measurements-summary.txt
+      - name: Upload measurement artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hot-${{ matrix.platform }}-measure
+          path: |
+            ${{ github.workspace }}/target/hot-measure/hot.log
+            ${{ github.workspace }}/target/hot-measure/all-measurements.jsonl
+            ${{ github.workspace }}/target/hot-measure/measurements.jsonl
+            ${{ github.workspace }}/target/hot-measure/measurements-summary.txt
+          if-no-files-found: ignore
+
   # The support matrix promises Linux 22.04. ubuntu-latest is newer, so the floor
   # gets its own job against the documented minimum rather than being assumed.
   linux-floor:
