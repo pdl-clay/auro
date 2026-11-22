@@ -26,9 +26,10 @@ breaking change bumps the minor version; the patch version is for compatible fix
 ### Fixed
 
 - `auro-plugins`: the private channel directory is validated with `symlink_metadata` before any
-  create or chmod, so a symlinked or unsafe inherited `$XDG_RUNTIME_DIR` is rejected without
-  changing the target; a failed handshake is now terminal for that instance and later calls fail
-  closed with `HandshakeRequired` (spec 0035).
+  create or chmod. Platform ancestors (such as sticky `/tmp`) are only checked for symlinks, while
+  the host-managed `auro-<uid>` directory must be user-owned, private and revalidated by handle;
+  an unsafe inherited `$XDG_RUNTIME_DIR` is ignored in favour of that fallback. A failed handshake
+  is terminal for the instance and later calls fail closed with `HandshakeRequired` (spec 0035).
 
 ## [0.1.0-alpha.10] - 2026-11-21
 

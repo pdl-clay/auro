@@ -259,18 +259,34 @@ fn validate_existing_private_dir(path: &Path) -> Result<std::fs::Metadata, HostE
     Ok(meta)
 }
 
+/// Validates a platform-owned ancestor before any mutation of paths beneath it.
+///
+/// A shared ancestor such as `/tmp` is legitimately mode `1777` (sticky) or a group-readable
+/// runtime directory. It is not the trust boundary: requiring owner/private bits here would make
+/// the per-user fallback impossible. Only a real directory (no symlink or reparse point) is
+/// required; the managed `auro-<uid>` directory is validated strictly below.
+#[cfg(unix)]
+fn validate_platform_ancestor(path: &Path) -> Result<(), HostError> {
+    let meta = std::fs::symlink_metadata(path).map_err(HostError::PrivateDirectory)?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(HostError::InsecureDirectory(path.display().to_string()));
+    }
+    Ok(())
+}
+
 fn prepare_private_dir(dir: &Path) -> Result<(), HostError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
-        // Find the deepest existing ancestor and validate it before touching anything.
+        // Find the deepest existing ancestor. It may be a shared platform directory (e.g. sticky
+        // `/tmp`), so only symlinks/non-directories are rejected here. The managed directory below
+        // it gets the strict owner/mode check.
         let mut ancestor = dir.to_path_buf();
         loop {
             match std::fs::symlink_metadata(&ancestor) {
                 Ok(_) => {
-                    validate_existing_private_dir(&ancestor)?;
-
+                    validate_platform_ancestor(&ancestor)?;
                     break;
                 }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => match ancestor.parent() {

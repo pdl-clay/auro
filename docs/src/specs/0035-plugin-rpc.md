@@ -93,10 +93,14 @@ and no bytes are read or written.
   is explicitly deferred to stage 3 and documented in the host API.
 - The check/open re-canonicalization narrows but does not eliminate TOCTOU. A fully handle-based
   `openat` chain is a later hardening step; the current contract fails closed on mismatch.
-- A private directory is validated with `symlink_metadata` before any `mkdir` or `chmod`. An
-  inherited `$XDG_RUNTIME_DIR` must already be a real, user-owned directory with no group/other
-  bits; an unsafe value is ignored in favour of the per-user temporary directory. A rejected path
-  is never mutated. The post-open device/inode comparison remains a second defence, not the first.
+- The trust boundary is the host-managed `auro-<uid>` directory, not its platform ancestor. A
+  shared ancestor such as sticky `/tmp` (`1777`) or a group-readable parent only has to be a real
+  directory without symlinks/reparse points; it is validated before any `mkdir` or `chmod` but its
+  owner and mode are the platform's business. The managed directory and everything the host creates
+  beneath it require owner == euid, no group/other bits, `O_NOFOLLOW|O_DIRECTORY` and a dev/ino
+  comparison after open. A symlinked or unsafe managed directory is refused without being mutated.
+  An inherited `$XDG_RUNTIME_DIR` is used only when it already satisfies the strict managed
+  criteria; otherwise it is ignored in favour of the per-user temporary fallback.
 - Negotiation is a terminal per-instance state: `NotConnected -> Handshaking -> Ready | Failed`.
   Any error while reading `Hello`, validating it or writing `HelloAck` drops the stream and marks
   the instance `Failed`; later `call` attempts return `HandshakeRequired` even if the originally
@@ -113,9 +117,10 @@ and no bytes are read or written.
    loaded `VerifiedSubject`.
 5. File effects inside a grant succeed; a denial, `..`, a symlink escape and a Windows reparse point
    fail with typed errors and no write.
-6. A predictable endpoint name and an occupied/unsafe private directory fail before spawn; a
+6. A predictable endpoint name and an occupied/unsafe managed directory fail before spawn; a
    symlinked private directory is rejected without changing the target's mode, and an unsafe
-   inherited `$XDG_RUNTIME_DIR` is ignored.
+   inherited `$XDG_RUNTIME_DIR` is ignored. A managed directory under sticky `/tmp` succeeds
+   (`shared_temp_ancestor_can_host_a_private_channel_dir`).
 7. After any failed handshake, including a future protocol version, `call` returns
    `HandshakeRequired` and a retry on the same instance is refused.
 8. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`

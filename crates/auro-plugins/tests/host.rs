@@ -816,3 +816,44 @@ fn symlinked_private_dir_is_rejected_without_chmodding_the_target() {
         & 0o777;
     assert_eq!(mode, 0o755, "rejection must not chmod the symlink target");
 }
+
+#[cfg(unix)]
+#[test]
+fn shared_temp_ancestor_can_host_a_private_channel_dir() {
+    // `/tmp` is mode 1777 (sticky). It is only a platform ancestor; the managed `auro-*` directory
+    // below it is created with 0700 and checked strictly.
+    let dir = std::env::temp_dir().join(format!("auro-probe-{}", std::process::id()));
+    let channel = PluginChannel::new(&dir, ID, &"a".repeat(32))
+        .expect("a sticky /tmp ancestor must not block the per-user fallback");
+    assert!(channel.endpoint_name().contains(&"a".repeat(16)[..]));
+    fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[cfg(unix)]
+#[test]
+fn unsafe_xdg_runtime_dir_is_ignored_by_the_fallback() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempdir_private();
+    let xdg = temp.path().join("runtime");
+    fs::create_dir(&xdg).expect("xdg dir");
+    fs::set_permissions(&xdg, fs::Permissions::from_mode(0o755)).expect("xdg mode");
+
+    // Serialize the environment mutation: no other test reads XDG_RUNTIME_DIR.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let previous = std::env::var_os("XDG_RUNTIME_DIR");
+    // SAFETY: the mutex excludes other readers of this variable in this test binary.
+    unsafe { std::env::set_var("XDG_RUNTIME_DIR", &xdg) };
+    let chosen = auro_plugins::channel::default_private_dir();
+    match previous {
+        Some(value) => unsafe { std::env::set_var("XDG_RUNTIME_DIR", value) },
+        None => unsafe { std::env::remove_var("XDG_RUNTIME_DIR") },
+    }
+
+    // A group/other-readable XDG candidate is not trusted; the per-user temp fallback is used.
+    assert!(
+        !chosen.starts_with(&xdg),
+        "unsafe XDG_RUNTIME_DIR must be ignored: {chosen:?}"
+    );
+}
