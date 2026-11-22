@@ -834,8 +834,11 @@ claim it.
 **Platform limitation (2026-11-22):** PR CI's Linux and Windows runners have no interactive
 desktop, so the real-display scaffold smoke is dispatch-only. The macOS hot-exit job waits for a
 `window_requested` trace; when a runner has no window server it fails with the dev log instead of
-skipping silently, and the absence of a verified macOS smoke remains recorded here. No exit
-semantics result is claimed from a run that never rendered.
+skipping silently. The dispatch run `45063875118` did not reach the exit assertions: the scaffold
+link failed with `Undefined symbols for architecture arm64: _IOSurfaceCreate` (and the other
+`IOSurface` symbols) followed by `clang: error: linker command failed with exit code 1`. That
+runner/toolchain cannot build the GUI scaffold, so no macOS exit-semantics result is claimed from
+it; the assertions remain in the workflow for a runner that can build and render the app.
 
 GA additionally requires: measured < 500 ms save-to-visible for the documented warm view-only case on
 each Tier 1 platform (or an explicit, approved revision of the target recorded in the performance
