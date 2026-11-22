@@ -119,6 +119,14 @@ class MeasureCliTests(unittest.TestCase):
         self.assertIn("reloaded", combined)
         self.assertIn("N=9", combined)
 
+    def test_empty_trace_fails_instead_of_reporting_success(self):
+        proc = self.run_measure([])
+
+        self.assertEqual(proc.returncode, 4)
+        combined = proc.stdout + proc.stderr
+        self.assertIn("no measurements", combined.lower())
+        self.assertNotIn("SUMMARY ", proc.stdout)
+
     def test_mixed_outcomes_are_reported_separately(self):
         rows = [reload_row(value) for value in RELOAD_VALUES]
         rows += [restart_row(value) for value in RESTART_VALUES]

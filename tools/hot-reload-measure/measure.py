@@ -78,6 +78,8 @@ def aggregate(path, platform):
                     )
             groups[outcome].append(row[timing_field])
 
+    if not any(groups.values()):
+        return _fail(f"error: no measurements in {path}", 4)
     for outcome in OUTCOME_ORDER:
         values = groups[outcome]
         if values and len(values) < 10:

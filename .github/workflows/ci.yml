@@ -228,7 +228,7 @@ jobs:
           sleep 2
           kill -INT "$devpid" 2>/dev/null || true
           wait "$devpid" 2>/dev/null || true
-          grep '^{"event":"hot_reload"' hot.log > all-measurements.jsonl || true
+          grep '^{"event":"hot_reload"' hot.log > all-measurements.jsonl
           tail -n 12 all-measurements.jsonl > measurements.jsonl
           python3 "$GITHUB_WORKSPACE/tools/hot-reload-measure/measure.py" \
             --input measurements.jsonl --platform "${{ matrix.platform }}" \

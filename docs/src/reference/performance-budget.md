@@ -51,9 +51,10 @@ Electron comparison; the 1.0 targets above are not met yet.
 It prints one table row per outcome (`reloaded`, `restarted`) with N, median, p95 and spread
 (max - min); the `SUMMARY` JSON also carries `min_ms` and `max_ms` separately. Warm-up rows are
 excluded only when the capture step marks them `"warmup": true` or writes the measured rows to a
-separate JSONL file; the script never silently drops a row. A null timing on a successful reload,
-an unknown event, or a group with fewer than ten samples is an error naming the stage or outcome
-and N.
+separate JSONL file; the script never silently drops a row. An empty input, a null timing on a
+successful reload, an unknown event, or a group with fewer than ten samples is an error naming the
+stage, outcome or input; exit codes distinguish no measurements (4) from a short series (3) and a
+bad row (2).
 
 Published baseline, in milliseconds. `save_to_render_ms` is used for `reloaded` and
 `save_to_window_ms` for `restarted`. Every series applied data-only edits to the guarded four-crate
