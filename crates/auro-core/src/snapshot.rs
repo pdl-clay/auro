@@ -19,6 +19,34 @@ pub const FORMAT_VERSION: u32 = 1;
 ///
 /// `KEY` must stay stable for the same logical state within a dev session: renaming or removing it
 /// is a reset of that entry, and the reset is reported by [`Snapshot::restore`].
+///
+/// Only state that opts into preservation is written to a snapshot. Keep `KEY` stable for one
+/// logical entry across a dev session, and bump `VERSION` whenever the serialized layout changes:
+/// [`Snapshot::restore`] resets that entry alone and reports the reason instead of guessing.
+///
+/// ```
+/// use auro_core::snapshot::{ReloadSnapshot, Restored, Snapshot};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct CounterState {
+///     count: u64,
+/// }
+///
+/// impl ReloadSnapshot for CounterState {
+///     const KEY: &'static str = "ui.counter";
+///     const VERSION: u32 = 1;
+/// }
+///
+/// let mut snapshot = Snapshot::new("build-1");
+/// snapshot.insert(&CounterState { count: 7 }).expect("insert");
+/// assert_eq!(snapshot.len(), 1);
+/// let restored: Restored<CounterState> = snapshot.restore();
+/// assert!(matches!(
+///     restored,
+///     Restored::Restored(CounterState { count: 7 })
+/// ));
+/// ```
 pub trait ReloadSnapshot: Serialize + DeserializeOwned {
     const KEY: &'static str;
     const VERSION: u32;
