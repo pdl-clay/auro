@@ -47,11 +47,13 @@ into different arguments, a path with `%f` or a newline changed the launched com
 keys, and `XDG_CONFIG_HOME` was ignored.
 
 The directories Auro needs are created component by component and explicitly end at mode `0755`,
-independent of the process umask; a pre-existing directory is never chmodded. Every pre-existing
-component from the XDG base down to `autostart` must be a real directory (no symlink), owned by the
-current user and not writable by group or other. Otherwise `enable` fails with an error naming the
-path and mode. Without that check, `umask 002` left the directory `0775` and another user in the
-group could add an autostart entry that runs at the next login (#92).
+independent of the process umask; a pre-existing directory is never chmodded. The XDG base itself
+and every pre-existing component down to `autostart` must be a real directory (no symlink), owned
+by the current user and not writable by group or other. Otherwise `enable` fails with an error
+naming the path and the reason (symlink, owner or mode). Validating only the child is not enough:
+write access on `~/.config` lets another user rename the child even when it is `0755`. Without the
+check, `umask 002` left the directory `0775` and another user in the group could add an autostart
+entry that runs at the next login (#92, #99).
 
 macOS and Windows keep delegating to `auto-launch`. *Rejected:* AppleScript login items. They need a
 macOS GUI session and are less deterministic than a Launch Agent. *Rejected:* keeping
@@ -125,8 +127,12 @@ if !autostart.is_enabled()? {
 5. Under `umask 002` the created directory is `0755`; a group-writable or symlinked directory is
    refused (`autostart_directory_is_created_private_under_umask`,
    `autostart_refuses_a_group_writable_directory`, `autostart_refuses_a_symlinked_directory`).
-6. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
-7. `cargo fmt --all --check`,
+6. The managed base itself is validated: a `0775` base and a symlinked base are refused with the
+   path and reason, a `0755` base is accepted, and a missing base is created under a private
+   anchor (`autostart_refuses_a_group_writable_base`,
+   `autostart_refuses_a_symlinked_base_and_says_so`, `autostart_accepts_a_normal_base`).
+7. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
+8. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 

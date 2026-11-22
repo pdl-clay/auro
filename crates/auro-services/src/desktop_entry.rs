@@ -157,11 +157,21 @@ pub(crate) fn ensure_user_directory(base: &Path, child: &str) -> io::Result<Path
         Ok(())
     }
 
-    // The deepest existing ancestor is the anchor. Nothing above it is ours to validate.
+    // The deepest existing ancestor is the anchor. Nothing above it is ours to validate, but the
+    // base itself and every existing component down to the child are.
     let mut anchor = base.to_path_buf();
     loop {
         match fs::symlink_metadata(&anchor) {
             Ok(metadata) if metadata.is_dir() => break,
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "`{}` is a symlink; refusing to use an unsafe directory",
+                        anchor.display()
+                    ),
+                ));
+            }
             Ok(_) => {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
@@ -196,6 +206,10 @@ pub(crate) fn ensure_user_directory(base: &Path, child: &str) -> io::Result<Path
         )
     })?;
     descend(&anchor, relative)?;
+    // `descend` is a no-op when the base already exists (`anchor == base`), which is exactly the
+    // case where a group-writable `~/.config` or `~/.local/share` would otherwise go unchecked.
+    // Validating the base unconditionally also covers a base created by `descend` above.
+    validate(base)?;
 
     let child_path = Path::new(child);
     if !matches!(

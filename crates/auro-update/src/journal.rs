@@ -1116,11 +1116,11 @@ fn apply_package_rollback(kind: ApplyKind, staged: &StagedUpdate) -> Result<(), 
 /// Resolves the backup to the canonical path [`ApplyJournal::finalize`] may delete.
 ///
 /// The journal records the backup beside the target, but the target may be reached through a
-/// symlinked parent (an AppImage launched through a link, for example), so the parents are
-/// compared after canonicalizing them. A lexical comparison would accept `install/..` as a
-/// sibling, and `remove_path` would then delete the whole install directory, so the lexical shape
-/// is rejected before canonicalization: the journal only ever deletes a normal name under the
-/// target's canonical parent.
+/// symlinked parent or be a symlink itself (an AppImage launched through `~/.local/bin`, for
+/// example), so the target file and the parents are resolved before comparing them. A lexical
+/// comparison would accept `install/..` as a sibling, and `remove_path` would then delete the
+/// whole install directory, so the lexical shape is rejected before canonicalization: the journal
+/// only ever deletes a normal name under the real target's canonical parent.
 fn finalize_backup_path(backup: &Path, target: &Path) -> Result<PathBuf, UpdateError> {
     let invalid = || UpdateError::JournalBackupPath {
         backup: backup.to_path_buf(),
@@ -1130,7 +1130,11 @@ fn finalize_backup_path(backup: &Path, target: &Path) -> Result<PathBuf, UpdateE
         Some(name) if name != OsStr::new(".") && name != OsStr::new("..") => name,
         _ => return Err(invalid()),
     };
-    let target_name = match target.file_name() {
+    // A symlinked target is common for AppImages. The installer resolves it and stores the backup
+    // beside the real file, so the recorded path must resolve the same way; a missing target keeps
+    // the recorded path so the error still names what the journal holds.
+    let resolved_target = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+    let target_name = match resolved_target.file_name() {
         Some(name) if name != OsStr::new(".") && name != OsStr::new("..") => name,
         _ => return Err(invalid()),
     };
@@ -1140,7 +1144,7 @@ fn finalize_backup_path(backup: &Path, target: &Path) -> Result<PathBuf, UpdateE
         return Err(invalid());
     }
     let backup_parent = canonical_parent(backup).ok_or_else(invalid)?;
-    let target_parent = canonical_parent(target).ok_or_else(invalid)?;
+    let target_parent = canonical_parent(&resolved_target).ok_or_else(invalid)?;
     if backup_parent != target_parent {
         return Err(invalid());
     }
@@ -1542,6 +1546,48 @@ mod tests {
         journal.finalize().expect("finalize");
         assert!(!backup.exists());
         assert!(canonical_target.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finalizes_a_backup_beside_a_symlinked_target_file() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let real = temp.path().join("real");
+        std::fs::create_dir(&real).expect("real dir");
+        let real_target = real.join("App.AppImage");
+        std::fs::write(&real_target, b"new").expect("target");
+        // An AppImage launched through `~/.local/bin` is the common shape: the journal records the
+        // link while the installer stores the backup beside the real file.
+        let link = temp.path().join("App.AppImage");
+        symlink(&real_target, &link).expect("symlink");
+        let backup = real.join(".App.AppImage.123.bak");
+        std::fs::write(&backup, b"old").expect("backup");
+
+        let mut journal = ApplyJournal::create(
+            temp.path().join("state").join("apply.json"),
+            "1.2.3",
+            temp.path().join("artifact"),
+            Some(link.clone()),
+            relaunch(),
+        )
+        .expect("journal");
+        journal.set_backup(&backup).expect("set backup");
+        let journal_path = journal.path().to_path_buf();
+        journal
+            .finalize()
+            .expect("a symlinked target must finalize");
+        assert!(!backup.exists(), "the backup must be removed");
+        assert!(!journal_path.exists(), "the journal must be removed");
+        assert!(real_target.exists());
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .expect("link")
+                .file_type()
+                .is_symlink(),
+            "finalize must not replace the launch path"
+        );
     }
 
     #[cfg(unix)]

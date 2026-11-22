@@ -629,6 +629,91 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn autostart_refuses_a_group_writable_base() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        use crate::test_support::EnvGuard;
+
+        let _lock = crate::test_support::lock();
+        let xdg = tempdir().expect("tempdir");
+        let base = xdg.path().join("config");
+        std::fs::create_dir(&base).expect("base");
+        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o775)).expect("mode");
+        let _xdg = EnvGuard::set("XDG_CONFIG_HOME", &base);
+
+        let path = app_path().expect("path");
+        let autostart = Autostart::new(unique_name(), path.to_string_lossy(), &[] as &[&str])
+            .expect("autostart");
+        let error = autostart
+            .enable()
+            .expect_err("a group-writable managed base must be refused");
+        assert!(
+            error.to_string().contains(&base.display().to_string()),
+            "{error}"
+        );
+        assert!(
+            error.to_string().contains("mode 0775"),
+            "the error must name the mode: {error}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn autostart_refuses_a_symlinked_base_and_says_so() {
+        use std::os::unix::fs::symlink;
+
+        use crate::test_support::EnvGuard;
+
+        let _lock = crate::test_support::lock();
+        let xdg = tempdir().expect("tempdir");
+        let real = xdg.path().join("real-config");
+        std::fs::create_dir(&real).expect("real base");
+        let base = xdg.path().join("config");
+        symlink(&real, &base).expect("symlink");
+        let _xdg = EnvGuard::set("XDG_CONFIG_HOME", &base);
+
+        let path = app_path().expect("path");
+        let autostart = Autostart::new(unique_name(), path.to_string_lossy(), &[] as &[&str])
+            .expect("autostart");
+        let error = autostart
+            .enable()
+            .expect_err("a symlinked managed base must be refused");
+        assert!(
+            error.to_string().contains(&base.display().to_string()),
+            "{error}"
+        );
+        assert!(
+            error.to_string().contains("symlink"),
+            "the error must name the symlink: {error}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn autostart_accepts_a_normal_base() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        use crate::test_support::EnvGuard;
+
+        let _lock = crate::test_support::lock();
+        let xdg = tempdir().expect("tempdir");
+        let base = xdg.path().join("config");
+        std::fs::create_dir(&base).expect("base");
+        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).expect("mode");
+        let _xdg = EnvGuard::set("XDG_CONFIG_HOME", &base);
+
+        let path = app_path().expect("path");
+        let name = unique_name();
+        let autostart =
+            Autostart::new(&name, path.to_string_lossy(), &[] as &[&str]).expect("autostart");
+        autostart.enable().expect("a user-owned 0755 base is valid");
+        let entry = base.join("autostart").join(format!("{name}.desktop"));
+        assert!(entry.is_file(), "the entry must be written below the base");
+        autostart.disable().expect("disable");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn autostart_refuses_a_group_writable_directory() {
         use std::os::unix::fs::PermissionsExt as _;
 

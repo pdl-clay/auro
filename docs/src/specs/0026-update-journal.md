@@ -106,11 +106,11 @@ It is still a separate privilege/contract problem.
 directory, permission error), the backup it names is still the rollback copy and must survive; an
 orphaned backup after a successful journal removal is preferable to a journal pointing at a deleted
 recovery file. The backup is resolved before deletion: `..`, a root or a drive prefix is rejected,
-the backup and target parents are canonicalized, both must name the same directory, and the backup
-must be a normal direct child of it. Deletion goes through the canonical path, so a lexical sibling
-check cannot turn `install/..` into `remove_dir_all(<install parent>)` (#97). The canonical
-comparison also lets a receipt that stores the backup beside the canonical target finalize an
-AppImage launched through a symlinked path.
+the backup and the target file are canonicalized (an AppImage is commonly launched through a
+symlink), the real target's parent and the backup's parent must name the same directory, and the
+backup must be a normal direct child of it. Deletion goes through the canonical path, so a lexical
+sibling check cannot turn `install/..` into `remove_dir_all(<install parent>)` (#97), and a
+symlinked target no longer blocks cleanup forever (#102).
 
 ### D4 - The helper removes its own trigger and detaches
 
@@ -306,6 +306,7 @@ until `spawn_helper` returns; the lock is retained by the helper module.
    a symlinked launch path (`refuses_to_finalize_through_a_parent_dir_backup`,
    `refuses_to_finalize_a_backup_that_is_the_target`,
    `finalizes_a_backup_beside_the_canonical_target`,
+   `finalizes_a_backup_beside_a_symlinked_target_file`,
    `finalizes_when_the_recorded_backup_is_gone`).
 7. A rollback plan survives the journal round trip and is rejected for a non-package apply
    (`round_trips_a_package_rollback_plan`,

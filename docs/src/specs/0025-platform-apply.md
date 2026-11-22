@@ -59,16 +59,19 @@ installer again here; only the verified `StagedUpdate` is accepted.
 
 `MacAppInstaller` accepts a staged `.zip` with exactly one top-level `.app`. It bounds the entry
 count before extraction (100,000), then extracts with its own loop: destination names must be
-enclosed paths, directories and permission modes are preserved, symlinks are recreated only when
-their target stays inside the extraction root, and every file is written through a `Read::take`
-limit and charged for the bytes actually produced. An entry whose real output differs from its
-declared `uncompressed_size`, or a total above 4 GiB, is `UnsafeArchive`, so a ZIP that declares one
-byte and expands a thousandfold is rejected instead of filling the disk (#93). A write whose parent
-chain inside the extraction root contains a symlink is refused before the bytes are written, because
-the post-extraction canonical walk would otherwise run after the escape. The extracted tree is
-walked again for containment, then the old bundle is renamed to a hidden backup beside it, the new
-bundle is renamed into place, and `MacAppReceipt` is returned. The budget bounds a signed artifact
-that compresses well but expands past the available disk; exceeding it is `UnsafeArchive`.
+enclosed paths, symlinks are recreated only when their target stays inside the extraction root, and
+every file is written through a `Read::take` limit and charged for the bytes actually produced. An
+entry whose real output differs from its declared `uncompressed_size`, or a total above 4 GiB, is
+`UnsafeArchive`, so a ZIP that declares one byte and expands a thousandfold is rejected instead of
+filling the disk (#93). A write whose parent chain inside the extraction root contains a symlink is
+refused before the bytes are written, because the post-extraction canonical walk would otherwise
+run after the escape. Installed modes are explicit and independent of the umask and of the header:
+directories end at `0755`, files at `0644`, a declared executable bit yields `0755`, and setuid,
+setgid and sticky bits are never reproduced. Implicit parent directories are normalized in the same
+pass before the extracted tree is walked for containment, then the old bundle is renamed to a
+hidden backup beside it, the new bundle is renamed into place, and `MacAppReceipt` is returned. The
+budget bounds a signed artifact that compresses well but expands past the available disk; exceeding
+it is `UnsafeArchive`.
 
 The extraction directory is created beside the target, so the final rename stays on one filesystem.
 If the new rename fails, the backup is renamed back. The receipt follows the conservative
@@ -200,7 +203,9 @@ The snippet is an intended call shape, not an app that exists yet.
     `rejects_a_declared_size_lie_instead_of_expanding_it`). A symlink entry and a later entry
     written through that symlink are rejected before the bytes leave the extraction root
     (`rejects_a_symlink_entry_escaping_the_extraction_root`,
-    `rejects_a_file_written_through_a_symlinked_parent`).
+    `rejects_a_file_written_through_a_symlinked_parent`). Extracted modes ignore the umask:
+    directories and declared executables are `0755`, other files `0644`, and setuid is dropped
+    (`extraction_modes_do_not_inherit_the_umask`).
 14. `cargo fmt --all --check`,
     `cargo clippy --workspace --all-targets --locked -- -D warnings`,
     `cargo test --workspace --locked`, `cargo test -p auro-update --locked`,
