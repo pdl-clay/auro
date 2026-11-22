@@ -5,7 +5,7 @@ what comes next; it is deliberately more specific than the README.
 
 ## Crates
 
-Eleven crates are materialized now; the rest arrive with the phase that needs them.
+Twelve crates are materialized now; the rest arrive with the phase that needs them.
 
 | Crate | Kind | Responsibility | Status |
 |---|---|---|---|
@@ -15,8 +15,8 @@ Eleven crates are materialized now; the rest arrive with the phase that needs th
 | `auro-ui` | library | GPUI re-export, tokens, minimal primitives (`Button` with keyboard activation); **no component toolkit** ([ADR 0009](../decisions/0009-toolkits-are-app-level.md)) | Phase 0-2, in tree (re-exports, `Button`, tokens) |
 | `auro-ipc` | library | typed transport, command schemas, runtime bridge | Phase 1, in tree |
 | `auro-macros` | proc-macro | `#[command]`, `generate_handler!` | Phase 0, in tree |
-| `auro-perms` | library | capability manifests and runtime enforcement (spec 0016) | Phase 2, in tree |
-| `auro-plugins` | library | plugin manifest and host (in-process and out-of-process) | planned, Phase 3 |
+| `auro-perms` | library | capability manifests and runtime enforcement (specs 0016, 0034) | Phase 2-3, in tree |
+| `auro-plugins` | library | plugin manifest, verified subject and signed static index (stage 1); host RPC and `dylib` backend are later phase 3 stages ([ADR 0024](../decisions/0024-plugin-host-stage-1.md)) | Phase 3, in tree behind a default-off feature |
 | `auro-services` | library | platform services: autostart, notifications, keychain, global shortcuts, tray, deep links (specs 0017-0022) | Phase 2, in tree |
 | `auro-bundle` | library | platform packaging via `tauri-bundler` (spec 0010) | Phase 2, in tree |
 | `auro-sign` | library | Ed25519 keys, signatures, SHA-256 (spec 0011) | Phase 2, in tree |
@@ -37,6 +37,8 @@ Eleven crates are materialized now; the rest arrive with the phase that needs th
 6. **No toolkit in the framework.** `gpui-component` and similar crates are application
    dependencies, initialized through `App::setup` and wrapped with `App::root_with`
    ([ADR 0009](../decisions/0009-toolkits-are-app-level.md)).
+
+7. **Plugins do not reach the renderer.** `auro-plugins` depends on `auro-ipc` and `auro-perms`, never on `auro-ui` or GPUI, and no lower crate depends on it. `auro-core` composes it behind a default-off feature. A plugin is crash-isolated at most, never sandboxed.
 
 ## Rules for tracking GPUI upstream
 

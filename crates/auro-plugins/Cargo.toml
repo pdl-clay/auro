@@ -1,0 +1,25 @@
+[package]
+name = "auro-plugins"
+description = "Signed static plugin discovery and verified plugin subjects for Auro"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage = "https://pdl-clay.github.io/auro/"
+keywords = ["plugins", "capabilities", "security", "desktop"]
+categories = ["development-tools"]
+authors.workspace = true
+publish = ["crates-io"]
+
+[dependencies]
+auro-perms.workspace = true
+auro-sign.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+semver.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

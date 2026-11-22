@@ -689,6 +689,7 @@ mod tests {
                 }],
             },
             dev: DevConfig::default(),
+            plugins: auro_core::config::PluginConfig::default(),
             bundle: BundleConfig::default(),
         }
     }

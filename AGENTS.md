@@ -2,7 +2,7 @@
 
 Instructions for AI coding assistants and contributors working in this repository.
 
-**Read this first: the workspace exists; the framework is pre-alpha.** Eleven crates under `crates/`
+**Read this first: the workspace exists; the framework is pre-alpha.** Twelve crates under `crates/`
 compile and their tests pass, `auro new` produces a project that builds against this checkout, and
 the UI layer is one primitive. The `0.1.0-alpha.10` alpha is published; there is no stable release.
 Anything described below as *planned* is a
@@ -52,19 +52,19 @@ Authoritative documents: `README.md` (pitch), `ROADMAP.md` (phases and targets),
 
 ## Architecture & Data Flow
 
-Workspace of twelve crates total (eleven materialized now, one planned), layered top-down:
+Workspace of twelve crates, all materialized, layered top-down:
 
 ```
 auro-cli        new . dev . build . bundle . add . doctor
 auro-core       App . WindowManager . Config . Lifecycle . Command registry . State store . Event bus . Instance
 auro-ui         GPUI re-export + tokens           |  auro-ipc  typed bus  |  auro-perms capabilities
-auro-plugins    in-process (cdylib)  |  out-of-process RPC
+auro-plugins    manifest/index/subject (stage 1); in-process dylib and out-of-process RPC later
 auro-bundle . auro-sign . auro-update
 ```
 
 The diagram is a layering: a crate may use the layer below, `auro-core` composes the rest, cycles
 are a design error. The exact `Cargo.toml` edges are not fixed yet; do not treat the diagram as a
-dependency graph.
+dependency graph. `auro-plugins` is composed by `auro-core` behind a default-off feature and never uses `auro-ui`/GPUI; plugin out-of-process isolation is crash isolation, not a sandbox.
 
 Threading and data flow, in order:
 

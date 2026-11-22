@@ -40,6 +40,7 @@
 - [0021 - Opt-in rollback after a failed package apply](decisions/0021-opt-in-package-rollback.md)
 - [0022 - Hot reload boundary is a separate crate with a fixed frame](decisions/0022-hot-reload-boundary-crate.md)
 - [0023 - The update journal is a local trust boundary](decisions/0023-update-journal-trust.md)
+- [0024 - Plugin host stage 1: trust anchor before RPC](decisions/0024-plugin-host-stage-1.md)
 
 # Specifications
 
@@ -77,6 +78,7 @@
 - [0031 - macOS package apply](specs/0031-macos-package-apply.md)
 - [0032 - macOS notarization submission](specs/0032-macos-notarization.md)
 - [0033 - Update journal trust boundary](specs/0033-update-journal-trust.md)
+- [0034 - Plugin manifest, verified subject and signed index](specs/0034-plugin-manifest-index.md)
 
 # Reference
 

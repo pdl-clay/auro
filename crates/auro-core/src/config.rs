@@ -30,6 +30,8 @@ pub struct Config {
     pub dev: DevConfig,
     #[serde(default)]
     pub bundle: BundleConfig,
+    #[serde(default)]
+    pub plugins: PluginConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -243,6 +245,31 @@ impl Default for BundleConfig {
             windows: WindowsBundleConfig::default(),
         }
     }
+}
+
+/// Signed in-process plugin host settings (`[plugins]`).
+///
+/// This is host configuration only: an empty allowlist means no plugin is loaded, even when
+/// `enabled` is true. Entries are id/version pins; the host resolves nothing while parsing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct PluginConfig {
+    /// Whether plugin loading is enabled; off by default.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Plugins the host may load (`[[plugins.allow]]` entries).
+    #[serde(default)]
+    pub allow: Vec<AllowedPluginConfig>,
+}
+
+/// One `[[plugins.allow]]` pin: an exact plugin id and version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct AllowedPluginConfig {
+    /// Plugin id, matched against the subject derived from the signed index.
+    pub id: String,
+    /// Exact plugin version; no ranges or prefixes.
+    pub version: String,
 }
 
 /// `"all"` or an explicit list of package formats.
@@ -484,6 +511,31 @@ impl Config {
             }
         }
 
+        let mut allowed_ids = BTreeSet::new();
+        for allowed in &self.plugins.allow {
+            if allowed.id.trim().is_empty() {
+                return Err(AuroError::config(
+                    path,
+                    Some("plugins.allow.id"),
+                    "plugin id must not be empty",
+                ));
+            }
+            if allowed.version.trim().is_empty() {
+                return Err(AuroError::config(
+                    path,
+                    Some(&format!("plugins.allow.{}.version", allowed.id)),
+                    format!("plugin `{}` has an empty version", allowed.id),
+                ));
+            }
+            if !allowed_ids.insert(allowed.id.as_str()) {
+                return Err(AuroError::config(
+                    path,
+                    Some(&format!("plugins.allow.{}", allowed.id)),
+                    format!("duplicate allowed plugin `{}`", allowed.id),
+                ));
+            }
+        }
+
         Ok(())
     }
 }
@@ -676,6 +728,116 @@ label = "main"
         })?;
         config.validate(Path::new("Auro.toml"))?;
         Ok(config)
+    }
+
+    fn named_config_error(error: &AuroError) -> (&str, &str) {
+        match error {
+            AuroError::Config {
+                key: Some(key),
+                message,
+                ..
+            } => (key.as_str(), message.as_str()),
+            other => panic!("expected a named config error, got {other:?}"),
+        }
+    }
+
+    const TWO_PLUGINS: &str = r#"
+[plugins]
+enabled = true
+
+[[plugins.allow]]
+id = "com.example.alpha"
+version = "1.0.0"
+
+[[plugins.allow]]
+id = "com.example.beta"
+version = "2.3.4"
+"#;
+
+    #[test]
+    fn plugins_are_disabled_with_an_empty_allowlist_by_default() {
+        let config = parse(MINIMAL).expect("parses");
+        assert!(!config.plugins.enabled);
+        assert!(config.plugins.allow.is_empty());
+    }
+
+    #[test]
+    fn parses_two_allowed_plugins() {
+        let text = format!("{MINIMAL}{TWO_PLUGINS}");
+        let config = parse(&text).expect("parses");
+        assert!(config.plugins.enabled);
+        assert_eq!(config.plugins.allow.len(), 2);
+        assert_eq!(config.plugins.allow[0].id, "com.example.alpha");
+        assert_eq!(config.plugins.allow[0].version, "1.0.0");
+        assert_eq!(config.plugins.allow[1].id, "com.example.beta");
+        assert_eq!(config.plugins.allow[1].version, "2.3.4");
+    }
+
+    #[test]
+    fn enabled_plugins_with_no_allowlist_are_allowed() {
+        let text = format!("{MINIMAL}\n[plugins]\nenabled = true\n");
+        let config = parse(&text).expect("parses");
+        assert!(config.plugins.enabled);
+        assert!(config.plugins.allow.is_empty());
+    }
+
+    #[test]
+    fn rejects_duplicate_plugin_ids_with_a_named_error() {
+        let text = format!(
+            "{MINIMAL}\n[plugins]\n\n[[plugins.allow]]\nid = \"com.example.alpha\"\nversion = \"1.0.0\"\n\n[[plugins.allow]]\nid = \"com.example.alpha\"\nversion = \"2.0.0\"\n"
+        );
+        let error = parse(&text).expect_err("duplicate plugin id");
+        let (key, message) = named_config_error(&error);
+        assert_eq!(key, "plugins.allow.com.example.alpha");
+        assert!(message.contains("duplicate"), "{message}");
+        assert!(message.contains("com.example.alpha"), "{message}");
+    }
+
+    #[test]
+    fn rejects_empty_plugin_ids_and_versions_with_named_errors() {
+        let no_id =
+            format!("{MINIMAL}\n[plugins]\n\n[[plugins.allow]]\nid = \"\"\nversion = \"1.0.0\"\n");
+        let error = parse(&no_id).expect_err("empty id");
+        let (key, message) = named_config_error(&error);
+        assert_eq!(key, "plugins.allow.id");
+        assert!(message.contains("empty"), "{message}");
+
+        let blank_id = format!(
+            "{MINIMAL}\n[plugins]\n\n[[plugins.allow]]\nid = \"  \"\nversion = \"1.0.0\"\n"
+        );
+        let error = parse(&blank_id).expect_err("blank id");
+        let (key, message) = named_config_error(&error);
+        assert_eq!(key, "plugins.allow.id");
+        assert!(message.contains("empty"), "{message}");
+
+        let no_version = format!(
+            "{MINIMAL}\n[plugins]\n\n[[plugins.allow]]\nid = \"com.example.alpha\"\nversion = \"\"\n"
+        );
+        let error = parse(&no_version).expect_err("empty version");
+        let (key, message) = named_config_error(&error);
+        assert_eq!(key, "plugins.allow.com.example.alpha.version");
+        assert!(message.contains("empty"), "{message}");
+
+        let blank_version = format!(
+            "{MINIMAL}\n[plugins]\n\n[[plugins.allow]]\nid = \"com.example.alpha\"\nversion = \"   \"\n"
+        );
+        let error = parse(&blank_version).expect_err("blank version");
+        let (key, message) = named_config_error(&error);
+        assert_eq!(key, "plugins.allow.com.example.alpha.version");
+        assert!(message.contains("empty"), "{message}");
+    }
+
+    #[test]
+    fn rejects_unknown_keys_in_plugin_tables() {
+        let table = format!("{MINIMAL}\n[plugins]\nenabled = true\nnope = true\n");
+        let error = parse(&table).expect_err("unknown plugins key");
+        assert!(error.to_string().contains("unknown field"), "{error}");
+
+        let entry = format!(
+            "{MINIMAL}\n[plugins]\n\n[[plugins.allow]]\nid = \"com.example.alpha\"\nversion = \"1.0.0\"\nnope = true\n"
+        );
+        let error = parse(&entry).expect_err("unknown allow key");
+        assert!(error.to_string().contains("unknown field"), "{error}");
     }
 
     #[test]
@@ -987,6 +1149,13 @@ watch = ["src", "views", "Auro.toml"]
 run-args = ["--verbose"]
 build-args = ["--features", "dev"]
 hot = true
+
+[plugins]
+enabled = true
+
+[[plugins.allow]]
+id = "com.example.toolkit"
+version = "1.2.3"
 
 [bundle]
 active = false

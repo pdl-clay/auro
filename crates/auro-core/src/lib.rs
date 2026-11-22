@@ -14,6 +14,10 @@ pub mod snapshot;
 pub use auro_ipc::AuroError;
 pub use auro_ipc::runtime;
 pub use auro_ipc::state::{State, StateStore};
+
+/// Signed in-process plugin host (stage 1); requires the `plugins` feature.
+#[cfg(feature = "plugins")]
+pub use auro_plugins as plugins;
 pub use autosave::{Autosave, DEFAULT_DEBOUNCE};
 pub use config::{
     AppConfig, BundleConfig, BundleTargets, Config, DevConfig, MacOsBundleConfig, Theme,

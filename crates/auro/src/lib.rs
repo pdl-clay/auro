@@ -18,6 +18,15 @@ pub mod perms {
     pub use auro_perms::{Capability, Denied, Grant, Policy, PolicyError, UnknownCapability};
 }
 
+/// Signed in-process plugin host (stage 1); requires the `plugins` feature.
+#[cfg(feature = "plugins")]
+pub mod plugins {
+    pub use auro_core::plugins::{
+        AllowedPlugin, IndexEntry, IndexError, ManifestError, PluginIndex, PluginLoadError,
+        PluginManifest, PluginRegistry, VerifiedSubject, sdk_version,
+    };
+}
+
 #[cfg(feature = "services")]
 pub mod services {
     pub use auro_services::{

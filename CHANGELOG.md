@@ -10,6 +10,16 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Added
+
+- `auro-plugins` (stage 1 of the accepted RFC 0002): versioned plugin manifests with closed fields
+  and explicit limits, verified subjects derived from a signed static index plus artifact hash and
+  instance id, a pinned embedded index with no runtime fetch, and an app allowlist in `Auro.toml`
+  under `[plugins]`. Load failures are named errors; no process is spawned and no RPC exists yet.
+- `auro-perms`: `PluginSubject`, `Policy::allow_plugin` and `Policy::check_plugin` keep the crate
+  pure while binding capability verdicts to a verified plugin subject. Canonicalization at the
+  effect site remains the caller's contract (spec 0016 D2/D5; spec 0034).
+
 ## [0.1.0-alpha.10] - 2026-11-21
 
 ### Fixed
