@@ -128,16 +128,17 @@ jobs:
           EXE=$(jq -r '.exe' "$RUNNER_TEMP/auro-dx-client.json")
           APP="$(jq -r '.path' "$RUNNER_TEMP/auro-dx-client.json")/auro-hot-patch-boundary"
           # Pin ASLR: the jump table records absolute addresses of this exact build.
-          setarch "$(uname -m)" -R "$APP" >/dev/null 2>&1 < <(sleep 30) &
-          PID=$!
+          export APP PIDFILE="$RUNNER_TEMP/auro-fixture.pid"
+          setarch "$(uname -m)" -R bash -c "sleep 30 | \"\$APP\" >/dev/null 2>&1 & echo \$! > \"\$PIDFILE\""
           sleep 1
+          PID=$(cat "$PIDFILE")
           BASE=$(awk 'NR == 1 { split($1, parts, "-"); print parts[1] }' "/proc/$PID/maps")
           kill "$PID"
           test -n "$BASE"
           MAIN=$(nm -C "$EXE" | awk '$3 == "main" { print $1 }' | head -1)
           REF=$((16#$BASE + 16#$MAIN))
           cp src/main.rs "$RUNNER_TEMP/auro-fixture-main.rs"
-          trap 'cp "$RUNNER_TEMP/auro-fixture-main.rs" "$FIXTURE/src/main.rs"' EXIT
+          trap "cp \"\$RUNNER_TEMP/auro-fixture-main.rs\" \"\$FIXTURE/src/main.rs\"" EXIT
           cp src/main_patched.rs src/main.rs
           dx tools hotpatch --desktop --profile desktop-dev --session-cache-dir "$CACHE" \
             --aslr-reference "$REF" --json-output < "$RUNNER_TEMP/auro-dx-client.json" \
