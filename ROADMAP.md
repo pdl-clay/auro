@@ -498,6 +498,22 @@ Linux at 368 ms, Windows at 813 ms (N=9) and macOS at 509-956 ms. The phase 3 cr
 "measured and documented per OS with a versioned-snapshot restart fallback", not "target achieved".
 The phase 3 exit still depends on a plugin published by an author outside the core team.
 
+
+**Progress (2026-11-22):** [RFC 0002](rfcs/0002-plugin-host.md) is Accepted and stages 1-3 of the
+plugin host are implemented and published in `0.1.0-alpha.11` and `0.1.0-alpha.12`
+([spec 0034](docs/src/specs/0034-plugin-manifest-index.md),
+[spec 0035](docs/src/specs/0035-plugin-rpc.md),
+[spec 0036](docs/src/specs/0036-plugin-supervision.md),
+[ADR 0024](docs/src/decisions/0024-plugin-host-stage-1.md),
+[ADR 0025](docs/src/decisions/0025-in-process-plugin-dylib.md)). The `plugins` and `plugins-dylib`
+features are default-off; the default build is unchanged. The asset source API (`App::assets`,
+`FileAssets`, `EmbeddedAssets`) shipped in alpha.11, and the `FileAssets` check/open race was fixed
+in alpha.12 (recorded in the changelog). Adversarial reviews of all four fronts — trust anchor, RPC,
+stage 3 limits and supervision, and assets — closed with no medium-or-higher finding outstanding.
+The phase 3 exit is still **not claimed**: it depends on a plugin published by an author outside the
+core team, and hot reload GA remains a per-OS measured criterion with a versioned-snapshot restart
+fallback, not "target achieved".
+
 **Exit:** a third-party plugin published by someone outside the core team.
 
 ### Phase 4 - v0.8 "Ecosystem" (weeks 25-34)
