@@ -125,7 +125,7 @@ never a shell string.
 ## Relationship to other documents
 
 - [RFC 0002](../../../rfcs/0002-plugin-host.md) is the design this implements; stage 2 adds the
-  fail-closed RPC host.
+  fail-closed RPC host in [spec 0035](0035-plugin-rpc.md).
 - [Spec 0016](0016-capabilities.md) defines capabilities and delegates path canonicalization to the
   effect caller.
 - [ADR 0024](../decisions/0024-plugin-host-stage-1.md) records the layering and trust decision.

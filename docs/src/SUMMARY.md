@@ -79,6 +79,7 @@
 - [0032 - macOS notarization submission](specs/0032-macos-notarization.md)
 - [0033 - Update journal trust boundary](specs/0033-update-journal-trust.md)
 - [0034 - Plugin manifest, verified subject and signed index](specs/0034-plugin-manifest-index.md)
+- [0035 - Out-of-process plugin RPC](specs/0035-plugin-rpc.md)
 
 # Reference
 

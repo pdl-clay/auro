@@ -677,6 +677,9 @@ version = "0.1.0-alpha.10"
 dependencies = [
  "auro-perms",
  "auro-sign",
+ "interprocess",
+ "libc",
+ "schemars 1.2.3",
  "semver",
  "serde",
  "serde_json",
