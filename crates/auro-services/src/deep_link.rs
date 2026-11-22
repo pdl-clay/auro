@@ -148,7 +148,25 @@ fn parse(raw: &str, schemes: &[String]) -> Option<DeepLink> {
     let mut segments = Vec::new();
     for segment in parts.filter(|segment| !segment.is_empty()) {
         let segment = percent_decode(segment)?;
-        if segment == "." || segment == ".." || segment.contains('/') || segment.contains('\\') {
+        // A colon is either an NTFS alternate-data-stream separator or a Windows drive prefix;
+        // on Unix it is harmless, but rejecting it keeps the cross-platform contract. The
+        // component walk adds the Windows drive/root/parent rules for decoded segments.
+        if segment == "."
+            || segment == ".."
+            || segment.contains('/')
+            || segment.contains('\\')
+            || segment.contains(':')
+            || std::path::Path::new(&segment)
+                .components()
+                .any(|component| {
+                    matches!(
+                        component,
+                        std::path::Component::Prefix(_)
+                            | std::path::Component::RootDir
+                            | std::path::Component::ParentDir
+                    )
+                })
+        {
             return None;
         }
         segments.push(segment);
@@ -206,10 +224,10 @@ fn valid_host(host: &str) -> bool {
         .strip_prefix('[')
         .and_then(|host| host.strip_suffix(']'))
     {
-        return !inner.is_empty()
-            && inner
-                .chars()
-                .all(|ch| ch.is_ascii_hexdigit() || matches!(ch, ':' | '.'));
+        // Only a real IPv6 literal is acceptable. `[..]`, `[C:]` and `[deadbeef]` are bracketed
+        // text, not addresses, and an app that strips the brackets would receive a traversal or
+        // drive-prefixed host (#95).
+        return inner.parse::<std::net::Ipv6Addr>().is_ok();
     }
     let host = host.strip_suffix('.').unwrap_or(host);
     !host.is_empty()
@@ -255,21 +273,39 @@ fn register_windows(scheme: &str, executable: &std::path::Path) -> Result<(), De
 
 #[cfg(target_os = "linux")]
 fn register_linux(scheme: &str, executable: &std::path::Path) -> Result<(), DeepLinkError> {
-    let data_home = std::env::var_os("XDG_DATA_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
-        })
-        .ok_or_else(|| DeepLinkError::Register("HOME and XDG_DATA_HOME are unset".to_owned()))?;
-    let applications = data_home.join("applications");
-    std::fs::create_dir_all(&applications)
-        .map_err(|error| DeepLinkError::Register(error.to_string()))?;
-    install_linux_registration(
-        &applications,
+    let data_home = linux_data_base()?;
+    register_linux_in(
+        &data_home,
         scheme,
         executable,
         std::path::Path::new("xdg-mime"),
     )
+}
+
+/// The XDG data base the `applications` directory lives under.
+#[cfg(target_os = "linux")]
+fn linux_data_base() -> Result<std::path::PathBuf, DeepLinkError> {
+    std::env::var_os("XDG_DATA_HOME")
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
+        })
+        .ok_or_else(|| DeepLinkError::Register("HOME and XDG_DATA_HOME are unset".to_owned()))
+}
+
+#[cfg(target_os = "linux")]
+fn register_linux_in(
+    data_home: &std::path::Path,
+    scheme: &str,
+    executable: &std::path::Path,
+    program: &std::path::Path,
+) -> Result<(), DeepLinkError> {
+    // Create and validate `applications` before the registration program runs: a group-writable
+    // directory would let another local user replace the handler `.desktop` file (#92).
+    let applications = crate::desktop_entry::ensure_user_directory(data_home, "applications")
+        .map_err(|error| DeepLinkError::Register(error.to_string()))?;
+    install_linux_registration(&applications, scheme, executable, program)
 }
 
 #[cfg(target_os = "linux")]
@@ -451,6 +487,139 @@ mod tests {
         links.push("auro://example.com./path");
         links.push("auro://[2001:db8::1]/path");
         assert_eq!(links.drain().len(), 3);
+    }
+
+    #[test]
+    fn rejects_non_ipv6_bracketed_hosts() {
+        let links = AppLinks::new(vec!["auro".to_owned()]);
+        for raw in [
+            "auro://[..]",
+            "auro://[C:]",
+            "auro://[C:..]",
+            "auro://[deadbeef]",
+        ] {
+            links.push(raw);
+        }
+        assert!(links.drain().is_empty());
+    }
+
+    #[test]
+    fn accepts_ipv6_literal_hosts() {
+        let links = AppLinks::new(vec!["auro".to_owned()]);
+        links.push("auro://[::1]/path");
+        links.push("auro://[2001:db8::1]/path");
+        assert_eq!(links.drain().len(), 2);
+    }
+
+    #[test]
+    fn rejects_drive_prefixed_and_encoded_separator_segments() {
+        let links = AppLinks::new(vec!["probe".to_owned()]);
+        for raw in [
+            "probe://host/C:/Windows/win.ini",
+            "probe://host/a%3Ab",
+            "probe://host/..%2fetc",
+        ] {
+            links.push(raw);
+        }
+        assert!(links.drain().is_empty());
+    }
+
+    #[test]
+    fn accepts_ordinary_path_segments() {
+        let links = AppLinks::new(vec!["probe".to_owned()]);
+        links.push("probe://host/docs/v1.2/file_name");
+        let links = links.drain();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].segments, ["docs", "v1.2", "file_name"]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn applications_directory_is_created_private_under_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let _lock = crate::test_support::lock();
+        let _umask = crate::test_support::UmaskGuard::set(0o002);
+        let data_home = tempfile::tempdir().expect("tempdir");
+        let error = register_linux_in(
+            data_home.path(),
+            "probe",
+            std::path::Path::new("/tmp/app"),
+            std::path::Path::new("/definitely/missing/xdg-mime"),
+        )
+        .expect_err("missing xdg-mime");
+        assert!(matches!(error, DeepLinkError::Register(_)));
+
+        let applications = data_home.path().join("applications");
+        let mode = std::fs::metadata(&applications)
+            .expect("applications directory")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o755,
+            "the applications directory must not inherit the umask"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn registration_refuses_a_group_writable_applications_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let _lock = crate::test_support::lock();
+        let data_home = tempfile::tempdir().expect("tempdir");
+        let applications = data_home.path().join("applications");
+        std::fs::create_dir(&applications).expect("applications");
+        std::fs::set_permissions(&applications, std::fs::Permissions::from_mode(0o775))
+            .expect("mode");
+
+        let error = register_linux_in(
+            data_home.path(),
+            "probe",
+            std::path::Path::new("/tmp/app"),
+            std::path::Path::new("/definitely/missing/xdg-mime"),
+        )
+        .expect_err("a group-writable directory must be refused");
+        assert!(
+            error
+                .to_string()
+                .contains(&applications.display().to_string()),
+            "{error}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn registration_refuses_a_symlinked_applications_directory() {
+        use std::os::unix::fs::symlink;
+
+        let _lock = crate::test_support::lock();
+        let data_home = tempfile::tempdir().expect("tempdir");
+        let victim = tempfile::tempdir().expect("tempdir");
+        let applications = data_home.path().join("applications");
+        symlink(victim.path(), &applications).expect("symlink");
+
+        let error = register_linux_in(
+            data_home.path(),
+            "probe",
+            std::path::Path::new("/tmp/app"),
+            std::path::Path::new("/definitely/missing/xdg-mime"),
+        )
+        .expect_err("a symlinked directory must be refused");
+        assert!(
+            error
+                .to_string()
+                .contains(&applications.display().to_string()),
+            "{error}"
+        );
+        assert!(
+            std::fs::read_dir(victim.path())
+                .expect("victim directory")
+                .next()
+                .is_none(),
+            "must not write through the symlink"
+        );
     }
 
     #[cfg(target_os = "linux")]

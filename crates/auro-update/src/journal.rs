@@ -8,9 +8,10 @@
 //! already-applied journal is relaunch-only. The journal is written atomically and remains on disk
 //! for diagnosis after the restart.
 
+use std::ffi::OsStr;
 use std::fs::{File, TryLockError};
 use std::io::Read as _;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -698,7 +699,9 @@ impl ApplyJournal {
     /// Removes the retained backup, journal and lock file after a completed update.
     ///
     /// Call this only after [`Self::reconcile`] returned [`Recovery::Complete`]. A backup must be
-    /// beside the target it replaced; other paths are rejected. Missing files are ignored.
+    /// a normal file name directly under the target's canonical parent, so paths containing `..`,
+    /// a drive prefix or an unexpected root are rejected, and the backup is removed through its
+    /// canonical parent. Missing files are ignored.
     pub fn finalize(self) -> Result<(), UpdateError> {
         let backup = if let Some(backup) = self.data.backup.as_deref() {
             let Some(target) = self.data.target.as_deref() else {
@@ -706,13 +709,7 @@ impl ApplyJournal {
                     backup: backup.to_path_buf(),
                 });
             };
-            if backup == target || backup.parent() != target.parent() {
-                return Err(UpdateError::JournalBackupPath {
-                    backup: backup.to_path_buf(),
-                    target: target.to_path_buf(),
-                });
-            }
-            Some(backup.to_path_buf())
+            Some(finalize_backup_path(backup, target)?)
         } else {
             None
         };
@@ -1116,6 +1113,72 @@ fn apply_package_rollback(kind: ApplyKind, staged: &StagedUpdate) -> Result<(), 
     }
 }
 
+/// Resolves the backup to the canonical path [`ApplyJournal::finalize`] may delete.
+///
+/// The journal records the backup beside the target, but the target may be reached through a
+/// symlinked parent (an AppImage launched through a link, for example), so the parents are
+/// compared after canonicalizing them. A lexical comparison would accept `install/..` as a
+/// sibling, and `remove_path` would then delete the whole install directory, so the lexical shape
+/// is rejected before canonicalization: the journal only ever deletes a normal name under the
+/// target's canonical parent.
+fn finalize_backup_path(backup: &Path, target: &Path) -> Result<PathBuf, UpdateError> {
+    let invalid = || UpdateError::JournalBackupPath {
+        backup: backup.to_path_buf(),
+        target: target.to_path_buf(),
+    };
+    let name = match backup.file_name() {
+        Some(name) if name != OsStr::new(".") && name != OsStr::new("..") => name,
+        _ => return Err(invalid()),
+    };
+    let target_name = match target.file_name() {
+        Some(name) if name != OsStr::new(".") && name != OsStr::new("..") => name,
+        _ => return Err(invalid()),
+    };
+    // Equal names under the canonical parent below are the same entry, so this also catches
+    // spellings such as `install/./App.AppImage` that `backup == target` would miss.
+    if name == target_name || backup == target || !has_normal_components(backup) {
+        return Err(invalid());
+    }
+    let backup_parent = canonical_parent(backup).ok_or_else(invalid)?;
+    let target_parent = canonical_parent(target).ok_or_else(invalid)?;
+    if backup_parent != target_parent {
+        return Err(invalid());
+    }
+    Ok(backup_parent.join(name))
+}
+
+/// Whether every component of `path` is a normal name, allowing one absolute prologue.
+///
+/// A `Prefix` and `RootDir` are accepted only where they make the path absolute: Windows may open
+/// with `Prefix` + `RootDir` and Unix with `RootDir`. A prefix without a root is drive-relative,
+/// so its meaning depends on the process CWD; it is rejected along with every `ParentDir` and
+/// every root that is not the leading one. A `.` only names the directory itself, so it is
+/// allowed; canonicalization resolves it away.
+fn has_normal_components(path: &Path) -> bool {
+    let mut components = path.components().peekable();
+    if matches!(components.peek(), Some(Component::Prefix(_))) {
+        components.next();
+        if !matches!(components.peek(), Some(Component::RootDir)) {
+            return false;
+        }
+    }
+    if matches!(components.peek(), Some(Component::RootDir)) {
+        components.next();
+    }
+    components.all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+}
+
+/// Canonicalizes the parent of `path`, resolving symlinks and `..` the kernel would resolve.
+fn canonical_parent(path: &Path) -> Option<PathBuf> {
+    let parent = path.parent()?;
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    std::fs::canonicalize(parent).ok()
+}
+
 fn remove_path(path: &Path) -> Result<(), UpdateError> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(path)?,
@@ -1344,6 +1407,8 @@ mod tests {
     fn finalizes_backup_journal_and_lock() {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut journal = journal(&temp);
+        let target = temp.path().join("target");
+        std::fs::write(&target, b"new").expect("target");
         let backup = temp.path().join("backup");
         std::fs::write(&backup, b"old").expect("backup");
         std::fs::write(journal.lock_file(), b"").expect("lock");
@@ -1353,6 +1418,18 @@ mod tests {
         assert!(!backup.exists());
         assert!(!journal_path.exists());
         assert!(!temp.path().join("apply.lock").exists());
+        assert!(target.exists());
+    }
+
+    #[test]
+    fn finalizes_when_the_recorded_backup_is_gone() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut journal = journal(&temp);
+        let backup = temp.path().join("already-gone");
+        journal.set_backup(&backup).expect("set backup");
+        let journal_path = journal.path().to_path_buf();
+        journal.finalize().expect("finalize");
+        assert!(!journal_path.exists());
     }
 
     #[test]
@@ -1389,6 +1466,82 @@ mod tests {
             Err(UpdateError::JournalBackupPath { .. })
         ));
         assert!(backup.exists());
+    }
+
+    #[test]
+    fn refuses_to_finalize_through_a_parent_dir_backup() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let install = temp.path().join("install");
+        std::fs::create_dir(&install).expect("install dir");
+        let target = install.join("App.AppImage");
+        std::fs::write(&target, b"new").expect("target");
+        let mut journal = ApplyJournal::create(
+            temp.path().join("state").join("apply.json"),
+            "1.2.3",
+            temp.path().join("artifact"),
+            Some(target.clone()),
+            relaunch(),
+        )
+        .expect("journal");
+        // Lexically a sibling of the target, but the kernel resolves it to the install directory.
+        let backup = install.join("..");
+        journal.set_backup(&backup).expect("set backup");
+        let journal_path = journal.path().to_path_buf();
+        assert!(matches!(
+            journal.finalize(),
+            Err(UpdateError::JournalBackupPath { .. })
+        ));
+        assert!(install.is_dir(), "the install directory must survive");
+        assert!(target.exists(), "the target must survive");
+        assert!(journal_path.exists(), "the journal must survive");
+        assert!(temp.path().is_dir());
+    }
+
+    #[test]
+    fn refuses_to_finalize_a_backup_that_is_the_target() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let target = temp.path().join("target");
+        std::fs::write(&target, b"new").expect("target");
+        let mut journal = journal(&temp);
+        journal.set_backup(&target).expect("set backup");
+        let journal_path = journal.path().to_path_buf();
+        assert!(matches!(
+            journal.finalize(),
+            Err(UpdateError::JournalBackupPath { .. })
+        ));
+        assert!(target.exists());
+        assert!(journal_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finalizes_a_backup_beside_the_canonical_target() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let real = temp.path().join("real");
+        std::fs::create_dir(&real).expect("real dir");
+        let canonical_target = real.join("App.AppImage");
+        std::fs::write(&canonical_target, b"new").expect("target");
+        let link = temp.path().join("link");
+        symlink(&real, &link).expect("symlink");
+        // The receipt stores the backup next to the canonical target while the journal keeps the
+        // path the app was launched through.
+        let backup = real.join("App.AppImage.bak");
+        std::fs::write(&backup, b"old").expect("backup");
+
+        let mut journal = ApplyJournal::create(
+            temp.path().join("state").join("apply.json"),
+            "1.2.3",
+            temp.path().join("artifact"),
+            Some(link.join("App.AppImage")),
+            relaunch(),
+        )
+        .expect("journal");
+        journal.set_backup(&backup).expect("set backup");
+        journal.finalize().expect("finalize");
+        assert!(!backup.exists());
+        assert!(canonical_target.exists());
     }
 
     #[cfg(unix)]

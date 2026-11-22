@@ -7,7 +7,7 @@ use std::fs;
 #[cfg(target_os = "linux")]
 use std::io;
 #[cfg(target_os = "linux")]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Writes one desktop entry without following a symlink at `path`.
 ///
@@ -66,6 +66,158 @@ pub(crate) fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
         io::ErrorKind::AlreadyExists,
         "cannot create a unique desktop-entry temporary file",
     ))
+}
+
+/// Creates `base/child` and returns it, refusing unsafe directories along the way.
+///
+/// `create_dir_all` would inherit the process umask, so under `umask 002` the directory would be
+/// group-writable and another local user could drop a `.desktop` file that runs as this user
+/// (#92). Every directory created here is explicitly set to `0o755`, and every pre-existing
+/// component from `base` down to `child` is checked for symlinks, non-directories, a foreign
+/// owner and group/other write bits.
+///
+/// `base` itself may be several components deep and mostly missing on a fresh account (for
+/// example `~/.local/share` when `~/.local` does not exist yet). Missing intermediates are created
+/// below the deepest existing ancestor; that anchor is not inspected because it belongs to the
+/// platform (`/home`, `/tmp`, ...) and the caller chose the base.
+#[cfg(target_os = "linux")]
+pub(crate) fn ensure_user_directory(base: &Path, child: &str) -> io::Result<PathBuf> {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::path::Component;
+
+    fn validate(directory: &Path) -> io::Result<()> {
+        use std::os::unix::fs::MetadataExt as _;
+
+        let metadata = fs::symlink_metadata(directory)?;
+        if metadata.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "`{}` is a symlink; refusing to use an unsafe directory",
+                    directory.display()
+                ),
+            ));
+        }
+        if !metadata.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("`{}` is not a directory", directory.display()),
+            ));
+        }
+        // SAFETY: `geteuid` has no preconditions and cannot fail.
+        let effective_uid = unsafe { libc::geteuid() };
+        if metadata.uid() != effective_uid {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "`{}` is owned by uid {}, not the effective uid {}",
+                    directory.display(),
+                    metadata.uid(),
+                    effective_uid
+                ),
+            ));
+        }
+        let mode = metadata.mode() & 0o777;
+        if mode & 0o022 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "`{}` has mode {mode:04o}; it must not be writable by group or other",
+                    directory.display()
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Creates or validates every component of `relative` below `anchor`.
+    fn descend(anchor: &Path, relative: &Path) -> io::Result<()> {
+        let mut current = anchor.to_path_buf();
+        for component in relative.components() {
+            let Component::Normal(name) = component else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("`{}` is not a plain directory path", relative.display()),
+                ));
+            };
+            current.push(name);
+            match fs::symlink_metadata(&current) {
+                Ok(_) => validate(&current)?,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    fs::create_dir(&current)?;
+                    // `mkdir` itself is masked by the umask, so the mode is corrected afterwards.
+                    // Only the directory just created is touched; a pre-existing one is never
+                    // chmodded.
+                    fs::set_permissions(&current, fs::Permissions::from_mode(0o755))?;
+                    validate(&current)?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
+    // The deepest existing ancestor is the anchor. Nothing above it is ours to validate.
+    let mut anchor = base.to_path_buf();
+    loop {
+        match fs::symlink_metadata(&anchor) {
+            Ok(metadata) if metadata.is_dir() => break,
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!("`{}` is not a directory", anchor.display()),
+                ));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => match anchor.parent() {
+                Some(parent) if !parent.as_os_str().is_empty() => {
+                    anchor = parent.to_path_buf();
+                }
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "`{}` has no existing ancestor to create it under",
+                            base.display()
+                        ),
+                    ));
+                }
+            },
+            Err(error) => return Err(error),
+        }
+    }
+    let relative = base.strip_prefix(&anchor).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "`{}` is not below its existing ancestor `{}`",
+                base.display(),
+                anchor.display()
+            ),
+        )
+    })?;
+    descend(&anchor, relative)?;
+
+    let child_path = Path::new(child);
+    if !matches!(
+        child_path.components().collect::<Vec<_>>().as_slice(),
+        [Component::Normal(_)]
+    ) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("`{child}` is not a single directory name"),
+        ));
+    }
+    let target = base.join(child_path);
+    match fs::symlink_metadata(&target) {
+        Ok(_) => validate(&target)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir(&target)?;
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o755))?;
+            validate(&target)?;
+        }
+        Err(error) => return Err(error),
+    }
+    Ok(target)
 }
 
 /// Quotes one `Exec` argument and escapes the characters the Desktop Entry spec reserves.

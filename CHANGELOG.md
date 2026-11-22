@@ -10,6 +10,28 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Fixed
+
+- `auro-services`: the autostart and deep-link directories Auro creates end at mode `0755`
+  regardless of umask, and a symlinked, non-owned or group/other-writable directory in the managed
+  chain is refused with a named error instead of accepting a `.desktop` another local user can
+  inject (#92).
+- `auro-update`: macOS `.app.zip` extraction bounds the bytes actually written, per entry and in
+  total, and rejects an entry whose real size differs from its declared size, so a hostile signed
+  release cannot expand past the 4 GiB budget (#93).
+- `auro-core`: the Windows instance pipe name includes a per-user installation token stored in the
+  private runtime directory, and an existing pipe or access denial is reported as a named error
+  instead of exiting silently (#94).
+- `auro-services`: a bracketed deep-link host must be a real IPv6 literal, and path segments reject
+  drive prefixes and Windows path components, closing the remaining `[..]`/`[C:]`/`C:`
+  traversal routes (#95).
+- `auro-core`: the Windows instance lock lives in a per-user directory whose owner and DACL are
+  validated before use; an untrusted directory fails closed before any launch arguments or cwd are
+  forwarded (#96).
+- `auro-update`: `ApplyJournal::finalize` rejects a backup containing `..`, a root or a drive
+  prefix, canonicalizes both parents and removes the backup through the canonical path, so a
+  sibling check can no longer delete an ancestor (#97).
+
 ## [0.1.0-alpha.8] - 2026-11-21
 
 ### Fixed
