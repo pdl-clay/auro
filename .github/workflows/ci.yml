@@ -146,7 +146,7 @@ jobs:
           jq -r 'select(.json != null) | (.json | fromjson) | select(has("Hotpatch")) | .Hotpatch.jump_table' \
             "$RUNNER_TEMP/auro-dx-patch.json" > "$RUNNER_TEMP/auro-jump-table.json"
           cp "$RUNNER_TEMP/auro-fixture-main.rs" src/main.rs
-          printf '#!/bin/sh\nexec setarch %s -R "%s" "$@"\n' "$(uname -m)" "$APP" \
+          printf "#!/bin/sh\nexec setarch %s -R \"%s\" \"\$@\"\n" "$(uname -m)" "$APP" \
             > "$RUNNER_TEMP/auro-fixture.sh"
           chmod +x "$RUNNER_TEMP/auro-fixture.sh"
           cd "$GITHUB_WORKSPACE"
