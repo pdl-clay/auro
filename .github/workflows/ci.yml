@@ -128,10 +128,9 @@ jobs:
           EXE=$(jq -r '.exe' "$RUNNER_TEMP/auro-dx-client.json")
           APP="$(jq -r '.path' "$RUNNER_TEMP/auro-dx-client.json")/auro-hot-patch-boundary"
           # Pin ASLR: the jump table records absolute addresses of this exact build.
-          setarch "$(uname -m)" -R bash -c 'sleep 30 | "$1" >/dev/null 2>&1 & echo $! > "$2"' \
-            _ "$APP" "$RUNNER_TEMP/auro-fixture.pid"
+          setarch "$(uname -m)" -R "$APP" >/dev/null 2>&1 < <(sleep 30) &
+          PID=$!
           sleep 1
-          PID=$(cat "$RUNNER_TEMP/auro-fixture.pid")
           BASE=$(awk 'NR == 1 { split($1, parts, "-"); print parts[1] }' "/proc/$PID/maps")
           kill "$PID"
           test -n "$BASE"
