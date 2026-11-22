@@ -57,13 +57,18 @@ installer again here; only the verified `StagedUpdate` is accepted.
 
 ### D2 - macOS swaps the `.app` directory from a zip
 
-`MacAppInstaller` accepts a staged `.zip` with exactly one top-level `.app`. It checks the declared
-expanded size and entry count before extraction (4 GiB and 100,000 entries), then extracts with
-`zip`'s enclosed-path extractor and walks the extracted tree, rejecting any symlink whose canonical
-target escapes the extraction directory. Nested symlinks are allowed when they stay inside the
-bundle. It renames the old bundle to a hidden backup beside it, renames the new bundle into place,
-and returns `MacAppReceipt`. The budget bounds a signed artifact that compresses well but expands
-past the available disk; exceeding it is `UnsafeArchive`.
+`MacAppInstaller` accepts a staged `.zip` with exactly one top-level `.app`. It bounds the entry
+count before extraction (100,000), then extracts with its own loop: destination names must be
+enclosed paths, directories and permission modes are preserved, symlinks are recreated only when
+their target stays inside the extraction root, and every file is written through a `Read::take`
+limit and charged for the bytes actually produced. An entry whose real output differs from its
+declared `uncompressed_size`, or a total above 4 GiB, is `UnsafeArchive`, so a ZIP that declares one
+byte and expands a thousandfold is rejected instead of filling the disk (#93). A write whose parent
+chain inside the extraction root contains a symlink is refused before the bytes are written, because
+the post-extraction canonical walk would otherwise run after the escape. The extracted tree is
+walked again for containment, then the old bundle is renamed to a hidden backup beside it, the new
+bundle is renamed into place, and `MacAppReceipt` is returned. The budget bounds a signed artifact
+that compresses well but expands past the available disk; exceeding it is `UnsafeArchive`.
 
 The extraction directory is created beside the target, so the final rename stays on one filesystem.
 If the new rename fails, the backup is renamed back. The receipt follows the conservative
@@ -189,8 +194,13 @@ The snippet is an intended call shape, not an app that exists yet.
     Windows installer is `InstallerFailed { code: None }` (`reports_a_terminated_installer`), and a
     macOS rollback with a missing backup reports `RollbackBackupMissing`
     (`rollback_reports_a_missing_backup`).
-13. An archive whose declared expansion exceeds 4 GiB or 100,000 entries is rejected as
-    `UnsafeArchive` (`rejects_archives_over_the_expansion_budget`).
+13. An archive over 100,000 entries, or whose real extracted bytes exceed 4 GiB or differ from the
+    declared size of an entry, is rejected as `UnsafeArchive`
+    (`rejects_archives_over_the_expansion_budget`,
+    `rejects_a_declared_size_lie_instead_of_expanding_it`). A symlink entry and a later entry
+    written through that symlink are rejected before the bytes leave the extraction root
+    (`rejects_a_symlink_entry_escaping_the_extraction_root`,
+    `rejects_a_file_written_through_a_symlinked_parent`).
 14. `cargo fmt --all --check`,
     `cargo clippy --workspace --all-targets --locked -- -D warnings`,
     `cargo test --workspace --locked`, `cargo test -p auro-update --locked`,

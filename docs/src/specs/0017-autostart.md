@@ -46,6 +46,13 @@ symlink at `<app>.desktop` is replaced rather than followed. Without that, a pat
 into different arguments, a path with `%f` or a newline changed the launched command or injected
 keys, and `XDG_CONFIG_HOME` was ignored.
 
+The directories Auro needs are created component by component and explicitly end at mode `0755`,
+independent of the process umask; a pre-existing directory is never chmodded. Every pre-existing
+component from the XDG base down to `autostart` must be a real directory (no symlink), owned by the
+current user and not writable by group or other. Otherwise `enable` fails with an error naming the
+path and mode. Without that check, `umask 002` left the directory `0775` and another user in the
+group could add an autostart entry that runs at the next login (#92).
+
 macOS and Windows keep delegating to `auto-launch`. *Rejected:* AppleScript login items. They need a
 macOS GUI session and are less deterministic than a Launch Agent. *Rejected:* keeping
 `auto-launch` on Linux after its raw `Exec` interpolation and `dirs::home_dir()` path proved
@@ -115,8 +122,11 @@ if !autostart.is_enabled()? {
    (`autostart_dir_honors_xdg_config_home`, `linux_entry_quotes_paths_and_arguments_with_spaces`).
 4. A relative, missing or non-file `app_path` is rejected
    (`rejects_a_relative_or_missing_app_path`).
-5. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
-6. `cargo fmt --all --check`,
+5. Under `umask 002` the created directory is `0755`; a group-writable or symlinked directory is
+   refused (`autostart_directory_is_created_private_under_umask`,
+   `autostart_refuses_a_group_writable_directory`, `autostart_refuses_a_symlinked_directory`).
+6. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
+7. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 

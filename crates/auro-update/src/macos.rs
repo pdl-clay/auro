@@ -7,6 +7,7 @@
 //! rolls back. `.dmg` mounting and restart orchestration are separate concerns.
 
 use std::fs;
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,6 +23,12 @@ const MAX_EXPANDED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 /// Maximum number of entries one `.app.zip` may contain.
 const MAX_ARCHIVE_ENTRIES: usize = 100_000;
+
+/// Maximum link target one symlink entry may declare.
+///
+/// No filesystem accepts a target longer than `PATH_MAX`, and the target has to fit in memory
+/// because it is the entry's payload; bounding it keeps a lying header from forcing a huge read.
+const MAX_SYMLINK_TARGET_BYTES: u64 = 4096;
 
 /// Replaces a macOS `.app` directory with a staged `.zip` archive.
 #[derive(Clone, Debug)]
@@ -160,18 +167,192 @@ fn extract_archive(archive_path: &Path, destination: &Path) -> Result<(), Update
     let file = fs::File::open(archive_path)?;
     let mut archive = ZipArchive::new(file)?;
     let entries = archive.len();
-    let mut expanded = 0u64;
+    check_archive_budget(entries, 0, archive_path)?;
+
+    // The central-directory sizes are attacker-controlled, so they only narrow each read. The
+    // budget is charged for bytes actually produced by the decompressor and every entry must
+    // produce exactly the size it declared.
+    let mut written_total = 0u64;
     for index in 0..entries {
-        let entry = archive.by_index(index)?;
-        expanded =
-            expanded
-                .checked_add(entry.size())
-                .ok_or_else(|| UpdateError::UnsafeArchive {
-                    path: archive_path.to_path_buf(),
-                })?;
-        check_archive_budget(entries, expanded, archive_path)?;
+        let mut entry = archive.by_index(index)?;
+        let relative = entry
+            .enclosed_name()
+            .ok_or_else(|| UpdateError::UnsafeArchive {
+                path: archive_path.to_path_buf(),
+            })?;
+        let out_path = destination.join(&relative);
+        let declared = entry.size();
+        let is_dir = entry.is_dir();
+        let is_symlink = entry.is_symlink();
+        let mode = entry.unix_mode();
+
+        if is_dir {
+            fs::create_dir_all(&out_path)?;
+            continue;
+        }
+        // A previous entry can be a symlink to a directory outside the extraction root; creating
+        // or writing a file below it would follow that link out of the sandbox. The lexical
+        // containment check in `validate_extracted_tree` runs after the bytes are on disk, so the
+        // parent chain is checked before every write.
+        reject_symlinked_parents(destination, &relative, archive_path)?;
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let remaining = MAX_EXPANDED_BYTES - written_total;
+        let limit = declared.min(remaining);
+        if is_symlink {
+            let limit = limit.min(MAX_SYMLINK_TARGET_BYTES);
+            let mut target = Vec::new();
+            let read = (&mut entry).take(limit + 1).read_to_end(&mut target)?;
+            charge_expansion(read as u64, declared, &mut written_total, archive_path)?;
+            write_symlink(&out_path, &relative, &target, archive_path)?;
+            continue;
+        }
+
+        let mut output = fs::File::create(&out_path)?;
+        let written = io::copy(&mut (&mut entry).take(limit + 1), &mut output)?;
+        drop(output);
+        charge_expansion(written, declared, &mut written_total, archive_path)?;
+        set_file_mode(&out_path, mode)?;
     }
-    archive.extract(destination)?;
+    Ok(())
+}
+
+/// Rejects a destination whose existing parent chain inside the extraction root is not made of
+/// real directories.
+///
+/// Zip entries are written in archive order, so an earlier symlink entry can turn a later entry's
+/// parent into a link that escapes the root. Missing components are fine: `create_dir_all` creates
+/// them as real directories afterwards.
+fn reject_symlinked_parents(
+    root: &Path,
+    relative: &Path,
+    archive: &Path,
+) -> Result<(), UpdateError> {
+    let components: Vec<_> = relative.components().collect();
+    let mut current = root.to_path_buf();
+    for component in components.iter().take(components.len().saturating_sub(1)) {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(UpdateError::UnsafeArchive {
+                    path: archive.to_path_buf(),
+                });
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(UpdateError::UnsafeArchive {
+                    path: archive.to_path_buf(),
+                });
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+/// Charges bytes actually written against the expansion budget.
+///
+/// An entry whose decompressed output differs from its declared size is lying about the archive,
+/// which is exactly the case the budget must reject even when the total stays under the limit.
+fn charge_expansion(
+    written: u64,
+    declared: u64,
+    written_total: &mut u64,
+    archive: &Path,
+) -> Result<(), UpdateError> {
+    let unsafe_archive = || UpdateError::UnsafeArchive {
+        path: archive.to_path_buf(),
+    };
+    if written != declared {
+        return Err(unsafe_archive());
+    }
+    *written_total = written_total
+        .checked_add(written)
+        .ok_or_else(unsafe_archive)?;
+    if *written_total > MAX_EXPANDED_BYTES {
+        return Err(unsafe_archive());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_symlink(
+    out_path: &Path,
+    relative: &Path,
+    target: &[u8],
+    archive_path: &Path,
+) -> Result<(), UpdateError> {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::symlink;
+
+    let target = Path::new(OsStr::from_bytes(target));
+    if !symlink_stays_within(relative, target) {
+        return Err(UpdateError::UnsafeArchive {
+            path: archive_path.to_path_buf(),
+        });
+    }
+    symlink(target, out_path)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_symlink(
+    _out_path: &Path,
+    _relative: &Path,
+    _target: &[u8],
+    archive_path: &Path,
+) -> Result<(), UpdateError> {
+    // A `.app` bundle is only installed on macOS, where symlinks can be preserved; refusing here
+    // keeps a symlink entry from being written as a regular file on other targets.
+    Err(UpdateError::UnsafeArchive {
+        path: archive_path.to_path_buf(),
+    })
+}
+
+/// Lexically resolves a link target against the link's parent and requires it to stay inside the
+/// extraction root.
+///
+/// The archive is untrusted, so absolute targets and `..` walks above the root are rejected before
+/// the symlink is created.
+#[cfg(unix)]
+fn symlink_stays_within(link: &Path, target: &Path) -> bool {
+    use std::path::Component;
+
+    if target.is_absolute() {
+        return false;
+    }
+    let parent = link.parent().unwrap_or(Path::new(""));
+    let mut depth = 0usize;
+    for component in parent.components().chain(target.components()) {
+        match component {
+            Component::Normal(_) => depth += 1,
+            Component::CurDir => {}
+            Component::ParentDir => match depth.checked_sub(1) {
+                Some(next) => depth = next,
+                None => return false,
+            },
+            Component::RootDir | Component::Prefix(_) => return false,
+        }
+    }
+    true
+}
+
+#[cfg(unix)]
+fn set_file_mode(path: &Path, mode: Option<u32>) -> Result<(), UpdateError> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    if let Some(mode) = mode {
+        fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o7777))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_file_mode(_path: &Path, _mode: Option<u32>) -> Result<(), UpdateError> {
     Ok(())
 }
 
@@ -590,5 +771,180 @@ mod tests {
             MacAppInstaller::new(target(&temp)).install(&staged),
             Err(UpdateError::UnsupportedInstaller { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_a_declared_size_lie_instead_of_expanding_it() {
+        // A hostile but signature-valid release: the ZIP declares one byte and deflate expands
+        // far past it. The budget must be charged for bytes written, not for the header.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive_path = temp.path().join("Demo.app.zip");
+        let payload_len = 64 * 1024 * 1024u64;
+        {
+            let file = fs::File::create(&archive_path).expect("zip");
+            let mut writer = zip::ZipWriter::new(file);
+            writer
+                .start_file(
+                    "Demo.app/Contents/bomb.bin",
+                    SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Deflated),
+                )
+                .expect("entry");
+            let chunk = vec![0u8; 1024 * 1024];
+            for _ in 0..(payload_len / chunk.len() as u64) {
+                writer.write_all(&chunk).expect("payload");
+            }
+            writer.finish().expect("finish zip");
+        }
+        let mut bytes = fs::read(&archive_path).expect("read zip");
+        // Local header: signature 0..4, uncompressed size at 22. Central header: signature
+        // 0..4, uncompressed size at 24. Both copies must lie, or the reader trusts the other.
+        let local = bytes
+            .windows(4)
+            .position(|window| window == [0x50, 0x4b, 0x03, 0x04])
+            .expect("local header");
+        bytes[local + 22..local + 26].copy_from_slice(&1u32.to_le_bytes());
+        let central = bytes
+            .windows(4)
+            .rposition(|window| window == [0x50, 0x4b, 0x01, 0x02])
+            .expect("central header");
+        bytes[central + 24..central + 28].copy_from_slice(&1u32.to_le_bytes());
+        fs::write(&archive_path, &bytes).expect("patched zip");
+
+        let destination = temp.path().join("extracted");
+        fs::create_dir_all(&destination).expect("destination");
+        assert!(matches!(
+            extract_archive(&archive_path, &destination),
+            Err(UpdateError::UnsafeArchive { .. })
+        ));
+        let expanded = fs::metadata(destination.join("Demo.app/Contents/bomb.bin"))
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        assert!(
+            expanded < payload_len,
+            "declared-size lie expanded {expanded} bytes"
+        );
+    }
+
+    #[test]
+    fn rejects_a_file_written_through_a_symlinked_parent() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive_path = temp.path().join("Demo.app.zip");
+        let file = fs::File::create(&archive_path).expect("zip");
+        let mut writer = zip::ZipWriter::new(file);
+        // Lexically inside the root, so the link itself is allowed; the next entry tries to use
+        // it as a parent directory and must be refused before the write follows the link.
+        writer
+            .add_symlink(
+                "Demo.app/Contents/dir",
+                "../..",
+                SimpleFileOptions::default(),
+            )
+            .expect("symlink");
+        writer
+            .start_file("Demo.app/Contents/dir/evil", SimpleFileOptions::default())
+            .expect("entry");
+        writer.write_all(b"escaped").expect("entry bytes");
+        writer.finish().expect("finish zip");
+
+        let destination = temp.path().join("extracted");
+        fs::create_dir_all(&destination).expect("destination");
+        assert!(matches!(
+            extract_archive(&archive_path, &destination),
+            Err(UpdateError::UnsafeArchive { .. })
+        ));
+        assert!(
+            !destination.join("evil").exists(),
+            "a later entry must not write through an earlier symlink"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extracts_directories_modes_and_symlinks() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive_path = temp.path().join("Demo.app.zip");
+        let file = fs::File::create(&archive_path).expect("zip");
+        let mut writer = zip::ZipWriter::new(file);
+        writer
+            .add_directory("Demo.app/Contents/MacOS", SimpleFileOptions::default())
+            .expect("directory entry");
+        writer
+            .start_file(
+                "Demo.app/Contents/MacOS/Demo",
+                SimpleFileOptions::default()
+                    .unix_permissions(0o755)
+                    .compression_method(zip::CompressionMethod::Deflated),
+            )
+            .expect("executable");
+        writer.write_all(b"binary").expect("executable bytes");
+        writer
+            .start_file(
+                "Demo.app/Contents/Resources/notes.txt",
+                SimpleFileOptions::default(),
+            )
+            .expect("resource");
+        writer.write_all(b"notes").expect("resource bytes");
+        writer
+            .add_symlink(
+                "Demo.app/Contents/MacOS/Current",
+                "Demo",
+                SimpleFileOptions::default(),
+            )
+            .expect("symlink");
+        writer.finish().expect("finish zip");
+
+        let destination = temp.path().join("extracted");
+        fs::create_dir_all(&destination).expect("destination");
+        extract_archive(&archive_path, &destination).expect("extract");
+
+        let executable = destination.join("Demo.app/Contents/MacOS/Demo");
+        assert_eq!(fs::read(&executable).expect("executable"), b"binary");
+        let mode = fs::metadata(&executable)
+            .expect("mode")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o755, "executable bit must survive extraction");
+        assert_eq!(
+            fs::read(destination.join("Demo.app/Contents/Resources/notes.txt")).expect("notes"),
+            b"notes"
+        );
+        let link = destination.join("Demo.app/Contents/MacOS/Current");
+        assert_eq!(fs::read_link(&link).expect("link"), Path::new("Demo"));
+        assert_eq!(fs::read(&link).expect("through link"), b"binary");
+    }
+
+    #[test]
+    fn rejects_a_symlink_entry_escaping_the_extraction_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let archive_path = temp.path().join("Demo.app.zip");
+        let file = fs::File::create(&archive_path).expect("zip");
+        let mut writer = zip::ZipWriter::new(file);
+        writer
+            .start_file("Demo.app/Contents/Info.plist", SimpleFileOptions::default())
+            .expect("entry");
+        writer.write_all(b"plist").expect("entry bytes");
+        writer
+            .add_symlink(
+                "Demo.app/Contents/escape",
+                "../../../../outside",
+                SimpleFileOptions::default(),
+            )
+            .expect("symlink");
+        writer.finish().expect("finish zip");
+
+        let destination = temp.path().join("extracted");
+        fs::create_dir_all(&destination).expect("destination");
+        assert!(matches!(
+            extract_archive(&archive_path, &destination),
+            Err(UpdateError::UnsafeArchive { .. })
+        ));
+        assert!(
+            fs::symlink_metadata(destination.join("Demo.app/Contents/escape")).is_err(),
+            "escaping symlink must not be created"
+        );
     }
 }

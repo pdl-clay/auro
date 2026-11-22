@@ -134,10 +134,9 @@ impl Autostart {
     pub fn enable(&self) -> Result<(), AutostartError> {
         #[cfg(target_os = "linux")]
         {
-            let path = self.linux.path()?;
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
+            let base = linux_autostart_base()?;
+            let directory = desktop_entry::ensure_user_directory(&base, "autostart")?;
+            let path = self.linux.path_in(&directory);
             desktop_entry::write_atomic(&path, &self.linux.entry()?)?;
             Ok(())
         }
@@ -220,7 +219,11 @@ fn validate_app_path(app_path: &str) -> Result<(), AutostartError> {
 #[cfg(target_os = "linux")]
 impl LinuxAutostart {
     fn path(&self) -> Result<PathBuf, AutostartError> {
-        Ok(linux_autostart_dir()?.join(format!("{}.desktop", self.app_name)))
+        Ok(self.path_in(&linux_autostart_dir()?))
+    }
+
+    fn path_in(&self, directory: &Path) -> PathBuf {
+        directory.join(format!("{}.desktop", self.app_name))
     }
 
     fn entry(&self) -> Result<String, AutostartError> {
@@ -266,10 +269,30 @@ fn linux_autostart_dir_from(
     xdg_config_home: Option<std::ffi::OsString>,
     home: Option<std::ffi::OsString>,
 ) -> Result<PathBuf, AutostartError> {
+    Ok(linux_autostart_base_from(xdg_config_home, home)?.join("autostart"))
+}
+
+/// The XDG config base the `autostart` directory lives under.
+///
+/// `enable` needs the base separately so it can create and validate `~/.config/autostart`
+/// without duplicating the XDG resolution rules.
+#[cfg(target_os = "linux")]
+fn linux_autostart_base() -> Result<PathBuf, AutostartError> {
+    linux_autostart_base_from(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn linux_autostart_base_from(
+    xdg_config_home: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Result<PathBuf, AutostartError> {
     if let Some(xdg) = xdg_config_home.filter(|value| !value.is_empty()) {
         let path = PathBuf::from(xdg);
         if path.is_absolute() {
-            return Ok(path.join("autostart"));
+            return Ok(path);
         }
     }
     let home = home
@@ -278,7 +301,7 @@ fn linux_autostart_dir_from(
             field: "HOME",
             message: "XDG_CONFIG_HOME is unset and HOME cannot be resolved".to_owned(),
         })?;
-    Ok(PathBuf::from(home).join(".config/autostart"))
+    Ok(PathBuf::from(home).join(".config"))
 }
 
 /// The stable executable an autostart entry should launch.
@@ -299,6 +322,77 @@ fn autostart_program(
 
 /// Convenience alias for the platform path type used by [`Autostart::new`].
 pub type AppPath = Path;
+
+/// Helpers for tests that change process-wide state.
+///
+/// The umask and environment are process-global, so every test that touches them holds the same
+/// lock; otherwise two tests could observe each other's mask or XDG paths.
+#[cfg(test)]
+mod test_support {
+    use std::sync::{Mutex, MutexGuard};
+
+    static PROCESS_STATE: Mutex<()> = Mutex::new(());
+
+    pub(crate) fn lock() -> MutexGuard<'static, ()> {
+        PROCESS_STATE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) struct UmaskGuard(libc::mode_t);
+
+    #[cfg(target_os = "linux")]
+    impl UmaskGuard {
+        pub(crate) fn set(mask: libc::mode_t) -> Self {
+            // SAFETY: `umask` has no preconditions; the previous mask is restored on drop while
+            // the caller still holds the process-state lock.
+            Self(unsafe { libc::umask(mask) })
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for UmaskGuard {
+        fn drop(&mut self) {
+            // SAFETY: restoring the mask captured by `set`.
+            unsafe {
+                libc::umask(self.0);
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) struct EnvGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    #[cfg(target_os = "linux")]
+    impl EnvGuard {
+        pub(crate) fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var_os(key);
+            // SAFETY: the caller holds the process-state lock, so no other test reads or writes
+            // the environment concurrently.
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: same lock invariant as `set`.
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(self.key, value),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -333,6 +427,7 @@ mod tests {
 
     #[test]
     fn reports_disabled_by_default() {
+        let _lock = crate::test_support::lock();
         let path = app_path().expect("path");
         let autostart =
             Autostart::new(unique_name(), path.to_string_lossy(), &["--quiet"]).expect("autostart");
@@ -406,6 +501,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_entry_quotes_paths_and_arguments_with_spaces() {
+        let _lock = crate::test_support::lock();
         let name = unique_name();
         let directory = tempdir().expect("tempdir");
         let app = directory.path().join("my app");
@@ -441,6 +537,7 @@ mod tests {
     fn enabling_replaces_a_symlink_without_writing_through_it() {
         use std::os::unix::fs::symlink;
 
+        let _lock = crate::test_support::lock();
         let name = unique_name();
         let path = app_path().expect("path");
         let autostart =
@@ -490,8 +587,109 @@ mod tests {
         assert!(linux_autostart_dir_from(None, None).is_err());
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn autostart_directory_is_created_private_under_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        use crate::test_support::{EnvGuard, UmaskGuard};
+
+        let _lock = crate::test_support::lock();
+        let xdg = tempdir().expect("tempdir");
+        let config = xdg.path().join("config");
+        let _umask = UmaskGuard::set(0o002);
+        let _xdg = EnvGuard::set("XDG_CONFIG_HOME", &config);
+
+        let path = app_path().expect("path");
+        let autostart = Autostart::new(unique_name(), path.to_string_lossy(), &[] as &[&str])
+            .expect("autostart");
+        autostart.enable().expect("enable");
+
+        let directory = config.join("autostart");
+        let mode = std::fs::metadata(&directory)
+            .expect("autostart directory")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o755,
+            "the autostart directory must not inherit the umask"
+        );
+        let base_mode = std::fs::metadata(&config)
+            .expect("missing XDG base")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            base_mode, 0o755,
+            "a missing XDG base must be created with an explicit mode"
+        );
+        autostart.disable().expect("disable");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn autostart_refuses_a_group_writable_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        use crate::test_support::EnvGuard;
+
+        let _lock = crate::test_support::lock();
+        let xdg = tempdir().expect("tempdir");
+        let _xdg = EnvGuard::set("XDG_CONFIG_HOME", xdg.path());
+        let directory = xdg.path().join("autostart");
+        std::fs::create_dir(&directory).expect("autostart");
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o775)).expect("mode");
+
+        let path = app_path().expect("path");
+        let autostart = Autostart::new(unique_name(), path.to_string_lossy(), &[] as &[&str])
+            .expect("autostart");
+        let error = autostart
+            .enable()
+            .expect_err("a group-writable directory must be refused");
+        assert!(
+            error.to_string().contains(&directory.display().to_string()),
+            "{error}"
+        );
+        assert!(matches!(error, AutostartError::Io(_)), "{error}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn autostart_refuses_a_symlinked_directory() {
+        use std::os::unix::fs::symlink;
+
+        use crate::test_support::EnvGuard;
+
+        let _lock = crate::test_support::lock();
+        let xdg = tempdir().expect("tempdir");
+        let _xdg = EnvGuard::set("XDG_CONFIG_HOME", xdg.path());
+        let victim = tempdir().expect("tempdir");
+        let directory = xdg.path().join("autostart");
+        symlink(victim.path(), &directory).expect("symlink");
+
+        let path = app_path().expect("path");
+        let autostart = Autostart::new(unique_name(), path.to_string_lossy(), &[] as &[&str])
+            .expect("autostart");
+        let error = autostart
+            .enable()
+            .expect_err("a symlinked directory must be refused");
+        assert!(
+            error.to_string().contains(&directory.display().to_string()),
+            "{error}"
+        );
+        assert!(
+            std::fs::read_dir(victim.path())
+                .expect("victim directory")
+                .next()
+                .is_none(),
+            "must not write through the symlink"
+        );
+    }
+
     #[test]
     fn enables_and_disables_the_service() {
+        let _lock = crate::test_support::lock();
         let path = app_path().expect("path");
         let autostart =
             Autostart::new(unique_name(), path.to_string_lossy(), &["--quiet"]).expect("autostart");

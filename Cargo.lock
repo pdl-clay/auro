@@ -639,6 +639,7 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "widestring",
+ "windows 0.61.3",
 ]
 
 [[package]]
@@ -676,6 +677,7 @@ dependencies = [
  "auto-launch",
  "global-hotkey",
  "keyring",
+ "libc",
  "notify-rust",
  "tempfile",
  "thiserror 2.0.21",

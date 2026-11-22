@@ -97,8 +97,8 @@ impl AppInstance {
     ///
     /// `name` is normally the app identifier from `Auro.toml`. It is sanitised into a lock-file
     /// and local-socket name; the lock lives under `XDG_RUNTIME_DIR` on Linux when available,
-    /// otherwise the per-user temporary directory. A secondary instance gets
-    /// `is_primary() == false` rather than an error.
+    /// otherwise in a private per-user directory (`%LOCALAPPDATA%\auro\instance` on Windows).
+    /// A secondary instance gets `is_primary() == false` rather than an error.
     pub fn acquire(name: &str) -> Result<Self, AuroError> {
         let name = name.trim();
         if name.is_empty() {
@@ -113,7 +113,19 @@ impl AppInstance {
             use std::os::unix::fs::OpenOptionsExt as _;
             options.mode(0o600);
         }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt as _;
+            // A pre-created symlink or reparse point must not redirect the lock elsewhere.
+            options.custom_flags(windows_private::OPEN_REPARSE_POINT);
+        }
         let file = options.open(&path)?;
+        // Windows has no mode bits to inherit: the lock is only usable when its DACL keeps
+        // other users out. The directory was validated by `lock_path`, and this check also
+        // covers a lock file left behind by an older build.
+        #[cfg(windows)]
+        windows_private::validate_file(&file, &path)
+            .map_err(|message| AuroError::instance(name, message))?;
 
         let primary = match file.try_lock() {
             Ok(()) => true,
@@ -232,6 +244,11 @@ impl AppInstance {
             ));
         }
 
+        #[cfg(windows)]
+        let pipe = pipe_label(&self.name)?;
+        #[cfg(windows)]
+        let name = namespaced_name(&pipe, &self.name)?;
+        #[cfg(not(windows))]
         let name = socket_name(&self.name)?;
         #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
         let mut options = ListenerOptions::new().name(name).try_overwrite(true);
@@ -266,6 +283,26 @@ impl AppInstance {
             options = options.security_descriptor(descriptor);
         }
         let listener = options.create_sync().map_err(|error| {
+            if is_permission_denied(&error) {
+                #[cfg(windows)]
+                {
+                    return AuroError::instance(
+                        &self.name,
+                        format!(
+                            "cannot listen for a second instance: another process or user already owns the instance pipe `{pipe}`: {error}"
+                        ),
+                    );
+                }
+                #[cfg(not(windows))]
+                {
+                    return AuroError::instance(
+                        &self.name,
+                        format!(
+                            "cannot listen for a second instance: another process already owns the instance socket: {error}"
+                        ),
+                    );
+                }
+            }
             AuroError::instance(
                 &self.name,
                 format!("cannot listen for a second instance: {error}"),
@@ -640,9 +677,14 @@ fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
 
 #[cfg(windows)]
 fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
-    let socket = socket_label(name);
+    let socket = pipe_label(name)?;
+    namespaced_name(&socket, name)
+}
+
+/// Wraps a named-pipe name for the local-socket API.
+#[cfg(windows)]
+fn namespaced_name(socket: &str, name: &str) -> Result<Name<'static>, AuroError> {
     socket
-        .as_str()
         .to_ns_name::<GenericNamespaced>()
         .map(Name::into_owned)
         .map_err(|error| {
@@ -651,6 +693,30 @@ fn socket_name(name: &str) -> Result<Name<'static>, AuroError> {
                 format!("cannot create the instance socket name: {error}"),
             )
         })
+}
+
+/// The Windows named-pipe name for an app.
+///
+/// A pipe name is machine-global, so the app identifier alone is predictable from the public
+/// `Auro.toml` and another local user could pre-create it. The per-user token kept in the
+/// private instance directory makes the name unguessable without reading that file (#94).
+#[cfg(windows)]
+fn pipe_label(name: &str) -> Result<String, AuroError> {
+    let token = windows_private::instance_token(name)?;
+    Ok(format!("{}-{token}", socket_label(name)))
+}
+
+/// Whether a socket creation error means another principal already owns the name.
+fn is_permission_denied(error: &std::io::Error) -> bool {
+    #[cfg(not(windows))]
+    {
+        error.kind() == std::io::ErrorKind::PermissionDenied
+    }
+    #[cfg(windows)]
+    {
+        error.kind() == std::io::ErrorKind::PermissionDenied
+            || error.raw_os_error() == Some(windows_private::ERROR_ACCESS_DENIED_CODE)
+    }
 }
 
 #[cfg(unix)]
@@ -717,7 +783,14 @@ fn lock_path(name: &str) -> Result<PathBuf, AuroError> {
 /// temporary directory. On a shared `/tmp`, the predictable name alone is not enough: another
 /// local user can create a directory or socket before the app starts, so ownership and mode are
 /// checked and a private subdirectory is created with mode `0700`.
+///
+/// On Windows `XDG_RUNTIME_DIR` is ignored because it is not a Windows convention. The
+/// directory is `%LOCALAPPDATA%\auro\instance` (or `%TEMP%\auro-<sid>` when `LOCALAPPDATA` is
+/// unset) and trust comes from its owner, DACL and the absence of reparse points (#96).
 fn lock_dir(name: &str) -> Result<PathBuf, AuroError> {
+    // `XDG_RUNTIME_DIR` is a Unix convention. On Windows it is not owned by the desktop
+    // session, so honoring it would accept an arbitrary directory with an unchecked DACL.
+    #[cfg(unix)]
     if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
         let runtime = PathBuf::from(runtime);
         if is_private_existing_dir(&runtime) {
@@ -728,7 +801,21 @@ fn lock_dir(name: &str) -> Result<PathBuf, AuroError> {
             "ignoring XDG_RUNTIME_DIR because it is not a private directory for this user"
         );
     }
-    private_temp_dir(name)
+    let dir = private_temp_dir(name)?;
+    // Windows trusts a directory through its owner and DACL rather than a mode bit. Checking
+    // the chosen directory here guarantees `acquire` fails before a secondary can forward
+    // launch arguments into a lock an attacker controls (#96).
+    #[cfg(windows)]
+    if !is_private_existing_dir(&dir) {
+        return Err(AuroError::instance(
+            name,
+            format!(
+                "`{}` is not a private directory owned by this user; refusing to place the instance lock there",
+                dir.display()
+            ),
+        ));
+    }
+    Ok(dir)
 }
 
 #[cfg(unix)]
@@ -770,7 +857,12 @@ fn ensure_private_dir(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn private_temp_dir(name: &str) -> Result<PathBuf, AuroError> {
+    windows_private::private_dir(name)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn private_temp_dir(_name: &str) -> Result<PathBuf, AuroError> {
     Ok(std::env::temp_dir())
 }
@@ -787,9 +879,540 @@ fn is_private_existing_dir(path: &Path) -> bool {
         && metadata.permissions().mode() & 0o077 == 0
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn is_private_existing_dir(path: &Path) -> bool {
+    windows_private::validate_private_dir(path).is_ok()
+}
+
+#[cfg(not(any(unix, windows)))]
 fn is_private_existing_dir(path: &Path) -> bool {
     path.is_dir()
+}
+
+/// Windows owner, DACL and reparse-point checks for the instance directory and its files.
+///
+/// Unix encodes trust in directory modes; Windows has none. The lock directory, the lock file
+/// and the per-user token are accepted only when their owner is this user (or a system
+/// principal) and no other principal may write, delete or re-ACL them (#96).
+#[cfg(windows)]
+mod windows_private {
+    use std::ffi::c_void;
+    use std::fs::{self, File, OpenOptions};
+    use std::io::{ErrorKind, Read, Write};
+    use std::mem::size_of;
+    use std::os::windows::fs::OpenOptionsExt as _;
+    use std::os::windows::io::AsRawHandle as _;
+    use std::path::{Path, PathBuf};
+    use std::ptr::null_mut;
+
+    use windows::Win32::Foundation::{
+        ERROR_ACCESS_DENIED, ERROR_SUCCESS, HANDLE, HLOCAL, LocalFree,
+    };
+    use windows::Win32::Security::Authorization::{
+        ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT,
+    };
+    use windows::Win32::Security::{
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_SIZE_INFORMATION, AclSizeInformation,
+        CreateWellKnownSid, DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetAclInformation,
+        GetLengthSid, GetTokenInformation, INHERIT_ONLY_ACE, OWNER_SECURITY_INFORMATION,
+        PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
+        WinBuiltinAdministratorsSid, WinCreatorOwnerRightsSid, WinCreatorOwnerSid,
+        WinLocalSystemSid,
+    };
+    use windows::Win32::Storage::FileSystem::{
+        DELETE, FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY, FILE_APPEND_DATA,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_DELETE_CHILD,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_WRITE_ATTRIBUTES,
+        FILE_WRITE_DATA, FILE_WRITE_EA, FileAttributeTagInfo, GetFileInformationByHandleEx,
+        WRITE_DAC, WRITE_OWNER,
+    };
+    use windows::Win32::System::SystemServices::{
+        ACCESS_ALLOWED_ACE_TYPE, ACCESS_ALLOWED_OBJECT_ACE_TYPE, ACCESS_DENIED_ACE_TYPE,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    use crate::AuroError;
+
+    /// Name of the file that holds the per-user instance token.
+    const TOKEN_FILE: &str = "instance.token";
+
+    /// `FILE_FLAG_OPEN_REPARSE_POINT`, so an opened path is never followed through a link.
+    pub(super) const OPEN_REPARSE_POINT: u32 = FILE_FLAG_OPEN_REPARSE_POINT.0;
+
+    /// Raw `ERROR_ACCESS_DENIED`, used alongside [`std::io::ErrorKind::PermissionDenied`].
+    pub(super) const ERROR_ACCESS_DENIED_CODE: i32 = ERROR_ACCESS_DENIED.0 as i32;
+
+    /// Rights that let another principal modify, replace or re-ACL an entry.
+    const WRITE_ACCESS: u32 = FILE_WRITE_DATA.0
+        | FILE_APPEND_DATA.0
+        | FILE_WRITE_EA.0
+        | FILE_WRITE_ATTRIBUTES.0
+        | FILE_ADD_FILE.0
+        | FILE_ADD_SUBDIRECTORY.0
+        | FILE_DELETE_CHILD.0
+        | DELETE.0
+        | WRITE_DAC.0
+        | WRITE_OWNER.0
+        | 0x4000_0000 // GENERIC_WRITE
+        | 0x1000_0000; // GENERIC_ALL
+
+    struct Principals {
+        user: Vec<u8>,
+        system: Vec<u8>,
+        administrators: Vec<u8>,
+        creator_owner: Vec<u8>,
+        creator_owner_rights: Vec<u8>,
+    }
+
+    /// The per-user directory that holds the lock, socket name token and lock files.
+    ///
+    /// `%LOCALAPPDATA%\auro\instance` is the normal location. When `LOCALAPPDATA` is absent (a
+    /// service or a stripped environment) the fallback is `%TEMP%\auro-<sid>`, which is still
+    /// owner-checked and never shared between users because the SID is part of the name.
+    pub(super) fn private_dir(name: &str) -> Result<PathBuf, AuroError> {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA").filter(|value| !value.is_empty()) {
+            let root = PathBuf::from(local).join("auro");
+            create_and_validate(&root, name)?;
+            let dir = root.join("instance");
+            create_and_validate(&dir, name)?;
+            return Ok(dir);
+        }
+
+        let sid = user_sid_string().map_err(|message| AuroError::instance(name, message))?;
+        let dir = std::env::temp_dir().join(format!("auro-{sid}"));
+        create_and_validate(&dir, name)?;
+        Ok(dir)
+    }
+
+    fn create_and_validate(dir: &Path, name: &str) -> Result<(), AuroError> {
+        match fs::create_dir(dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(AuroError::instance(
+                    name,
+                    format!(
+                        "cannot create the private instance directory `{}`: {error}",
+                        dir.display()
+                    ),
+                ));
+            }
+        }
+        validate_private_dir(dir).map_err(|message| AuroError::instance(name, message))
+    }
+
+    /// Checks that `path` is a directory this user controls.
+    pub(super) fn validate_private_dir(path: &Path) -> Result<(), String> {
+        let mut options = OpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | OPEN_REPARSE_POINT);
+        let directory = options.open(path).map_err(|error| {
+            format!(
+                "cannot open the instance directory `{}`: {error}",
+                path.display()
+            )
+        })?;
+        let metadata = directory.metadata().map_err(|error| {
+            format!(
+                "cannot inspect the instance directory `{}`: {error}",
+                path.display()
+            )
+        })?;
+        if !metadata.is_dir() {
+            return Err(format!(
+                "`{}` is not a directory; refusing to trust it",
+                path.display()
+            ));
+        }
+        validate_handle(HANDLE(directory.as_raw_handle()), path)
+    }
+
+    /// Checks an already opened lock or token file.
+    ///
+    /// The caller opens with [`OPEN_REPARSE_POINT`], so the handle always refers to the entry
+    /// that will be used rather than to a link target.
+    pub(super) fn validate_file(file: &File, path: &Path) -> Result<(), String> {
+        validate_handle(HANDLE(file.as_raw_handle()), path)
+    }
+
+    fn validate_handle(handle: HANDLE, path: &Path) -> Result<(), String> {
+        reject_reparse(handle, path)?;
+        validate_owner_and_dacl(handle, path)
+    }
+
+    fn reject_reparse(handle: HANDLE, path: &Path) -> Result<(), String> {
+        let mut info = FILE_ATTRIBUTE_TAG_INFO::default();
+        // SAFETY: the handle is live and the buffer matches `FileAttributeTagInfo`.
+        unsafe {
+            GetFileInformationByHandleEx(
+                handle,
+                FileAttributeTagInfo,
+                &mut info as *mut _ as *mut c_void,
+                size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+            )
+        }
+        .map_err(|_| format!("cannot read the attributes of `{}`", path.display()))?;
+        if info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+            return Err(format!(
+                "`{}` is a reparse point; refusing to trust the instance directory",
+                path.display()
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_owner_and_dacl(handle: HANDLE, path: &Path) -> Result<(), String> {
+        let principals = Principals {
+            user: current_user_sid()?,
+            system: well_known_sid(WinLocalSystemSid)?,
+            administrators: well_known_sid(WinBuiltinAdministratorsSid)?,
+            creator_owner: well_known_sid(WinCreatorOwnerSid)?,
+            creator_owner_rights: well_known_sid(WinCreatorOwnerRightsSid)?,
+        };
+
+        let mut owner = PSID(null_mut());
+        let mut dacl: *mut ACL = null_mut();
+        let mut descriptor = PSECURITY_DESCRIPTOR(null_mut());
+        // SAFETY: the out-pointers are valid and the handle is live.
+        let result = unsafe {
+            GetSecurityInfo(
+                handle,
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                Some(&mut owner),
+                None,
+                Some(&mut dacl),
+                None,
+                Some(&mut descriptor),
+            )
+        };
+        if result != ERROR_SUCCESS {
+            return Err(format!(
+                "cannot read the security information of `{}`",
+                path.display()
+            ));
+        }
+        // SAFETY: the descriptor owns the memory until `LocalFree`; owner and dacl point into it.
+        let result = (|| {
+            if owner.0.is_null() {
+                return Err(format!("`{}` has no owner", path.display()));
+            }
+            if !sid_is_allowed(owner, &principals) {
+                return Err(format!(
+                    "`{}` is not owned by this user; refusing to trust the instance directory",
+                    path.display()
+                ));
+            }
+            if dacl.is_null() {
+                return Err(format!(
+                    "`{}` has no DACL; refusing to trust the instance directory",
+                    path.display()
+                ));
+            }
+            validate_dacl(dacl, path, &principals)
+        })();
+        // SAFETY: `GetSecurityInfo` allocated the descriptor; the owner and DACL are borrowed.
+        unsafe {
+            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        }
+        result
+    }
+
+    fn validate_dacl(dacl: *mut ACL, path: &Path, principals: &Principals) -> Result<(), String> {
+        let mut info = ACL_SIZE_INFORMATION::default();
+        // SAFETY: dacl is a valid ACL from `GetSecurityInfo` and info matches the class.
+        unsafe {
+            GetAclInformation(
+                dacl,
+                &mut info as *mut _ as *mut c_void,
+                size_of::<ACL_SIZE_INFORMATION>() as u32,
+                AclSizeInformation,
+            )
+        }
+        .map_err(|_| format!("cannot enumerate the DACL of `{}`", path.display()))?;
+
+        for index in 0..info.AceCount {
+            let mut ace: *mut c_void = null_mut();
+            // SAFETY: index is within AceCount and ace receives a pointer into the ACL.
+            unsafe { GetAce(dacl, index, &mut ace) }
+                .map_err(|_| format!("cannot read a DACL entry of `{}`", path.display()))?;
+            if ace.is_null() {
+                return Err(format!("`{}` has a null DACL entry", path.display()));
+            }
+            // SAFETY: `GetAce` returned an ACE whose first field is `ACE_HEADER`.
+            let header = unsafe { &*(ace as *const ACE_HEADER) };
+            // An inherit-only ACE applies to children, never to this object.
+            if u32::from(header.AceFlags) & INHERIT_ONLY_ACE.0 != 0 {
+                continue;
+            }
+            match u32::from(header.AceType) {
+                ACCESS_ALLOWED_ACE_TYPE => {
+                    // SAFETY: an allowed ACE has the `ACCESS_ALLOWED_ACE` layout.
+                    let allowed = unsafe { &*(ace as *const ACCESS_ALLOWED_ACE) };
+                    if allowed.Mask & WRITE_ACCESS == 0 {
+                        continue;
+                    }
+                    // SAFETY: `SidStart` is the first bytes of the variable-length SID.
+                    let sid = PSID(&allowed.SidStart as *const u32 as *mut c_void);
+                    if !sid_is_allowed(sid, principals) {
+                        return Err(format!(
+                            "the DACL of `{}` grants write access to another principal; refusing to trust the instance directory",
+                            path.display()
+                        ));
+                    }
+                }
+                ACCESS_DENIED_ACE_TYPE => {}
+                ACCESS_ALLOWED_OBJECT_ACE_TYPE => {
+                    return Err(format!(
+                        "the DACL of `{}` contains an unsupported object ACE",
+                        path.display()
+                    ));
+                }
+                _ => {
+                    return Err(format!(
+                        "the DACL of `{}` contains an unsupported ACE type",
+                        path.display()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The per-user token that makes the named pipe unguessable (#94).
+    ///
+    /// The file is created once with `create_new` and inherited from the validated private
+    /// directory. A malformed file is an error rather than a silent regeneration so a
+    /// half-written file cannot silently change the pipe name under a running app.
+    pub(super) fn instance_token(name: &str) -> Result<String, AuroError> {
+        let dir = private_dir(name)?;
+        let path = dir.join(TOKEN_FILE);
+        // Three attempts cover the window in which a concurrent first start has created the
+        // file but not yet written it.
+        for attempt in 0..3 {
+            let existing =
+                read_token(&path).map_err(|message| AuroError::instance(name, message))?;
+            if let Some(text) = existing {
+                let token = text.trim();
+                if is_valid_token(token) {
+                    return Ok(token.to_owned());
+                }
+                if attempt < 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    continue;
+                }
+                return Err(malformed_token(name, &path));
+            }
+            let created =
+                create_token(&path).map_err(|message| AuroError::instance(name, message))?;
+            if let Some(token) = created {
+                return Ok(token);
+            }
+            // Another process created the file between the read and `create_new`; read it.
+        }
+        Err(AuroError::instance(
+            name,
+            format!(
+                "cannot create or read the instance token `{}`",
+                path.display()
+            ),
+        ))
+    }
+
+    fn malformed_token(name: &str, path: &Path) -> AuroError {
+        AuroError::instance(
+            name,
+            format!(
+                "the instance token `{}` is malformed; it must contain exactly 32 lowercase hexadecimal characters (delete the file to make Auro generate a new one)",
+                path.display()
+            ),
+        )
+    }
+
+    fn read_token(path: &Path) -> Result<Option<String>, String> {
+        let mut options = OpenOptions::new();
+        options.read(true).custom_flags(OPEN_REPARSE_POINT);
+        let mut file = match options.open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(format!(
+                    "cannot open the instance token `{}`: {error}",
+                    path.display()
+                ));
+            }
+        };
+        validate_file(&file, path)?;
+        let mut text = String::new();
+        file.read_to_string(&mut text).map_err(|error| {
+            format!(
+                "cannot read the instance token `{}`: {error}",
+                path.display()
+            )
+        })?;
+        Ok(Some(text))
+    }
+
+    fn create_token(path: &Path) -> Result<Option<String>, String> {
+        let token = generate_token();
+        let mut options = OpenOptions::new();
+        options
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .custom_flags(OPEN_REPARSE_POINT);
+        let mut file = match options.open(path) {
+            Ok(file) => file,
+            // `create_new` refuses an existing file, including one created concurrently.
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => return Ok(None),
+            Err(error) => {
+                return Err(format!(
+                    "cannot create the instance token `{}`: {error}",
+                    path.display()
+                ));
+            }
+        };
+        validate_file(&file, path)?;
+        file.write_all(token.as_bytes())
+            .and_then(|()| file.write_all(b"\n"))
+            .and_then(|()| file.flush())
+            .map_err(|error| {
+                format!(
+                    "cannot write the instance token `{}`: {error}",
+                    path.display()
+                )
+            })?;
+        Ok(Some(token))
+    }
+
+    /// 128 bits of randomness without a crypto dependency.
+    ///
+    /// `RandomState` is seeded by the standard library from OS randomness and each instance is
+    /// independent; the clock input keeps two instances called in the same nanosecond distinct.
+    /// The token is a private name component, not a key.
+    fn generate_token() -> String {
+        use std::fmt::Write as _;
+        use std::hash::{BuildHasher, Hasher};
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        let mut token = String::with_capacity(32);
+        for index in 0u8..2 {
+            let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+            hasher.write_u8(index);
+            hasher.write_u128(nanos);
+            let _ = write!(token, "{:016x}", hasher.finish());
+        }
+        token
+    }
+
+    fn is_valid_token(token: &str) -> bool {
+        token.len() == 32
+            && token
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    }
+
+    fn current_user_sid() -> Result<Vec<u8>, String> {
+        let mut token = HANDLE(null_mut());
+        // SAFETY: GetCurrentProcess returns a pseudo-handle; token receives a real handle.
+        unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }
+            .map_err(|_| "cannot open the process token".to_owned())?;
+        let mut length = 0u32;
+        // SAFETY: a null buffer with length zero asks for the required size.
+        let _ = unsafe { GetTokenInformation(token, TokenUser, None, 0, &mut length) };
+        if length == 0 {
+            // SAFETY: token was opened by this function.
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(token);
+            }
+            return Err("cannot size the process token user".to_owned());
+        }
+        let mut buffer = vec![0u8; length as usize];
+        // SAFETY: buffer is at least `length` bytes and token is live.
+        let result = unsafe {
+            GetTokenInformation(
+                token,
+                TokenUser,
+                Some(buffer.as_mut_ptr() as *mut c_void),
+                length,
+                &mut length,
+            )
+        };
+        // SAFETY: token was opened by this function.
+        unsafe {
+            let _ = windows::Win32::Foundation::CloseHandle(token);
+        }
+        result.map_err(|_| "cannot read the process token user".to_owned())?;
+        // SAFETY: the buffer contains a TOKEN_USER followed by its SID.
+        let token_user = unsafe { &*(buffer.as_ptr() as *const TOKEN_USER) };
+        let sid = token_user.User.Sid;
+        // SAFETY: sid points into the live buffer; GetLengthSid returns its byte length.
+        let length = unsafe { GetLengthSid(sid) } as usize;
+        if length == 0 {
+            return Err("the process token user has no SID".to_owned());
+        }
+        // SAFETY: sid is valid for `length` bytes.
+        Ok(unsafe { std::slice::from_raw_parts(sid.0 as *const u8, length) }.to_vec())
+    }
+
+    /// The current user's SID as the canonical `S-1-5-...` string, for the temp fallback name.
+    fn user_sid_string() -> Result<String, String> {
+        let sid = current_user_sid()?;
+        let mut text = windows::core::PWSTR::null();
+        // SAFETY: sid is a valid SID; text receives a LocalAlloc string on success.
+        unsafe { ConvertSidToStringSidW(PSID(sid.as_ptr() as *mut c_void), &mut text) }
+            .map_err(|_| "cannot convert this user's SID to a string".to_owned())?;
+        if text.is_null() {
+            return Err("this user's SID string is empty".to_owned());
+        }
+        // SAFETY: ConvertSidToStringSidW produced a NUL-terminated UTF-16 string.
+        let value = unsafe { text.to_string() }
+            .map_err(|_| "this user's SID string is not valid UTF-16".to_owned());
+        // SAFETY: ConvertSidToStringSidW allocated the string with LocalAlloc.
+        unsafe {
+            let _ = LocalFree(Some(HLOCAL(text.0 as *mut c_void)));
+        }
+        value
+    }
+
+    fn well_known_sid(
+        kind: windows::Win32::Security::WELL_KNOWN_SID_TYPE,
+    ) -> Result<Vec<u8>, String> {
+        let mut buffer = vec![0u8; windows::Win32::Security::SECURITY_MAX_SID_SIZE as usize];
+        let mut length = buffer.len() as u32;
+        // SAFETY: buffer is SECURITY_MAX_SID_SIZE bytes and length matches.
+        unsafe {
+            CreateWellKnownSid(
+                kind,
+                None,
+                Some(PSID(buffer.as_mut_ptr() as *mut c_void)),
+                &mut length,
+            )
+        }
+        .map_err(|_| "cannot create a well-known SID".to_owned())?;
+        buffer.truncate(length as usize);
+        Ok(buffer)
+    }
+
+    fn sid_is_allowed(sid: PSID, principals: &Principals) -> bool {
+        sid_is_principal(sid, &principals.user)
+            || sid_is_principal(sid, &principals.system)
+            || sid_is_principal(sid, &principals.administrators)
+            || sid_is_principal(sid, &principals.creator_owner)
+            || sid_is_principal(sid, &principals.creator_owner_rights)
+    }
+
+    fn sid_is_principal(sid: PSID, expected: &[u8]) -> bool {
+        if sid.0.is_null() || expected.is_empty() {
+            return false;
+        }
+        // SAFETY: both SIDs are valid and expected is a byte slice holding a SID.
+        unsafe { EqualSid(sid, PSID(expected.as_ptr() as *mut c_void)).is_ok() }
+    }
 }
 
 #[cfg(test)]
@@ -805,6 +1428,119 @@ mod tests {
             .expect("clock")
             .as_nanos();
         format!("com.example.auro-instance-{}-{stamp}", std::process::id())
+    }
+
+    /// Serializes tests that mutate process-wide environment variables.
+    #[cfg(any(unix, windows))]
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Restores an environment variable when dropped, including on panic.
+    #[cfg(any(unix, windows))]
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    #[cfg(any(unix, windows))]
+    impl EnvGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var_os(key);
+            // SAFETY: the caller holds `ENV_LOCK`, so no test reads or writes the environment
+            // concurrently.
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: same lock invariant as `set`.
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(self.key, value),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_dir_refuses_a_group_writable_runtime_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let _serialized = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        fs::create_dir(&runtime).expect("create");
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o775)).expect("mode");
+        let _guard = EnvGuard::set("XDG_RUNTIME_DIR", runtime.as_os_str());
+
+        let dir = lock_dir("com.example.auro-instance-env").expect("lock dir");
+        assert_ne!(
+            dir, runtime,
+            "a group-writable XDG_RUNTIME_DIR must not hold the instance lock"
+        );
+        assert!(is_private_existing_dir(&dir));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_token_is_stable_across_calls_and_socket_names_match() {
+        let name = unique_name();
+        let token = windows_private::instance_token(&name).expect("token");
+        assert_eq!(token.len(), 32);
+        assert!(
+            token
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "the token must be lowercase hexadecimal: {token}"
+        );
+
+        let label = pipe_label(&name).expect("pipe label");
+        assert_eq!(label, format!("{}-{token}", socket_label(&name)));
+        assert_eq!(label, pipe_label(&name).expect("pipe label"));
+        assert_eq!(
+            socket_name(&name).expect("first socket name"),
+            socket_name(&name).expect("second socket name")
+        );
+
+        let dir = private_temp_dir(&name).expect("private directory");
+        let text = std::fs::read_to_string(dir.join("instance.token")).expect("token file");
+        assert_eq!(text.trim(), token);
+        assert!(
+            is_private_existing_dir(&dir),
+            "the validated private directory must pass the trust check"
+        );
+
+        // A DACL that grants another user write cannot be built with the standard library
+        // alone (it needs a foreign SID and an explicit ACL edit), so the write-ACE branch of
+        // `validate_dacl` is only exercised by a Windows host with such a directory configured.
+        assert!(!is_private_existing_dir(&dir.join("missing")));
+        let file = dir.join("not-a-directory");
+        std::fs::write(&file, b"x").expect("write file");
+        assert!(!is_private_existing_dir(&file));
+        std::fs::remove_file(&file).expect("remove file");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_lock_dir_ignores_xdg_runtime_dir() {
+        let _serialized = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime");
+        std::fs::create_dir(&runtime).expect("create");
+        let _guard = EnvGuard::set("XDG_RUNTIME_DIR", runtime.as_os_str());
+
+        let dir = lock_dir("com.example.auro-instance-xdg").expect("lock dir");
+        assert_ne!(
+            dir, runtime,
+            "XDG_RUNTIME_DIR is a Unix convention and must not hold the lock on Windows"
+        );
+        assert!(is_private_existing_dir(&dir));
     }
 
     #[test]

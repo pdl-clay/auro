@@ -60,6 +60,14 @@ check is ignored in favor of the fallback; a fallback directory that fails is re
 single-instance operation (the app refuses to start that guard), which is a denial of service, not
 an information leak. Interference by a same-user process remains outside the threat model.
 
+Windows has no mode bits and `XDG_RUNTIME_DIR` is not a Windows convention, so it is ignored there.
+The directory is `%LOCALAPPDATA%\auro\instance`, falling back to `%TEMP%\auro-<sid>` only when
+`LOCALAPPDATA` is unset. Both the directory and the lock file are opened without following reparse
+points and accepted only when their owner is the current user (or a system principal) and no other
+principal holds write, delete, write-DAC or write-owner access. A directory or file that fails the
+check is refused before the guard is returned, so a secondary never forwards launch arguments into a
+lock another user controls.
+
 ### D3 - Secondary startup forwards, then exits with an error
 
 The secondary acquires the lock (finding it already held), forwards `InstanceMessage { args, cwd }`,
@@ -89,7 +97,9 @@ On Unix the primary binds a filesystem socket in the per-user runtime directory 
 derived from a short sanitised prefix plus a stable hash of the full identifier, so long
 reverse-DNS identifiers sharing a prefix cannot collide and the path stays inside `sun_path`); Linux applies
 mode `0600`, and macOS uses the private directory under its per-user `$TMPDIR`. Windows uses a
-named pipe with the same label. The listener accepts connections in a background thread, reads one
+named pipe whose label also carries a 128-bit per-user token stored in the private instance
+directory (D2), because a pipe name is machine-global and the identifier alone is predictable from
+the public `Auro.toml`. The listener accepts connections in a background thread, reads one
 message, and sends the decoded `InstanceMessage` to the app's `EventSender`.
 
 Two wire formats are accepted for one release: alpha.2's newline-delimited JSON and alpha.3's
@@ -123,9 +133,13 @@ invokes the app handler.
 
 On Windows the named pipe is machine-global rather than behind a per-user directory. The listener
 sets an explicit DACL that allows only the creating user (`OW`), SYSTEM and Administrators to
-connect; it does not inherit the process token's default pipe ACL. Multi-user behavior has not been
-verified on a real desktop session. The forwarded payload is arguments and a working directory,
-never secrets by contract.
+connect; it does not inherit the process token's default pipe ACL. A pre-created pipe or
+`ACCESS_DENIED` from `CreateNamedPipeW` is reported as a named error that identifies the pipe
+instead of exiting silently, and the random token in the label keeps another local user from
+pre-creating that exact name. The token changes between builds, so a new build does not discover a
+primary started by an older build; the file lock still prevents two primaries and the forwarding
+error is surfaced to the launcher. Multi-user behavior has not been verified on a real desktop
+session. The forwarded payload is arguments and a working directory, never secrets by contract.
 
 *Rejected:* a shared-memory or file-drop protocol. It needs polling or a second notification channel
 and is harder to test than a local socket. *Rejected:* an abstract socket, because peer credentials
@@ -199,7 +213,12 @@ App::new()
    both flags (`single_instance_is_opt_in`).
 7. `AuroError::Instance` reports kind `"instance"` and includes name/message
    (`instance_errors_have_context_and_kind`).
-8. `cargo fmt --all --check`,
+8. A group/other-writable lock directory is refused; Unix falls back to a private directory and
+   Windows rejects an untrusted `%LOCALAPPDATA%`/`%TEMP%` candidate before the guard exists
+   (`lock_dir_refuses_a_group_writable_runtime_directory`,
+   `windows_token_is_stable_across_calls_and_socket_names_match`,
+   `windows_lock_dir_ignores_xdg_runtime_dir`).
+9. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 

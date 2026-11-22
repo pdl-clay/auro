@@ -29,7 +29,10 @@ re-export requires the facade's `services` feature.
 
 `AppLinks::new` takes the accepted schemes. `parse` rejects any other scheme, control characters,
 links over 4096 bytes, empty hosts, `.`/`..` path segments, and hosts that are not a DNS-style label
-sequence or an IPv6 literal. The app sees only links it asked for.
+sequence or an IPv6 literal. A bracketed host must parse as `std::net::Ipv6Addr`; `[..]`, `[C:]` and
+other hex-looking strings are rejected. Path segments reject `/`, `\`, `.`, `..` and `:` (a drive
+prefix or an NTFS alternate-data separator), and any segment that is a Windows prefix, root or parent
+component. The app sees only links it asked for.
 `register_scheme` validates the RFC 3986 grammar: the first character is ASCII alphabetic and the
 rest are ASCII alphanumerics or `+`, `-`, `.`. A leading digit and `_` are rejected; `+` is accepted.
 
@@ -125,8 +128,15 @@ for link in links.drain() {
 4. Cloned `AppLinks` handles share one FIFO (`clones_share_the_same_queue`); `App::deep_links`
    stores that shared handle behind the `services` feature and the run path feeds initial and
    forwarded `InstanceMessage` arguments.
-5. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
-6. `cargo fmt --all --check`,
+5. Bracketed hosts must be IPv6 literals and drive-prefixed segments are rejected
+   (`rejects_non_ipv6_bracketed_hosts`, `accepts_ipv6_literal_hosts`,
+   `rejects_drive_prefixed_and_encoded_separator_segments`, `accepts_ordinary_path_segments`).
+6. The Linux `applications` directory is created `0755` under `umask 002`, and a group-writable or
+   symlinked directory is refused (`applications_directory_is_created_private_under_umask`,
+   `registration_refuses_a_group_writable_applications_directory`,
+   `registration_refuses_a_symlinked_applications_directory`).
+7. `auro::services` re-exports the API surface (`crates/auro/src/lib.rs`).
+8. `cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
    `cargo test --workspace --locked`, and `mdbook build docs` pass.
 
