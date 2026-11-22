@@ -41,6 +41,7 @@
 - [0022 - Hot reload boundary is a separate crate with a fixed frame](decisions/0022-hot-reload-boundary-crate.md)
 - [0023 - The update journal is a local trust boundary](decisions/0023-update-journal-trust.md)
 - [0024 - Plugin host stage 1: trust anchor before RPC](decisions/0024-plugin-host-stage-1.md)
+- [0025 - In-process plugin dylibs are an explicit exception](decisions/0025-in-process-plugin-dylib.md)
 
 # Specifications
 
@@ -80,6 +81,7 @@
 - [0033 - Update journal trust boundary](specs/0033-update-journal-trust.md)
 - [0034 - Plugin manifest, verified subject and signed index](specs/0034-plugin-manifest-index.md)
 - [0035 - Out-of-process plugin RPC](specs/0035-plugin-rpc.md)
+- [0036 - Plugin supervision, RPC limits and the dylib backend](specs/0036-plugin-supervision.md)
 
 # Reference
 

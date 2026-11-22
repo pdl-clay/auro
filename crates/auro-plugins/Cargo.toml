@@ -22,9 +22,14 @@ thiserror.workspace = true
 semver.workspace = true
 interprocess.workspace = true
 schemars.workspace = true
+libloading = { version = "0.8", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[features]
+# In-process dylib backend: explicit opt-in, off by default.
+plugins-dylib = ["dep:libloading"]
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -680,6 +680,7 @@ dependencies = [
  "auro-sign",
  "interprocess",
  "libc",
+ "libloading",
  "schemars 1.2.3",
  "semver",
  "serde",

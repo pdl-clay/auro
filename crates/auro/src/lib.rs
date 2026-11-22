@@ -24,9 +24,22 @@ pub mod perms {
 /// Signed in-process plugin host (stage 1); requires the `plugins` feature.
 #[cfg(feature = "plugins")]
 pub mod plugins {
+    pub use auro_core::plugins::host::{
+        CommandPolicy, DEFAULT_CALL_TIMEOUT, HostError, PendingCall, PluginAvailability,
+        PluginFailure, PluginHost, PluginState, REQUEST_QUEUE_CAPACITY,
+    };
     pub use auro_core::plugins::{
         AllowedPlugin, IndexEntry, IndexError, ManifestError, PluginIndex, PluginLoadError,
         PluginManifest, PluginPolicyExt, PluginRegistry, VerifiedSubject, sdk_version,
+    };
+}
+
+/// In-process dylib plugin backend; requires the `plugins-dylib` feature.
+#[cfg(feature = "plugins-dylib")]
+pub mod plugins_dylib {
+    pub use auro_core::plugins::dylib::{
+        ABI_SYMBOL, ABI_VERSION, DylibError, DylibPlugin, ENTRY_SYMBOL, PluginEntry, SDK_SYMBOL,
+        call_entry, verify_versions,
     };
 }
 
