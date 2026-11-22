@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::sync::Mutex;
 
-use auro_perms::{PluginSubject, PolicyError};
+use auro_perms::{Capability, Denied, Grant, Policy, PolicyError};
 use semver::Version;
 use thiserror::Error;
 
@@ -27,27 +27,87 @@ pub struct AllowedPlugin {
 }
 
 /// A subject bound to verified identity, safe to hand to `auro-perms`.
+///
+/// The field is private and [`PluginRegistry::resolve`] is the only constructor. There is no
+/// public `new`, `From` or deserialization path: a subject cannot be fabricated from a string.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct VerifiedSubject {
-    subject: PluginSubject,
+    subject: String,
 }
 
 impl VerifiedSubject {
     /// The canonical subject string, for example
     /// `plugin:com.example.notes@1.2.3.a1b2c3d4.inst_01`.
     pub fn as_str(&self) -> &str {
-        self.subject.as_str()
-    }
-
-    /// The underlying capability subject.
-    pub fn as_plugin_subject(&self) -> &PluginSubject {
         &self.subject
     }
 }
 
 impl fmt::Display for VerifiedSubject {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.subject.as_str())
+        formatter.write_str(&self.subject)
+    }
+}
+
+/// Plugin-aware capability grants and checks on [`Policy`].
+///
+/// This trait supplies the verified subject string to the string-based primitives in
+/// `auro-perms`. A grant can only name a [`VerifiedSubject`] returned by
+/// [`PluginRegistry::resolve`], after the signed index, hashes, allowlist and instance checks.
+///
+/// The effect site still canonicalizes and revalidates paths before calling [`Self::check_plugin`]
+/// (spec 0016 D2/D5): scoped values must be canonicalized after opening a handle, and raw
+/// argument strings must never be passed for scoped checks. This trait performs no I/O and
+/// resolves no paths; `auro-perms` remains pure.
+pub trait PluginPolicyExt: Sized {
+    /// Grants `capability` to the verified plugin `subject`.
+    ///
+    /// Scoped capabilities require a pattern; unscoped capabilities must not carry one.
+    fn allow_plugin(
+        self,
+        subject: &VerifiedSubject,
+        capability: Capability,
+        pattern: Option<&str>,
+    ) -> Result<Self, PolicyError>;
+
+    /// Answers a capability check for the verified plugin `subject`.
+    ///
+    /// `Some(value)` selects a scoped check, `None` an unscoped one. The effect site is
+    /// responsible for the canonicalization described on the trait.
+    fn check_plugin(
+        &self,
+        subject: &VerifiedSubject,
+        capability: Capability,
+        value: Option<&str>,
+    ) -> Result<(), Denied>;
+}
+
+impl PluginPolicyExt for Policy {
+    fn allow_plugin(
+        self,
+        subject: &VerifiedSubject,
+        capability: Capability,
+        pattern: Option<&str>,
+    ) -> Result<Self, PolicyError> {
+        let grant = match (capability.is_scoped(), pattern) {
+            (true, Some(pattern)) => Grant::scoped(subject.as_str(), capability, pattern)?,
+            (true, None) => return Err(PolicyError::ScopeRequired { capability }),
+            (false, None) => Grant::new(subject.as_str(), capability)?,
+            (false, Some(_)) => return Err(PolicyError::ScopeNotSupported { capability }),
+        };
+        Ok(self.allow(grant))
+    }
+
+    fn check_plugin(
+        &self,
+        subject: &VerifiedSubject,
+        capability: Capability,
+        value: Option<&str>,
+    ) -> Result<(), Denied> {
+        match value {
+            Some(value) => self.check_scope(subject.as_str(), capability, value),
+            None => self.check(subject.as_str(), capability),
+        }
     }
 }
 
@@ -117,12 +177,12 @@ pub enum PluginLoadError {
         found_version: String,
     },
 
-    /// The derived subject was not accepted by `auro-perms`.
+    /// The instance id or the derived subject failed load-time validation.
     #[error("invalid plugin subject `{text}`: {detail}")]
     InvalidSubject {
-        /// Subject string that was rejected.
+        /// Subject string or instance id that was rejected.
         text: String,
-        /// Human-readable validation detail from `auro-perms`.
+        /// Human-readable validation detail.
         detail: String,
     },
 
@@ -152,7 +212,7 @@ pub struct PluginRegistry {
     index: PluginIndex,
     allow: Vec<AllowedPlugin>,
     sdk_version: String,
-    loaded: Mutex<HashSet<PluginSubject>>,
+    loaded: Mutex<HashSet<VerifiedSubject>>,
 }
 
 impl PluginRegistry {
@@ -170,20 +230,42 @@ impl PluginRegistry {
         }
     }
 
-    /// Validates an already formed subject string.
+    /// Validates the subject derived inside [`Self::resolve`].
     ///
-    /// [`Self::resolve`] uses this for the subject it derives; it is public so a host can validate
-    /// subjects received from other components and so the reserved-namespace mapping can be
-    /// exercised without a private key. Nothing here consults the manifest's declared subject.
-    pub fn verify_subject(text: &str) -> Result<VerifiedSubject, PluginLoadError> {
-        let subject = PluginSubject::new(text).map_err(|error| match error {
-            PolicyError::ReservedSubject(value) => PluginLoadError::ReservedSubject(value),
-            other => PluginLoadError::InvalidSubject {
+    /// This is private on purpose: no caller-supplied string can become a [`VerifiedSubject`].
+    /// The subject passed here is built from signed-index values, never from a manifest
+    /// declaration. The `host` and `app` namespaces are reserved for the host and the app; a
+    /// plugin id whose first label claims one of them is rejected before it is admitted.
+    fn validate_derived_subject(text: &str) -> Result<(), PluginLoadError> {
+        let namespace = text.split_once(':').map_or(text, |(head, _)| head);
+        let id_namespace = text
+            .strip_prefix("plugin:")
+            .unwrap_or(text)
+            .split(['@', '.'])
+            .next()
+            .unwrap_or("");
+        for reserved in [namespace, id_namespace] {
+            if reserved.eq_ignore_ascii_case("host") || reserved.eq_ignore_ascii_case("app") {
+                return Err(PluginLoadError::ReservedSubject(reserved.to_owned()));
+            }
+        }
+        let valid = !text.is_empty()
+            && text.len() <= 128
+            && text.starts_with("plugin:")
+            && text.len() > "plugin:".len()
+            && !text.ends_with('.')
+            && !text.contains("..")
+            && !text.chars().any(char::is_control)
+            && text.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':' | b'@')
+            });
+        if !valid {
+            return Err(PluginLoadError::InvalidSubject {
                 text: text.to_owned(),
-                detail: other.to_string(),
-            },
-        })?;
-        Ok(VerifiedSubject { subject })
+                detail: "subject must be a short `plugin:`-prefixed ASCII identity".to_owned(),
+            });
+        }
+        Ok(())
     }
 
     /// Verifies a plugin instance and returns its effective subject.
@@ -286,16 +368,19 @@ impl PluginRegistry {
         })?;
         let hash_prefix = &artifact_sha256[..8];
         let text = format!("plugin:{id}@{version}.{hash_prefix}.{instance_id}");
-        let subject = Self::verify_subject(&text)?;
+        Self::validate_derived_subject(&text)?;
+        let subject = VerifiedSubject {
+            subject: text.clone(),
+        };
 
         let mut loaded = self
             .loaded
             .lock()
             .map_err(|_| PluginLoadError::RegistryPoisoned)?;
-        if loaded.contains(&subject.subject) {
+        if loaded.contains(&subject) {
             return Err(PluginLoadError::DuplicateSubject(text));
         }
-        loaded.insert(subject.subject.clone());
+        loaded.insert(subject.clone());
         Ok(subject)
     }
 }

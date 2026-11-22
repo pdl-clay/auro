@@ -25,12 +25,6 @@ pub enum PolicyError {
 
     #[error("{capability} is not scoped and cannot carry a pattern")]
     ScopeNotSupported { capability: Capability },
-
-    #[error("invalid plugin subject `{0}`")]
-    InvalidSubject(String),
-
-    #[error("reserved plugin subject namespace `{0}`")]
-    ReservedSubject(String),
 }
 
 /// A boundary that a grant can cover.
@@ -96,69 +90,6 @@ impl FromStr for Capability {
 #[error("unknown capability `{0}`")]
 #[non_exhaustive]
 pub struct UnknownCapability(pub String);
-
-/// A validated subject for a plugin grant or check.
-///
-/// The host must derive this string from a verified plugin identity (index entry, artifact hash
-/// and instance id); a subject declared by the plugin manifest is metadata only and must never
-/// be used here. Verified subjects use the `plugin:` prefix followed by the identity components,
-/// so they pass the same validation. The reserved `host`/`app` namespaces are rejected.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct PluginSubject {
-    inner: String,
-}
-
-impl PluginSubject {
-    /// Validates `text` as a plugin subject.
-    ///
-    /// Accepted subjects are non-empty, at most 128 bytes, start with `plugin:`, and contain only
-    /// ASCII alphanumerics or `-`, `_`, `.`, `:` and `@`. They contain no control characters and
-    /// no `..` sequence, and do not end in `.`. Canonical verified-subject strings built by the
-    /// plugin host use the same prefix and character set. The `host` and `app` namespaces are
-    /// reserved and return [`PolicyError::ReservedSubject`].
-    pub fn new(text: impl Into<String>) -> Result<Self, PolicyError> {
-        let inner = text.into();
-        let namespace = inner
-            .split_once(':')
-            .map_or(inner.as_str(), |(head, _)| head);
-        if namespace.eq_ignore_ascii_case("host") || namespace.eq_ignore_ascii_case("app") {
-            return Err(PolicyError::ReservedSubject(inner));
-        }
-        let valid = !inner.is_empty()
-            && inner.len() <= 128
-            && inner.starts_with("plugin:")
-            && inner.len() > "plugin:".len()
-            && !inner.ends_with('.')
-            && !inner.contains("..")
-            && !inner.chars().any(char::is_control)
-            && inner.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':' | b'@')
-            });
-        if !valid {
-            return Err(PolicyError::InvalidSubject(inner));
-        }
-        Ok(PluginSubject { inner })
-    }
-
-    /// The exact subject string used for grant lookup and checks.
-    pub fn as_str(&self) -> &str {
-        &self.inner
-    }
-}
-
-impl fmt::Display for PluginSubject {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.inner)
-    }
-}
-
-impl FromStr for PluginSubject {
-    type Err = PolicyError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        PluginSubject::new(text)
-    }
-}
 
 /// A compiled glob scope.
 #[derive(Clone, Debug)]
@@ -290,51 +221,6 @@ impl Policy {
         pattern: impl Into<String>,
     ) -> Result<Self, PolicyError> {
         Ok(self.allow(Grant::scoped(subject, capability, pattern)?))
-    }
-
-    /// Grants `capability` to a verified plugin `subject`.
-    ///
-    /// Scoped capabilities require a pattern; unscoped capabilities must not carry one.
-    ///
-    /// This crate stays pure: it performs no I/O and resolves no paths. The call site that
-    /// performs the effect must canonicalize paths (`O_NOFOLLOW`/`openat` on Unix, reparse-point
-    /// handling on Windows), revalidate after opening the handle, and never pass raw argument
-    /// strings to [`Self::check_plugin`] for scoped checks (spec 0016 D2/D5). Network
-    /// normalization/redirect handling and the create-open sequence remain open questions; no
-    /// policy here invents them.
-    pub fn allow_plugin(
-        self,
-        subject: &PluginSubject,
-        capability: Capability,
-        pattern: Option<&str>,
-    ) -> Result<Self, PolicyError> {
-        let grant = match (capability.is_scoped(), pattern) {
-            (true, Some(pattern)) => Grant::scoped(subject.as_str(), capability, pattern)?,
-            (true, None) => return Err(PolicyError::ScopeRequired { capability }),
-            (false, None) => Grant::new(subject.as_str(), capability)?,
-            (false, Some(_)) => return Err(PolicyError::ScopeNotSupported { capability }),
-        };
-        Ok(self.allow(grant))
-    }
-
-    /// Answers a capability check for a verified plugin `subject`.
-    ///
-    /// The exact subject string is passed to [`Self::check`] or [`Self::check_scope`]. As with
-    /// [`Self::allow_plugin`], this crate is pure: the call site that performs the effect must
-    /// canonicalize paths (`O_NOFOLLOW`/`openat` on Unix, reparse-point handling on Windows),
-    /// revalidate after opening the handle, and never pass raw argument strings for scoped checks
-    /// (spec 0016 D2/D5). Network normalization/redirect handling and the create-open sequence
-    /// remain open questions.
-    pub fn check_plugin(
-        &self,
-        subject: &PluginSubject,
-        capability: Capability,
-        value: Option<&str>,
-    ) -> Result<(), Denied> {
-        match value {
-            Some(value) => self.check_scope(subject.as_str(), capability, value),
-            None => self.check(subject.as_str(), capability),
-        }
     }
 
     /// The grants currently compiled into this policy.
@@ -595,136 +481,14 @@ mod tests {
     }
 
     #[test]
-    fn plugin_subject_accepts_a_canonical_verified_subject() {
-        let text = "plugin:com.example.editor@1.2.3.a1b2c3d4.inst_7f3a";
-        let subject = PluginSubject::new(text).expect("verified subject");
-        assert_eq!(subject.as_str(), text);
-        assert_eq!(subject.to_string(), text);
-        assert_eq!(text.parse::<PluginSubject>().expect("from str"), subject);
-        assert_eq!(
-            PluginSubject::new("plugin:notes@1.0.0.deadbeef.inst_1").expect("short subject"),
-            PluginSubject::new("plugin:notes@1.0.0.deadbeef.inst_1").expect("short subject again")
-        );
-    }
-
-    #[test]
-    fn plugin_subject_rejects_malformed_text() {
-        let overlong = format!("plugin:{}", "a".repeat(122));
-        for text in [
-            "",
-            "notes",
-            "plugin:",
-            "plugin:bad/name",
-            "plugin:bad..name",
-            "plugin:trailing.",
-            "plugin:with space",
-            "plugin:notícias",
-            "plugin:nul\0byte",
-            "plugin:line\nbreak",
-            overlong.as_str(),
-        ] {
-            assert!(
-                matches!(
-                    PluginSubject::new(text),
-                    Err(PolicyError::InvalidSubject(_))
-                ),
-                "`{text}` must be an invalid subject"
-            );
-        }
-    }
-
-    #[test]
-    fn plugin_subject_rejects_reserved_namespaces() {
-        for text in [
-            "host",
-            "host:notes",
-            "Host:notes",
-            "app",
-            "app:notes",
-            "APP",
-        ] {
-            assert!(
-                matches!(
-                    PluginSubject::new(text),
-                    Err(PolicyError::ReservedSubject(_))
-                ),
-                "`{text}` must be reserved"
-            );
-        }
-    }
-
-    #[test]
-    fn plugin_grants_are_deny_by_default_and_subject_scoped() {
-        let subject = PluginSubject::new("plugin:notes@1.0.0.deadbeef.inst_1").expect("subject");
-        let other = PluginSubject::new("plugin:other@1.0.0.abcdef01.inst_2").expect("other");
-        let empty = Policy::deny_all();
-        assert!(
-            empty
-                .check_plugin(&subject, Capability::Fs, Some("/var/lib/notes/a.txt"))
-                .is_err()
-        );
-
-        let policy = empty
-            .allow_plugin(&subject, Capability::Fs, Some("/var/lib/notes/**"))
-            .expect("fs grant")
-            .allow_plugin(&subject, Capability::Clipboard, None)
-            .expect("clipboard grant");
-        policy
-            .check_plugin(&subject, Capability::Fs, Some("/var/lib/notes/a.txt"))
-            .expect("exact subject");
+    fn raw_plugin_subject_string_has_no_implicit_grant() {
+        let policy = Policy::deny_all();
+        let subject = "plugin:notes@1.0.0.deadbeef.inst_1";
+        assert!(policy.check(subject, Capability::Clipboard).is_err());
         assert!(
             policy
-                .check_plugin(&other, Capability::Fs, Some("/var/lib/notes/a.txt"))
+                .check_scope(subject, Capability::Fs, "/var/lib/notes/a.txt")
                 .is_err()
         );
-        assert!(
-            policy
-                .check_plugin(&subject, Capability::Notification, None)
-                .is_err()
-        );
-        policy
-            .check_plugin(&subject, Capability::Clipboard, None)
-            .expect("unscoped grant");
-        policy
-            .check_plugin(&subject, Capability::Clipboard, Some("ignored"))
-            .expect("unscoped check ignores the value");
-    }
-
-    #[test]
-    fn plugin_grants_reject_scope_mismatches() {
-        let subject = PluginSubject::new("plugin:notes@1.0.0.deadbeef.inst_1").expect("subject");
-        assert!(matches!(
-            Policy::deny_all().allow_plugin(&subject, Capability::Fs, None),
-            Err(PolicyError::ScopeRequired {
-                capability: Capability::Fs
-            })
-        ));
-        assert!(matches!(
-            Policy::deny_all().allow_plugin(&subject, Capability::Clipboard, Some("*")),
-            Err(PolicyError::ScopeNotSupported {
-                capability: Capability::Clipboard
-            })
-        ));
-        assert!(matches!(
-            Policy::deny_all().allow_plugin(&subject, Capability::Net, Some("[invalid")),
-            Err(PolicyError::InvalidPattern(_, _))
-        ));
-    }
-
-    #[test]
-    fn check_plugin_denies_a_lexical_traversal_value() {
-        let subject = PluginSubject::new("plugin:notes@1.0.0.deadbeef.inst_1").expect("subject");
-        let policy = Policy::deny_all()
-            .allow_plugin(&subject, Capability::Fs, Some("/var/lib/notes/**"))
-            .expect("fs grant");
-        let denied = policy
-            .check_plugin(&subject, Capability::Fs, Some("/var/lib/notes/../secret"))
-            .expect_err("traversal must be denied");
-        assert_eq!(denied.subject, subject.as_str());
-        assert_eq!(denied.capability, Capability::Fs);
-        assert_eq!(denied.value.as_deref(), Some("/var/lib/notes/../secret"));
-        policy
-            .check_plugin(&subject, Capability::Fs, Some("/var/lib/notes/a.txt"))
-            .expect("normal path");
     }
 }

@@ -9,6 +9,10 @@ implemented yet.
 Because there are no versions to support, this policy has no supported-version table. One will be
 added at the first tagged release.
 
+## Plugin trust
+
+Auro capabilities scope the effects that go through the host. Plugins are native code: an out-of-process plugin runs as the same OS user and can use the filesystem, network and processes directly, and an in-process dylib plugin shares the app's address space. A grant is not a sandbox and does not constrain code that bypasses the host.
+
 ## Reporting a vulnerability
 
 **Do not open a public issue.** Use GitHub's private reporting:

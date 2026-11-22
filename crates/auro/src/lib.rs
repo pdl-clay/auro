@@ -23,7 +23,7 @@ pub mod perms {
 pub mod plugins {
     pub use auro_core::plugins::{
         AllowedPlugin, IndexEntry, IndexError, ManifestError, PluginIndex, PluginLoadError,
-        PluginManifest, PluginRegistry, VerifiedSubject, sdk_version,
+        PluginManifest, PluginPolicyExt, PluginRegistry, VerifiedSubject, sdk_version,
     };
 }
 

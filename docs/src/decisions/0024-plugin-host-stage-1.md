@@ -28,10 +28,12 @@ stack.
 4. The index is embedded at build time, signed with Ed25519 and pinned to a public key in source.
    The shipped index is empty and signed over `[]`; no private key is committed. Runtime fetch,
    implicit upgrades and silent downgrades are absent.
-5. `auro-perms` remains pure. Its new plugin helpers accept a validated `PluginSubject` and a
-   canonical value; the effect site performs canonicalization and revalidation. Net normalization
-   and the create-open sequence stay open decisions with owners and closing conditions
-   ([spec 0034](../specs/0034-plugin-manifest-index.md)).
+5. `auro-perms` remains pure and string-based. The verified subject is an opaque `VerifiedSubject`
+   owned by `auro-plugins`; `PluginRegistry::resolve` is its only constructor and plugin policy
+   helpers are an extension trait over `&VerifiedSubject`. No public constructor can turn a text
+   value into a subject usable by a grant. The effect site performs canonicalization and
+   revalidation. Net normalization and the create-open sequence stay open decisions with owners and
+   closing conditions ([spec 0034](../specs/0034-plugin-manifest-index.md)).
 
 ## Consequences
 

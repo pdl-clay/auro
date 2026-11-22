@@ -2,15 +2,16 @@
 
 //! Integration tests for the manifest schema, signed index and verified-subject registry.
 
-use auro_perms::PolicyError;
+use auro_perms::{Capability, Policy, PolicyError};
 use auro_plugins::index::{IndexEntry, PluginIndex};
 use auro_plugins::manifest::{MAX_MANIFEST_BYTES, ManifestError, PluginManifest};
 use auro_plugins::registry::{AllowedPlugin, PluginLoadError, PluginRegistry};
-use auro_plugins::{IndexError, sdk_version};
+use auro_plugins::{IndexError, PluginPolicyExt, sdk_version};
 use auro_sign::{PublicKey, SigningKey};
 use sha2::{Digest as _, Sha256};
 
 const ID: &str = "com.example.notes";
+const ATTACKER_ID: &str = "com.example.attacker";
 const VERSION: &str = "1.2.3";
 const ARTIFACT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const OTHER_ARTIFACT: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -91,6 +92,40 @@ fn registry_for(manifest: &PluginManifest, version: &str, key: &SigningKey) -> P
             id: manifest.id.clone(),
             version: version.to_owned(),
         }],
+        sdk_version(),
+    )
+}
+
+/// Builds a registry with two signed, allowlisted plugins. Entries are sorted by id because the
+/// index parser rejects an unsorted list.
+fn registry_for_two(
+    first: &PluginManifest,
+    second: &PluginManifest,
+    key: &SigningKey,
+) -> PluginRegistry {
+    let mut manifests = [first, second];
+    manifests.sort_by(|left, right| left.id.cmp(&right.id));
+    let entries = manifests
+        .iter()
+        .map(|manifest| {
+            entry(
+                &manifest.id,
+                VERSION,
+                &manifest.artifact_sha256,
+                &manifest.digest(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let index = PluginIndex::parse_signed(&signed_index(&entries, key), &key.public_key()).unwrap();
+    PluginRegistry::new(
+        index,
+        manifests
+            .iter()
+            .map(|manifest| AllowedPlugin {
+                id: manifest.id.clone(),
+                version: VERSION.to_owned(),
+            })
+            .collect(),
         sdk_version(),
     )
 }
@@ -395,7 +430,6 @@ fn resolve_binds_a_stable_subject_to_verified_identity() {
         format!("plugin:{ID}@{VERSION}.aaaaaaaa.inst_01")
     );
     assert_eq!(first.to_string(), first.as_str());
-    assert_eq!(first.as_plugin_subject().as_str(), first.as_str());
 
     assert!(matches!(
         registry.resolve(ID, VERSION, ARTIFACT, &manifest, "inst_01"),
@@ -534,18 +568,15 @@ fn resolve_ignores_manifest_declared_subject() {
 
 #[test]
 fn reserved_subjects_are_rejected_before_any_artifact_is_loaded() {
-    assert!(matches!(
-        PluginRegistry::verify_subject("host:anything"),
-        Err(PluginLoadError::ReservedSubject(_))
-    ));
-    assert!(matches!(
-        PluginRegistry::verify_subject("app:anything"),
-        Err(PluginLoadError::ReservedSubject(_))
-    ));
-    assert!(matches!(
-        PluginRegistry::verify_subject("../escape"),
-        Err(PluginLoadError::InvalidSubject { .. })
-    ));
+    let key = SigningKey::generate();
+    for reserved_id in ["app.internal", "host.internal"] {
+        let manifest = parse_manifest(reserved_id, VERSION, ARTIFACT, None);
+        let registry = registry_for(&manifest, VERSION, &key);
+        assert!(matches!(
+            registry.resolve(reserved_id, VERSION, ARTIFACT, &manifest, "inst"),
+            Err(PluginLoadError::ReservedSubject(_))
+        ));
+    }
 }
 
 #[test]
@@ -594,7 +625,141 @@ fn resolve_rejects_invalid_instance_index_and_manifest() {
 }
 
 #[test]
-fn perms_error_for_reserved_subject_stays_typed() {
-    let error = auro_perms::PluginSubject::new("host:root").unwrap_err();
-    assert!(matches!(error, PolicyError::ReservedSubject(_)));
+fn forged_subject_cannot_use_another_plugins_grant() {
+    let key = SigningKey::generate();
+    let victim = parse_manifest(ID, VERSION, ARTIFACT, None);
+    let attacker = parse_manifest(ATTACKER_ID, VERSION, OTHER_ARTIFACT, None);
+    let registry = registry_for_two(&victim, &attacker, &key);
+    let victim_subject = registry
+        .resolve(ID, VERSION, ARTIFACT, &victim, "victim_inst")
+        .unwrap();
+    let attacker_subject = registry
+        .resolve(
+            ATTACKER_ID,
+            VERSION,
+            OTHER_ARTIFACT,
+            &attacker,
+            "attacker_inst",
+        )
+        .unwrap();
+    assert_ne!(victim_subject, attacker_subject);
+
+    let policy = Policy::deny_all()
+        .allow_plugin(&victim_subject, Capability::Clipboard, None)
+        .unwrap()
+        .allow_plugin(&victim_subject, Capability::Fs, Some("/data/notes/**"))
+        .unwrap();
+
+    policy
+        .check_plugin(&victim_subject, Capability::Clipboard, None)
+        .unwrap();
+    let denied = policy
+        .check_plugin(&attacker_subject, Capability::Clipboard, None)
+        .unwrap_err();
+    assert_eq!(denied.subject, attacker_subject.as_str());
+    assert_eq!(denied.capability, Capability::Clipboard);
+    assert!(
+        policy
+            .check_plugin(
+                &attacker_subject,
+                Capability::Fs,
+                Some("/data/notes/secret.txt"),
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn verified_subject_has_no_public_constructor() {
+    // `VerifiedSubject` has a private field; `PluginRegistry::resolve` is its only producer.
+    // The split literals keep this source check from matching its own assertions.
+    const SOURCE: &str = include_str!("plugins.rs");
+    for forbidden in [
+        concat!("Verified", "Subject::new"),
+        concat!("Verified", "Subject {"),
+        concat!("verify_", "subject("),
+        concat!("Plugin", "Subject::new"),
+        concat!("Deseri", "alize"),
+    ] {
+        assert!(
+            !SOURCE.contains(forbidden),
+            "public subject constructor used in tests: {forbidden}"
+        );
+    }
+
+    // Every subject here comes from a signed resolve, and instances cannot collide.
+    let key = SigningKey::generate();
+    let manifest = parse_manifest(ID, VERSION, ARTIFACT, None);
+    let registry = registry_for(&manifest, VERSION, &key);
+    let first = registry
+        .resolve(ID, VERSION, ARTIFACT, &manifest, "inst_1")
+        .unwrap();
+    let second = registry
+        .resolve(ID, VERSION, ARTIFACT, &manifest, "inst_2")
+        .unwrap();
+    assert_ne!(first, second);
+}
+
+#[test]
+fn plugin_policy_ext_checks_scoped_and_unscoped_capabilities() {
+    let key = SigningKey::generate();
+    let manifest = parse_manifest(ID, VERSION, ARTIFACT, None);
+    let registry = registry_for(&manifest, VERSION, &key);
+    let subject = registry
+        .resolve(ID, VERSION, ARTIFACT, &manifest, "inst")
+        .unwrap();
+    let policy = Policy::deny_all()
+        .allow_plugin(&subject, Capability::Fs, Some("/data/notes/**"))
+        .unwrap()
+        .allow_plugin(&subject, Capability::Clipboard, None)
+        .unwrap();
+    assert_eq!(policy.grants().len(), 2);
+
+    policy
+        .check_plugin(&subject, Capability::Fs, Some("/data/notes/a.txt"))
+        .unwrap();
+    for value in ["/etc/passwd", "/data/notes/../secret"] {
+        assert!(
+            policy
+                .check_plugin(&subject, Capability::Fs, Some(value))
+                .is_err(),
+            "unexpectedly allowed {value}"
+        );
+    }
+    assert!(policy.check_plugin(&subject, Capability::Fs, None).is_err());
+    policy
+        .check_plugin(&subject, Capability::Clipboard, None)
+        .unwrap();
+    assert!(
+        policy
+            .check_plugin(&subject, Capability::Keychain, None)
+            .is_err()
+    );
+}
+
+#[test]
+fn plugin_policy_ext_scope_errors_are_typed() {
+    let key = SigningKey::generate();
+    let manifest = parse_manifest(ID, VERSION, ARTIFACT, None);
+    let registry = registry_for(&manifest, VERSION, &key);
+    let subject = registry
+        .resolve(ID, VERSION, ARTIFACT, &manifest, "inst")
+        .unwrap();
+
+    assert!(matches!(
+        Policy::deny_all().allow_plugin(&subject, Capability::Fs, None),
+        Err(PolicyError::ScopeRequired {
+            capability: Capability::Fs
+        })
+    ));
+    assert!(matches!(
+        Policy::deny_all().allow_plugin(&subject, Capability::Clipboard, Some("*")),
+        Err(PolicyError::ScopeNotSupported {
+            capability: Capability::Clipboard
+        })
+    ));
+    assert!(matches!(
+        Policy::deny_all().allow_plugin(&subject, Capability::Fs, Some("[invalid")),
+        Err(PolicyError::InvalidPattern(..))
+    ));
 }

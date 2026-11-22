@@ -22,7 +22,9 @@ pub use manifest::{
     MANIFEST_FORMAT_VERSION, MAX_CAPABILITIES, MAX_COMMANDS, MAX_MANIFEST_BYTES, MAX_STRING_BYTES,
     ManifestError, ManifestGrant, PluginManifest,
 };
-pub use registry::{AllowedPlugin, PluginLoadError, PluginRegistry, VerifiedSubject};
+pub use registry::{
+    AllowedPlugin, PluginLoadError, PluginPolicyExt, PluginRegistry, VerifiedSubject,
+};
 
 /// The exact SDK version a plugin manifest must declare.
 ///

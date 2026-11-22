@@ -49,10 +49,12 @@ manifest and is pinned by the index entry.
 A verified subject has the shape `plugin:<id>@<version>.<artifact-hash-prefix>.<instance-id>` and is
 constructed only after the index entry, artifact hash, manifest digest, SDK version and app
 allowlist have been checked. `declared-subject` is kept for author metadata and never used for a
-policy decision. `auro-perms::PluginSubject` validates the shape, rejects traversal and control
-characters and reserves the `host:`/`app:` namespaces. A second loaded plugin resolving to the same
-subject, or any attempt to use a reserved namespace, is a named load error. Restarting an instance
-requires a new instance id and therefore a new subject; no grant state is inherited.
+policy decision. `auro-plugins::VerifiedSubject` is an opaque token with private fields: there is
+no public constructor, `From<&str>` or deserializer, and `PluginRegistry::resolve` is its only
+producer. The shape validator rejects traversal and control characters and reserves the
+`host:`/`app:` namespaces. A second loaded plugin resolving to the same subject, or any attempt to
+use a reserved namespace, is a named load error. Restarting an instance requires a new instance id
+and therefore a new subject; no grant state is inherited.
 
 ### D3 - A signed, pinned, embedded index
 
@@ -71,10 +73,12 @@ containing `id` and `version`. Parsing uses `deny_unknown_fields`; validation re
 and empty values. An empty allowlist is legal and means no plugin is available. The facade exposes
 the stage-1 API only through the default-off `plugins` feature.
 
-### D5 - `auro-perms` stays pure and checks at the effect site
+### D5 - Verified tokens stay in `auro-plugins`; `auro-perms` stays pure
 
-`auro-perms` gains `PluginSubject`, `Policy::allow_plugin` and `Policy::check_plugin`. They perform
-no I/O: no filesystem reads, no time, no randomness. The call site that performs the effect must
+`auro-perms` keeps its original string-based `Grant`/`Policy` API and performs no I/O: no filesystem
+reads, no time, no randomness. Plugin-specific helpers live in `auro-plugins` as
+`PluginPolicyExt::allow_plugin` and `check_plugin`, both taking `&VerifiedSubject`; a raw string
+cannot be used where a verified token is required. The call site that performs the effect must
 canonicalize the value, reject `..`/prefix/root components and symlink escapes, revalidate after
 opening the handle, and only then call `check_plugin` with the canonical value. Spec 0016 D2/D5
 delegates exactly that responsibility to the caller; the policy matches strings and returns a typed
@@ -101,10 +105,14 @@ never a shell string.
 4. The registry rejects an unindexed id, an unlisted version, a downgrade to an older version, an
    artifact hash mismatch, a manifest digest mismatch, a duplicate subject and a reserved subject.
 5. Two instances with different instance ids get different subjects; no grant state is inherited.
-6. `auro-perms` tests cover subject validation, reserved namespaces, deny-by-default and lexical
-   `..` rejection without any filesystem access.
-7. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-   `cargo test --workspace --locked`, the Windows-target check and `mdbook build docs` pass.
+6. `auro-perms` stays string-based and pure: deny-by-default and lexical `..` rejection still pass.
+   `auro-plugins` tests prove grants can only be attached to subjects produced by `resolve`, and a
+   different verified subject cannot use another plugin's grant.
+7. No public constructor, `From<&str>` or deserializer for `VerifiedSubject` exists; the API shape
+   is part of the security boundary, not an implementation detail.
+8. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`
+   (default and `--all-features`), `cargo test --workspace --locked`, the Windows-target check and
+   `mdbook build docs` pass.
 
 ## Open questions
 
