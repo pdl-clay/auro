@@ -10,6 +10,12 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Added
+
+- A plugin author cookbook in the mdBook, derived from specs 0034-0036 and ADRs 0024/0025, covering
+  the host contract, signed static index, RPC, capabilities, tests and explicit limitations.
+  Documentation only; no runtime behaviour changed.
+
 ### Changed
 
 - The READMEs now state alpha.13 status with per-OS hot reload GA targets, a short quickstart and
