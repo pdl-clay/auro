@@ -83,6 +83,11 @@
 - [0035 - Out-of-process plugin RPC](specs/0035-plugin-rpc.md)
 - [0036 - Plugin supervision, RPC limits and the dylib backend](specs/0036-plugin-supervision.md)
 
+
+# Cookbook
+
+- [Plugin author](cookbook/plugin-author.md)
+
 # Reference
 
 - [Platform support](reference/platform-support.md)
