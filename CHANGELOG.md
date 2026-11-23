@@ -20,6 +20,9 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 - The READMEs now state alpha.13 status with per-OS hot reload GA targets, a short quickstart and
   the phase 3 code-versus-exit distinction. Documentation only; no runtime behaviour changed.
+- CONTRIBUTING.md now states when to open an issue before a PR, a three-day first-response target
+  with permission to ping, and that draft PRs and basic questions are welcome. Documentation only;
+  no runtime behaviour changed.
 
 ## [0.1.0-alpha.13] - 2026-11-22
 
