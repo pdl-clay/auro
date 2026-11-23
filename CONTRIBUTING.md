@@ -12,11 +12,17 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 2. **Tell us what you would ship with it.** Real use cases shape the component kit and the
    plugin boundary.
 3. **Report what blocks you** in GPUI for your app. That list becomes our priority order.
+4. **Build something small.** Start with [docs/src/start.md](docs/src/start.md); plugin authors
+   should read the [plugin author cookbook](docs/src/cookbook/plugin-author.md) for the host
+   contract before proposing an index entry.
 
 ## Discuss first, code second
 
 Anything larger than a typo starts in [Discussions](https://github.com/pdl-clay/auro/discussions).
 A PR that lands without agreement wastes your time.
+
+A typo or a small documentation fix can go straight to a PR. Anything over roughly 50 changed
+lines, and every behaviour or API change, starts with an issue or a Discussion first.
 
 Design changes that affect the public API go through a short [RFC](rfcs/README.md). A decision
 that has already been made and constrains future code is recorded as an
@@ -106,6 +112,9 @@ git commit -s -m "docs: add the RFC template"
 - Keep the branch rebased on `main`. PRs are squash-merged, so the PR title must be a valid
   Conventional Commit subject.
 - A maintainer review is required. Expect questions about scope before style.
+- Draft PRs and basic questions are welcome. Nobody needs to be certain before opening one.
+- Aim for a first review response within 3 days. If that does not happen, ping the PR: that is
+  helpful, not rude. A first response is not a promise of an immediate merge.
 
 ## Performance is a feature
 
