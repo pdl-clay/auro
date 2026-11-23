@@ -10,6 +10,11 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Changed
+
+- The READMEs now state alpha.13 status with per-OS hot reload GA targets, a short quickstart and
+  the phase 3 code-versus-exit distinction. Documentation only; no runtime behaviour changed.
+
 ## [0.1.0-alpha.13] - 2026-11-22
 
 ### Added

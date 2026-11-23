@@ -24,23 +24,26 @@ The frontend is Rust. There is no HTML, no CSS engine and no JavaScript in the a
 Phase 2 is in progress. `0.1.0-alpha.13` is the current published alpha on crates.io; there is no
 stable release or stable CLI yet. Install the alpha CLI with
 `cargo install auro-cli --version 0.1.0-alpha.13`, or build and try the framework from a checkout
-(see [CONTRIBUTING.md](CONTRIBUTING.md)). The Phase 2
-slices in tree cover bundling, signed updates with platform apply paths and platform services;
-macOS notarization submission and local verification are release tooling, not a tested end-user
-flow. Hot reload is measured, not GA, and only for the opt-in four-crate scaffold's data boundary:
-on Linux, edits to `data/src` (the `view_data() -> HotData` boundary) are under the 500 ms target,
-above it on Windows, and above it on a shared macOS runner. Edits to `ui`/`Render`, layout code,
-`types`, dependencies or configuration rebuild the host and restart the process (state restored
-from a snapshot when compatible); they are not in-process view reloads.
+(see [CONTRIBUTING.md](CONTRIBUTING.md)). The Phase 2 slices in tree cover bundling, signed updates
+with platform apply paths and platform services; macOS notarization submission and local
+verification are release tooling, not a tested end-user flow. Hot reload is **GA with per-OS
+targets**: Linux < 500 ms (368 ms measured, N=12), Windows and macOS < 1 s with published numbers
+and runner context. The versioned-snapshot restart fallback stays in the contract and is always
+labelled `restarted (state restored|reset)`. Edits to `ui`/`Render`, layout, `types`, dependencies
+or configuration rebuild the host and restart the process rather than reloading the view in place.
 
 | Phase | Codename | State |
 |---|---|---|
 | 0 | Foundations | **complete** |
 | 1 | Hello, native | **complete** |
 | 2 | Ship it | **in progress** |
-| 3 | Extensible | planned |
+| 3 | Extensible | **host code shipped, exit not claimed** |
 | 4 | Ecosystem | planned |
 | 5 | 1.0 | planned |
+
+Phase 3's plugin host code is published behind the default-off `plugins` and `plugins-dylib`
+features; its exit still depends on a plugin from an author outside the core team. The roadmap
+exits are unchanged.
 
 Full detail in [ROADMAP.md](ROADMAP.md). Architecture and the reasoning behind it live in the
 [documentation book](https://pdl-clay.github.io/auro/); platform support is
@@ -71,6 +74,20 @@ formats, a signed updater. What it gets wrong, for people who want *native*, is 
 still a web page.
 
 Auro keeps the shell and replaces the engine.
+
+
+## Quick start
+
+```bash
+cargo install auro-cli --version 0.1.0-alpha.13
+auro new demo
+cd demo && cargo run
+```
+
+The generated project uses the published crates. See [the start guide](docs/src/start.md) for
+prerequisites and configuration. For opt-in hot reload, set `hot = true` under `[dev]` in
+`Auro.toml`; the four-crate scaffold and its boundary are described in
+[the hot reload architecture](docs/src/architecture/hot-reload.md).
 
 ## What it will look like
 
@@ -121,9 +138,9 @@ call. Type errors are compile errors.
 
 1. **Typed IPC, everywhere.** Schemas are derived from Rust signatures. There is no
    stringly-typed bridge, because there is no JavaScript to bridge to.
-2. **Hot reload or bust.** Rust compile times are the only real reason to stay on the web.
-   Target: edit to see in **under 500 ms**, with app state preserved. The whole project rests on
-   this bet.
+2. **Hot reload or bust.** Rust compile times are the only real reason to stay on the web. GA
+   targets are per OS: under 500 ms on Linux and under 1 s on Windows and macOS, with app state
+   preserved through a labelled versioned-snapshot restart when an edit is not reloadable.
 3. **Capabilities for the real boundary.** With a Rust frontend, most permission checking is
    compile-time. What actually needs a runtime fence is **plugin code** and **untrusted
    content**. That is where Auro's capability model lives.
@@ -146,14 +163,15 @@ call. Type errors are compile errors.
 | Cold start | < 80 ms | 154.9 ms median, first-frame request (Linux) |
 | Idle RAM | < 40 MB | 105.3 MB (Linux) |
 | Hello-world binary | < 6 MB (stripped) | 15.6 MB (Linux) |
-| Edit to see (boundary data only) | < 500 ms | 368 ms median, p95 394 ms for edits in `data/src` (`view_data() -> HotData`), opt-in hot mode, N=12 (Linux); 813 ms median, p95 897 ms (Windows); 509.5-956.0 ms medians, p95 up to 2096 ms, three six-warmup runs (shared macOS CI runner) |
+| Edit to see (boundary data only) | < 500 ms Linux; < 1 s Windows/macOS | 368 ms median, p95 394 ms for edits in `data/src` (`view_data() -> HotData`), opt-in hot mode, N=12 (Linux); 813 ms median, p95 897 ms (Windows); 509.5-956.0 ms medians, p95 up to 2096 ms, three six-warmup runs (shared macOS CI runner) |
 | Platforms | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland & X11) | Linux runtime verified locally; macOS and Windows build and test in CI |
 
 These are alpha measurements, not a 1.0 baseline, and the CI regression gate is not implemented
 yet: the harness exists and the method is documented in the
-[performance budget](docs/src/reference/performance-budget.md). The edit-to-see result covers only
-the opt-in hot-reload path's data boundary with the four-crate scaffold; hot reload is measured,
-not GA. A change to `ui`/`Render`, layout, `types`, dependencies or configuration is host code:
+[performance budget](docs/src/reference/performance-budget.md). The edit-to-see result covers the
+opt-in hot-reload path's data boundary with the four-crate scaffold; hot reload is GA with those
+per-OS targets and a labelled versioned-snapshot restart fallback. A change to `ui`/`Render`,
+layout, `types`, dependencies or configuration is host code:
 `auro dev` rebuilds and restarts the process, restores opted-in state from a snapshot when the
 version is compatible, and labels the result `restarted (state restored)` or `restarted (state
 reset: <reason>)`. It never reports that path as a reload. Per-platform status is in the
@@ -168,7 +186,7 @@ Six phases, ~42 weeks to 1.0. Full detail in [ROADMAP.md](ROADMAP.md).
 | 0 | Foundations | `auro new` to a window, in under two minutes |
 | 1 | Hello, native | App layer + typed IPC + `auro dev`, toolkit of your choice |
 | 2 | Ship it | Bundling, signed updates, platform services, a11y |
-| 3 | Extensible | Out-of-process plugins, hot reload GA |
+| 3 | Extensible | Plugin host code published behind default-off features; exit not claimed; hot reload GA |
 | 4 | Ecosystem | Web escape hatch, templates, docs |
 | 5 | 1.0 | API freeze, audit, perf budget in CI |
 

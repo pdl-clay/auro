@@ -24,23 +24,27 @@ O frontend é Rust. Não existe HTML, nem engine de CSS, nem JavaScript no runti
 fase 2 está em andamento. `0.1.0-alpha.13` é o alpha atual publicado no crates.io; ainda não há
 release estável nem CLI estável. Instale o CLI alpha com
 `cargo install auro-cli --version 0.1.0-alpha.13`, ou compile e experimente o framework a partir de
-um checkout (veja [CONTRIBUTING.md](CONTRIBUTING.md)). As fatias da fase 2 no repositório cobrem empacotamento,
-updates assinados com caminhos de aplicação por plataforma e serviços de plataforma; submissão e
-verificação local de notarização no macOS são ferramentas de release, não um fluxo de usuário
-testado. Hot reload está medido, não GA, e só para a fronteira de dados do scaffold opt-in de
-quatro crates: no Linux, edições em `data/src` (a fronteira `view_data() -> HotData`) ficam abaixo
-da meta de 500 ms; no Windows e em um runner macOS compartilhado, acima. Edições em `ui`/`Render`,
-layout, `types`, dependências ou configuração exigem rebuild do host e restart do processo (com
-restauração de snapshot quando compatível); não são reload de view no mesmo processo.
+um checkout (veja [CONTRIBUTING.md](CONTRIBUTING.md)). As fatias da fase 2 no repositório cobrem
+empacotamento, updates assinados com caminhos de aplicação por plataforma e serviços de plataforma;
+submissão e verificação local de notarização no macOS são ferramentas de release, não um fluxo de
+usuário testado. Hot reload está em **GA com metas por SO**: Linux < 500 ms (368 ms medidos, N=12),
+Windows e macOS < 1 s com números e contexto do runner publicados. O fallback de restart com
+snapshot versionado continua no contrato e é sempre rotulado como
+`restarted (state restored|reset)`. Edições em `ui`/`Render`, layout, `types`, dependências ou
+configuração recompilam o host e reiniciam o processo, em vez de recarregar a view no mesmo lugar.
 
 | Fase | Codinome | Estado |
 |---|---|---|
 | 0 | Foundations | **concluída** |
 | 1 | Hello, native | **concluída** |
 | 2 | Ship it | **em andamento** |
-| 3 | Extensible | planejada |
+| 3 | Extensible | **código do host publicado, exit não reivindicado** |
 | 4 | Ecosystem | planejada |
 | 5 | 1.0 | planejada |
+
+O código do host de plugins da fase 3 está publicado atrás das features default-off `plugins` e
+`plugins-dylib`; o exit ainda depende de um plugin de um autor externo ao time central. Os exits
+do roadmap não mudaram.
 
 Detalhe completo no [ROADMAP.md](ROADMAP.md) (em inglês). A arquitetura e o raciocínio por trás
 dela estão no [livro de documentação](https://pdl-clay.github.io/auro/); o suporte de plataformas
@@ -71,6 +75,20 @@ formatos, updater assinado. O que ele erra, para quem quer *nativo*, é que o ap
 uma página web.
 
 Auro mantém o casco e troca o motor.
+
+
+## Início rápido
+
+```bash
+cargo install auro-cli --version 0.1.0-alpha.13
+auro new demo
+cd demo && cargo run
+```
+
+O projeto gerado usa os crates publicados. Veja [o guia de início](docs/src/start.md) para
+pré-requisitos e configuração. Para hot reload opt-in, defina `hot = true` em `[dev]` no
+`Auro.toml`; o scaffold de quatro crates e sua fronteira estão descritos na
+[arquitetura de hot reload](docs/src/architecture/hot-reload.md).
 
 ## Como vai ser
 
@@ -122,8 +140,9 @@ chamada Rust. Erro de tipo é erro de compilação.
 1. **IPC tipado, em tudo.** Os schemas saem das assinaturas Rust. Não existe ponte
    stringly-typed, porque não existe JavaScript para atravessar.
 2. **Hot reload ou nada.** O tempo de compilação do Rust é o único motivo real para continuar na
-   web. Meta: editar e ver em **menos de 500 ms**, com o estado do app preservado. Todo o projeto
-   depende dessa aposta.
+   web. As metas de GA são por SO: menos de 500 ms no Linux e menos de 1 s no Windows e no macOS,
+   com o estado do app preservado por um restart versionado e rotulado quando a edição não pode
+   ser recarregada.
 3. **Capabilities na fronteira de verdade.** Com frontend em Rust, a maior parte da checagem de
    permissão é em tempo de compilação. O que realmente precisa de cerca em runtime é **código de
    plugin** e **conteúdo não confiável**. É aí que mora o modelo de capabilities do Auro.
@@ -146,14 +165,15 @@ chamada Rust. Erro de tipo é erro de compilação.
 | Cold start | < 80 ms | 154,9 ms mediana, requisição do primeiro frame (Linux) |
 | RAM idle | < 40 MB | 105,3 MB (Linux) |
 | Binário hello-world | < 6 MB (stripped) | 15,6 MB (Linux) |
-| Editar e ver (só fronteira de dados) | < 500 ms | 368 ms mediana, p95 394 ms para edições em `data/src` (`view_data() -> HotData`), hot mode opt-in, N=12 (Linux); 813 ms mediana, p95 897 ms (Windows); 509,5-956,0 ms medianas, p95 até 2096 ms, três runs com seis warm-ups (runner macOS compartilhado) |
+| Editar e ver (só fronteira de dados) | < 500 ms Linux; < 1 s Windows/macOS | 368 ms mediana, p95 394 ms para edições em `data/src` (`view_data() -> HotData`), hot mode opt-in, N=12 (Linux); 813 ms mediana, p95 897 ms (Windows); 509,5-956,0 ms medianas, p95 até 2096 ms, três runs com seis warm-ups (runner macOS compartilhado) |
 | Plataformas | macOS 12+, Windows 10+, Ubuntu 22.04+ (Wayland e X11) | Linux verificado em runtime local; macOS e Windows compilam e testam no CI |
 
 São medições alpha, não uma baseline 1.0, e o gate de regressão no CI ainda não existe: o harness
 existe e o método está no [budget de performance](docs/src/reference/performance-budget.md). O
-resultado de editar e ver cobre só a fronteira de dados do caminho opt-in de hot reload com o
-scaffold de quatro crates; hot reload está medido, não GA. Uma mudança em `ui`/`Render`, layout,
-`types`, dependências ou configuração é código de host: `auro dev` recompila e reinicia o
+resultado de editar e ver cobre a fronteira de dados do caminho opt-in de hot reload com o
+scaffold de quatro crates; hot reload está em GA com essas metas por SO e um fallback de restart
+versionado e rotulado. Uma mudança em `ui`/`Render`, layout, `types`, dependências ou configuração
+é código de host: `auro dev` recompila e reinicia o
 processo, restaura o estado opt-in a partir do snapshot quando a versão é compatível e rotula o
 resultado como `restarted (state restored)` ou `restarted (state reset: <reason>)`. Esse caminho
 nunca é reportado como reload. O status por plataforma está na
@@ -168,7 +188,7 @@ Seis fases, ~42 semanas até o 1.0. Detalhe completo no [ROADMAP.md](ROADMAP.md)
 | 0 | Foundations | `auro new` até uma janela, em menos de dois minutos |
 | 1 | Hello, native | App layer + IPC tipado + `auro dev`, toolkit à sua escolha |
 | 2 | Ship it | Empacotamento, updates assinados, serviços de plataforma, a11y |
-| 3 | Extensible | Plugins out-of-process, hot reload GA |
+| 3 | Extensible | Código do host de plugins publicado atrás de features default-off; exit não reivindicado; hot reload GA |
 | 4 | Ecosystem | Escape hatch de webview, templates, docs |
 | 5 | 1.0 | Congelamento de API, auditoria, budget de perf no CI |
 
