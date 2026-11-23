@@ -18,11 +18,9 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Discuss first, code second
 
-Anything larger than a typo starts in [Discussions](https://github.com/pdl-clay/auro/discussions).
-A PR that lands without agreement wastes your time.
-
-A typo or a small documentation fix can go straight to a PR. Anything over roughly 50 changed
-lines, and every behaviour or API change, starts with an issue or a Discussion first.
+Anything over roughly 50 changed lines, and every behaviour or API change, starts with an issue or a
+[Discussion](https://github.com/pdl-clay/auro/discussions). A typo or a small documentation fix can
+go straight to a PR. A PR that lands without agreement wastes your time.
 
 Design changes that affect the public API go through a short [RFC](rfcs/README.md). A decision
 that has already been made and constrains future code is recorded as an
