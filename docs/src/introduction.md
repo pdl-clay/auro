@@ -1,6 +1,6 @@
 <section class="hero">
     <div>
-        <p class="hero__eyebrow">Auro 0.1.0-alpha.13 &middot; native desktop</p>
+        <p class="hero__eyebrow">Auro 0.1.0-alpha.15 &middot; native desktop</p>
         <h1>Desktop apps with a Rust frontend.</h1>
         <p class="hero__lede">
             Auro keeps Tauri's app model - configuration, windows, capabilities, bundling,
@@ -26,14 +26,14 @@
         </div>
         <div class="terminal-card__body">
 <pre><span class="comment"># install the alpha CLI</span>
-<span class="prompt">$</span> cargo install auro-cli --version 0.1.0-alpha.13
+<span class="prompt">$</span> cargo install auro-cli --version 0.1.0-alpha.15
 <span class="prompt">$</span> auro new hello
 <span class="prompt">$</span> cd hello
 <span class="prompt">$</span> auro dev</pre>
         </div>
         <div class="terminal-card__footer">
             <span>default dev loop: rebuild and relaunch</span>
-            <button class="terminal-copy" type="button" data-copy="cargo install auro-cli --version 0.1.0-alpha.13
+            <button class="terminal-copy" type="button" data-copy="cargo install auro-cli --version 0.1.0-alpha.15
 auro new hello
 cd hello
 auro dev">Copy</button>
@@ -220,7 +220,7 @@ let saved = api::save_document(doc.path, doc.body).await?;</code></pre>
             </p>
         </div>
         <ul>
-            <li><code>0.1.0-alpha.13</code> is on crates.io; there is no stable release.</li>
+            <li><code>0.1.0-alpha.15</code> is on crates.io; there is no stable release.</li>
             <li>Hot reload GA uses per-OS targets: Linux &lt; 500 ms, Windows and macOS &lt; 1 s, with a labelled snapshot-restart fallback.</li>
             <li>Platform rows are published as verified or unverified, not as promises.</li>
         </ul>

@@ -1,8 +1,11 @@
 # Updates
 
-Status: the pieces below exist in tree and are unit-tested, but no update has been served, signed
-with a release key, installed on a packaged app and verified end to end on all three platforms.
-Apple credentials and a macOS runtime are unavailable here.
+Status: the pieces below exist in tree and are unit-tested. The Linux AppImage path with the GitHub
+Releases channel was verified end to end against Auri with `0.1.0-alpha.15`: a published prerelease
+was discovered via `/releases`, its signed manifest verified, the artifact staged at the manifest
+SHA-256, an AppImage journal written (`restarted`, backup retained), and the app relaunched with the
+exact manifest hash installed. Windows and macOS remain unverified end to end; Apple credentials and
+a macOS runtime are unavailable here.
 
 The contract lives in the specs: [0012](../specs/0012-update-manifests.md) (manifest),
 [0013](../specs/0013-updater-runtime.md) (check/stage), [0014](../specs/0014-appimage-apply.md),
@@ -80,11 +83,29 @@ Signing inputs are mapped to the platform bundler. Notarization is separate rele
 validates the ticket, and `--verify` runs the matching Gatekeeper assessment. It does not replace
 the Auro manifest signature. See [macOS notarization](../specs/0032-macos-notarization.md).
 
+## Release channel
+
+The opt-in `[updater]` section in `Auro.toml` names a public GitHub repository, the pinned public
+key and a signed manifest asset (`auro-update.json` by default). `auro_update::GithubChannel`
+resolves `/releases/latest` (or `/releases` with `include-prereleases = true`, skipping drafts),
+fetches that asset, verifies it with `Updater`, stages the artifact and writes the same apply
+journal used by a manual updater. `apply` starts the restart helper; the app then exits so the
+helper can replace the AppImage and relaunch from `$APPIMAGE`. The install target and the state
+directory are supplied at runtime: an AppImage's cwd is its read-only mount, and the channel creates
+the state directory with owner-only permissions. A base artifact can be supplied to use a signed
+delta.
+
+GitHub Releases is transport only: the API response is never a trust decision, and the app sends no
+token. See [spec 0037](../specs/0037-github-release-channel.md),
+[ADR 0026](../decisions/0026-github-releases-is-transport.md) and the
+[release recipe](../cookbook/github-release-updates.md).
+
 ## Not implemented
 
-- a served update channel, metadata expiry/generation, release key rotation and revocation
+- metadata expiry/generation, release key rotation and revocation
   ([RFC 0001](../../../rfcs/0001-update-metadata-trust.md));
 - a real notarization submission or a macOS `.pkg` apply on a macOS host;
 - automatic retention of a previous package;
-- an update UI, scheduling, channels or resume of an interrupted download;
+- an update UI, background scheduling, retry policy, resume of an interrupted download, private
+  releases and channels other than GitHub Releases
 - a public comparison or pinned CI baseline for update size/time.

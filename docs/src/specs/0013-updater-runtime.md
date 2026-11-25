@@ -24,8 +24,8 @@ staging directory. Installation starts in [spec 0014](0014-appimage-apply.md) fo
 - Installing, launching an installer, replacing the running app, restarting, and rollback (Linux
   AppImage apply/rollback is [spec 0014](0014-appimage-apply.md); Windows/macOS apply is
   [spec 0025](0025-platform-apply.md); package-manager artifacts remain separate).
-- Channels and update UI.
-- Background scheduling, retry policy, resume of an interrupted download and UI prompts.
+- Channels inside `Updater`; the GitHub Releases adapter is [spec 0037](0037-github-release-channel.md)
+- Background scheduling, retry policy, resume of an interrupted download and UI prompts
 - Key distribution, rotation and revocation inside the app.
 - Hosting and CDN behavior.
 

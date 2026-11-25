@@ -21,7 +21,7 @@ pub use auro_plugins as plugins;
 pub use autosave::{Autosave, DEFAULT_DEBOUNCE};
 pub use config::{
     AppConfig, BundleConfig, BundleTargets, Config, DevConfig, MacOsBundleConfig, Theme,
-    WindowConfig, WindowsBundleConfig,
+    UpdateProvider, UpdaterConfig, WindowConfig, WindowsBundleConfig,
 };
 pub use events::EventSender;
 pub use instance::{AppInstance, InstanceListener, InstanceMessage};

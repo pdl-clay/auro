@@ -32,6 +32,9 @@ pub struct Config {
     pub bundle: BundleConfig,
     #[serde(default)]
     pub plugins: PluginConfig,
+    /// Opt-in release channel configuration; absent means no channel is configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updater: Option<UpdaterConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -272,6 +275,43 @@ pub struct AllowedPluginConfig {
     pub version: String,
 }
 
+/// GitHub Releases update channel settings (`[updater]`).
+///
+/// The section is parsed without the facade's `updater` feature so release-side tools read the
+/// same file; the channel adapter consumes the values when the feature is enabled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct UpdaterConfig {
+    /// Release provider; `"github"` is the only provider in this alpha.
+    #[serde(default)]
+    pub provider: UpdateProvider,
+    /// Public repository as `owner/repo`.
+    pub repository: String,
+    /// Base64 Ed25519 public key printed by `auro generate-key`.
+    pub public_key: String,
+    /// Named signed manifest asset in the latest release.
+    #[serde(default = "default_manifest_asset")]
+    pub manifest_asset: String,
+    /// Minimum seconds between automatic checks.
+    #[serde(default = "default_interval_secs")]
+    pub interval_secs: u64,
+    /// Allow a check before any timestamp has been recorded.
+    #[serde(default = "default_true")]
+    pub check_on_start: bool,
+    /// Allow prereleases by resolving the release list instead of `/releases/latest`.
+    #[serde(default)]
+    pub include_prereleases: bool,
+}
+
+/// The only supported release provider.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateProvider {
+    /// Public GitHub Releases.
+    #[default]
+    Github,
+}
+
 /// `"all"` or an explicit list of package formats.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -314,6 +354,14 @@ fn default_watch() -> Vec<String> {
 
 fn default_category() -> String {
     "DeveloperTool".to_owned()
+}
+
+fn default_manifest_asset() -> String {
+    "auro-update.json".to_owned()
+}
+
+fn default_interval_secs() -> u64 {
+    3600
 }
 
 impl Config {
@@ -536,6 +584,41 @@ impl Config {
             }
         }
 
+        if let Some(updater) = &self.updater {
+            let repository = updater
+                .repository
+                .split_once('/')
+                .is_some_and(|(owner, repo)| is_github_name(owner) && is_github_name(repo));
+            if !repository {
+                return Err(AuroError::config(
+                    path,
+                    Some("updater.repository"),
+                    format!("`{}` is not `owner/repo`", updater.repository),
+                ));
+            }
+            if updater.public_key.trim().is_empty() {
+                return Err(AuroError::config(
+                    path,
+                    Some("updater.public-key"),
+                    "the release public key must not be empty",
+                ));
+            }
+            if !is_asset_name(&updater.manifest_asset) {
+                return Err(AuroError::config(
+                    path,
+                    Some("updater.manifest-asset"),
+                    format!("`{}` is not a plain asset name", updater.manifest_asset),
+                ));
+            }
+            if updater.interval_secs == 0 {
+                return Err(AuroError::config(
+                    path,
+                    Some("updater.interval-secs"),
+                    "the check interval must be positive",
+                ));
+            }
+        }
+
         Ok(())
     }
 }
@@ -620,6 +703,22 @@ fn is_window_label(value: &str) -> bool {
     !value.is_empty()
         && value.chars().all(|character| {
             character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        })
+}
+
+fn is_github_name(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+}
+
+fn is_asset_name(value: &str) -> bool {
+    !value.trim().is_empty()
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
         })
 }
 
@@ -1090,6 +1189,43 @@ label = "main"
     }
 
     #[test]
+    fn updater_section_parses_and_validates() {
+        let section = r#"
+[updater]
+repository = "pdl-clay/auri"
+public-key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+"#;
+        let config = parse(&format!("{MINIMAL}\n{section}")).expect("valid updater config");
+        let updater = config.updater.as_ref().expect("updater section");
+        assert_eq!(updater.provider, UpdateProvider::Github);
+        assert_eq!(updater.manifest_asset, "auro-update.json");
+        assert_eq!(updater.interval_secs, 3600);
+        assert!(!updater.include_prereleases);
+
+        let explicit = format!(
+            "{MINIMAL}\n[updater]\nprovider = \"github\"\nrepository = \"pdl-clay/auri\"\npublic-key = \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\nmanifest-asset = \"nightly.json\"\ninterval-secs = 90\ncheck-on-start = false\ninclude-prereleases = true\n"
+        );
+        let config = parse(&explicit).expect("explicit updater config");
+        let updater = config.updater.as_ref().expect("updater section");
+        assert_eq!(updater.manifest_asset, "nightly.json");
+        assert_eq!(updater.interval_secs, 90);
+        assert!(updater.include_prereleases);
+
+        let invalid = [
+            "provider = \"gitlab\"\nrepository = \"pdl-clay/auri\"\npublic-key = \"key\"",
+            "repository = \"pdl-clay/auri/extra\"\npublic-key = \"key\"",
+            "repository = \"pdl-clay\"\npublic-key = \"key\"",
+            "repository = \"pdl-clay/auri\"\npublic-key = \"\"",
+            "repository = \"pdl-clay/auri\"\npublic-key = \"key\"\nmanifest-asset = \"../latest.json\"",
+            "repository = \"pdl-clay/auri\"\npublic-key = \"key\"\ninterval-secs = 0",
+        ];
+        for section in invalid {
+            let text = format!("{MINIMAL}\n[updater]\n{section}\n");
+            assert!(parse(&text).is_err(), "accepted invalid section: {section}");
+        }
+    }
+
+    #[test]
     fn every_documented_key_survives_a_round_trip() {
         let host = host_bundle_targets()
             .first()
@@ -1183,6 +1319,15 @@ tsp = true
 sign-command = "signtool"
 sign-args = ["sign", "%1"]
 allow-downgrades = false
+
+[updater]
+provider = "github"
+repository = "pdl-clay/auri"
+public-key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+manifest-asset = "custom.json"
+interval-secs = 120
+check-on-start = false
+include-prereleases = true
 "#
         );
 

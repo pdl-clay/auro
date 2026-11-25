@@ -209,6 +209,18 @@ pub enum UpdateError {
 
     #[error("update backup `{}` has no recorded target", .backup.display())]
     JournalBackupTargetMissing { backup: PathBuf },
+
+    #[error("GitHub release response is invalid: {0}")]
+    ReleaseResponse(String),
+
+    #[error("release `{release}` has no asset named `{asset}`")]
+    ReleaseAssetMissing { release: String, asset: String },
+
+    #[error("refusing release asset URL `{url}`")]
+    UnsafeAssetUrl { url: String },
+
+    #[error("update manifest exceeds {limit} bytes")]
+    ManifestTooLarge { limit: usize },
 }
 
 mod journal;
@@ -226,6 +238,10 @@ pub use installer::{InstallerRunner, SystemInstallerRunner};
 mod runtime;
 
 pub use runtime::{StagedUpdate, UpdateDecision, Updater};
+
+mod channel;
+
+pub use channel::{ChannelConfig, DEFAULT_MANIFEST_ASSET, GithubChannel};
 
 /// Creates a bsdiff-compatible patch from `base` to `target`.
 pub fn create_delta(base: &Path, target: &Path) -> Result<Vec<u8>, UpdateError> {

@@ -80,6 +80,16 @@ pub struct Updater {
     agent: ureq::Agent,
 }
 
+/// The one HTTP agent configuration used by the runtime and the release channel.
+pub(crate) fn http_agent() -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .timeout_per_call(Some(Duration::from_secs(300)))
+        .timeout_per_read(Some(Duration::from_secs(30)))
+        .build();
+    ureq::Agent::new_with_config(config)
+}
+
 impl Updater {
     /// Creates an updater for the current platform.
     ///
@@ -95,18 +105,14 @@ impl Updater {
                 field: "current version",
                 value: current_version.to_owned(),
             })?;
-        let config = ureq::Agent::config_builder()
-            .timeout_connect(Some(Duration::from_secs(10)))
-            .timeout_per_call(Some(Duration::from_secs(300)))
-            .timeout_per_read(Some(Duration::from_secs(30)))
-            .build();
+        let agent = http_agent();
         Ok(Updater {
             staging_dir: staging_dir.into(),
             key,
             current_version,
             platform: current_platform(),
             rollout_key: None,
-            agent: ureq::Agent::new_with_config(config),
+            agent,
         })
     }
 

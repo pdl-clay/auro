@@ -6,15 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from 1.0. Before 1.0, a
 breaking change bumps the minor version; the patch version is for compatible fixes.
 
-**`0.1.0-alpha.13` is published on crates.io.** No stable release has been tagged.
+**`0.1.0-alpha.15` is published on crates.io.** No stable release has been tagged.
 
 ## [Unreleased]
+
+
+### Changed
+
+- The updates architecture, spec 0037 and cookbook record the real Auri end-to-end result for the
+  Linux AppImage prerelease channel on `0.1.0-alpha.15`. Documentation only; no runtime change.
+
+## [0.1.0-alpha.15] - 2026-11-25
+
+### Added
+
+- `include-prereleases` under `[updater]`: `/releases/latest` remains the stable-only default;
+  opting in resolves `/releases` and selects the first non-draft release, including prereleases.
+
+### Changed
+
+- Spec 0024 now lists `auro-plugins` in the leaves-first publication order, matching the
+  twelve-crate release practice.
+
+### Fixed
+
+- `GithubChannel::new` now creates its state and staging directories with mode `0700` on Unix, so
+  an app does not need to pre-create a private directory for the journal trust checks.
+- The update-channel example and cookbook no longer derive state from the working directory, which
+  is a read-only AppImage mount; they use `$XDG_STATE_HOME/<app>` instead.
+
+## [0.1.0-alpha.14] - 2026-11-24
 
 ### Added
 
 - A plugin author cookbook in the mdBook, derived from specs 0034-0036 and ADRs 0024/0025, covering
   the host contract, signed static index, RPC, capabilities, tests and explicit limitations.
   Documentation only; no runtime behaviour changed.
+- A first-party GitHub Releases update channel behind the existing `updater` feature: the optional
+  `[updater]` section pins the repository and public key, and `GithubChannel` resolves the latest
+  release, verifies the signed manifest, stages the artifact (with optional delta), and writes the
+  AppImage apply journal and restart handoff. A cookbook and a runnable example cover the release
+  recipe and app flow; only public releases and Linux AppImage apply are in this slice.
 
 ### Changed
 

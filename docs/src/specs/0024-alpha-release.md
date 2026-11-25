@@ -3,8 +3,8 @@
 **Status:** Implemented (2026-11-18 for `v0.1.0-alpha.1`; 2026-11-19 for `v0.1.0-alpha.2`;
 2026-11-20 for `v0.1.0-alpha.3` and `v0.1.0-alpha.4`; 2026-11-21 for `v0.1.0-alpha.5`,
 `v0.1.0-alpha.6`, `v0.1.0-alpha.7`, `v0.1.0-alpha.8`, `v0.1.0-alpha.9`, `v0.1.0-alpha.10`,
-`v0.1.0-alpha.11`, `v0.1.0-alpha.12` and `v0.1.0-alpha.13`). All twelve crates are published; final
-screenshots remain follow-ups.
+`v0.1.0-alpha.11`, `v0.1.0-alpha.12`, `v0.1.0-alpha.13`, `v0.1.0-alpha.14` and `v0.1.0-alpha.15`).
+All twelve crates are published; final screenshots remain follow-ups.
 
 The first public alpha publishes the workspace crates as `0.1.0-alpha.1`. This spec collects the
 release contract that is not owned by an earlier feature spec: versioning, publish order, crate
@@ -39,7 +39,7 @@ placeholder and is never published. `0.1.0-alpha.2` follows the same rule for th
 
 crates.io resolves dependencies from the registry, not from path dependencies. Publication order:
 
-1. `auro-macros`, `auro-ipc`, `auro-sign`, `auro-perms`, `auro-services`
+1. `auro-macros`, `auro-ipc`, `auro-sign`, `auro-perms`, `auro-services`, `auro-plugins`
 2. `auro-core`
 3. `auro-update`
 4. `auro-ui`
@@ -47,7 +47,7 @@ crates.io resolves dependencies from the registry, not from path dependencies. P
 6. `auro`
 7. `auro-cli`
 
-The first five fit the new-crate burst; the remaining six are spaced by the crates.io limit of one
+The first six fit the new-crate burst; the remaining six are spaced by the crates.io limit of one
 new crate per ten minutes. Each crate is dry-run and verified before the next.
 
 ### D3 - Services are opt-in at the facade
@@ -215,6 +215,25 @@ ordinary feature PR.
   targets (Linux < 500 ms, Windows and macOS < 1 s) with a labelled snapshot-restart fallback; no
   platform claims 500 ms without its own measurement.
 - Tag `v0.1.0-alpha.13` points at the release commit.
+
+### Publication (2026-11-24) - `0.1.0-alpha.14`
+
+- Workspace version and internal requirements are `0.1.0-alpha.14`; all twelve crates report it as
+  their maximum published version on crates.io.
+- The release adds the opt-in GitHub Releases update channel: `[updater]` pins the repository and
+  public key, and `GithubChannel` resolves a signed manifest, stages the artifact and hands off to
+  the AppImage apply journal and restart helper (spec 0037, ADR 0026). Only public releases and
+  Linux AppImage apply are in this slice.
+- Tag `v0.1.0-alpha.14` points at the release commit.
+
+### Publication (2026-11-25) - `0.1.0-alpha.15`
+
+- Workspace version and internal requirements are `0.1.0-alpha.15`; all twelve crates report it as
+  their maximum published version on crates.io.
+- The release applies findings from the first real Auri integration: `include-prereleases` opts into
+  `/releases` while `/releases/latest` stays stable-only, and update state is created with mode
+  `0700` on Unix instead of being derived from the read-only AppImage cwd (spec 0037).
+- Tag `v0.1.0-alpha.15` points at the release commit.
 
 ## Open questions
 

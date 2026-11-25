@@ -4,7 +4,7 @@ Instructions for AI coding assistants and contributors working in this repositor
 
 **Read this first: the workspace exists; the framework is pre-alpha.** Twelve crates under `crates/`
 compile and their tests pass, `auro new` produces a project that builds against this checkout, and
-the UI layer is one primitive. The `0.1.0-alpha.13` alpha is published; there is no stable release.
+the UI layer is one primitive. The `0.1.0-alpha.15` alpha is published; there is no stable release.
 Anything described below as *planned* is a
 target recorded in the roadmap or a spec, not code you can find with a symbol search. Never present
 a planned API as an existing one, and do not invent files to make a design look implemented.
@@ -35,7 +35,7 @@ bundling, signed updater, dev server, single-instance, multi-window) and replace
 [GPUI](https://gpui.rs), Zed's GPU-accelerated Rust UI toolkit. The frontend is Rust: no HTML, no
 CSS engine, no JavaScript in the app runtime.
 
-Status: pre-alpha, designed in public. `0.1.0-alpha.13` is published on crates.io; there is no
+Status: pre-alpha, designed in public. `0.1.0-alpha.15` is published on crates.io; there is no
 stable release or stable CLI.
 
 Four non-goals are enforced in review, not aspirational:
