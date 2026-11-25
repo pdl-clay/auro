@@ -16,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0-alpha.13"
+version = "0.1.0-alpha.14"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT OR Apache-2.0"
@@ -25,17 +25,17 @@ authors = ["The Auro Authors"]
 publish = ["crates-io"]
 
 [workspace.dependencies]
-auro = { path = "crates/auro", version = "0.1.0-alpha.13" }
-auro-bundle = { path = "crates/auro-bundle", version = "0.1.0-alpha.13" }
-auro-core = { path = "crates/auro-core", version = "0.1.0-alpha.13" }
-auro-sign = { path = "crates/auro-sign", version = "0.1.0-alpha.13" }
-auro-update = { path = "crates/auro-update", version = "0.1.0-alpha.13" }
-auro-ipc = { path = "crates/auro-ipc", version = "0.1.0-alpha.13" }
-auro-macros = { path = "crates/auro-macros", version = "0.1.0-alpha.13" }
-auro-perms = { path = "crates/auro-perms", version = "0.1.0-alpha.13" }
-auro-plugins = { path = "crates/auro-plugins", version = "0.1.0-alpha.13" }
-auro-services = { path = "crates/auro-services", version = "0.1.0-alpha.13" }
-auro-ui = { path = "crates/auro-ui", version = "0.1.0-alpha.13" }
+auro = { path = "crates/auro", version = "0.1.0-alpha.14" }
+auro-bundle = { path = "crates/auro-bundle", version = "0.1.0-alpha.14" }
+auro-core = { path = "crates/auro-core", version = "0.1.0-alpha.14" }
+auro-sign = { path = "crates/auro-sign", version = "0.1.0-alpha.14" }
+auro-update = { path = "crates/auro-update", version = "0.1.0-alpha.14" }
+auro-ipc = { path = "crates/auro-ipc", version = "0.1.0-alpha.14" }
+auro-macros = { path = "crates/auro-macros", version = "0.1.0-alpha.14" }
+auro-perms = { path = "crates/auro-perms", version = "0.1.0-alpha.14" }
+auro-plugins = { path = "crates/auro-plugins", version = "0.1.0-alpha.14" }
+auro-services = { path = "crates/auro-services", version = "0.1.0-alpha.14" }
+auro-ui = { path = "crates/auro-ui", version = "0.1.0-alpha.14" }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }

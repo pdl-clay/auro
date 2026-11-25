@@ -465,6 +465,12 @@ per-OS evidence, and clean dev-session exit semantics. Hot reload GA uses per-OS
 < 500 ms, Windows and macOS < 1 s with recorded context; no platform claims 500 ms without its own
 measurement, and the versioned-snapshot restart fallback remains labelled as a restart.
 
+**Alpha.14 published (2026-11-24):** all twelve crates are `0.1.0-alpha.14` on crates.io, adding
+the opt-in GitHub Releases update channel: `[updater]` pins the repository and public key, and the
+runtime adapter resolves a signed manifest, stages the artifact, and hands off to the AppImage
+apply journal and restart helper (spec 0037, ADR 0026). Public releases and Linux AppImage apply
+are the first slice; no UI, scheduling or key rotation is implied.
+
 **Maturation closed (2026-11-21):** `v0.1.0-alpha.10` closed the maturation window after two
 consecutive rounds of real use with no medium-or-higher finding. `alpha.11` follows with the GPUI
 asset source API and the accepted phase 3 plugin host stages 1-2 behind a default-off feature.
