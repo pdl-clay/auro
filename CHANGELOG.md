@@ -15,6 +15,11 @@ breaking change bumps the minor version; the patch version is for compatible fix
 - A plugin author cookbook in the mdBook, derived from specs 0034-0036 and ADRs 0024/0025, covering
   the host contract, signed static index, RPC, capabilities, tests and explicit limitations.
   Documentation only; no runtime behaviour changed.
+- A first-party GitHub Releases update channel behind the existing `updater` feature: the optional
+  `[updater]` section pins the repository and public key, and `GithubChannel` resolves the latest
+  release, verifies the signed manifest, stages the artifact (with optional delta), and writes the
+  AppImage apply journal and restart handoff. A cookbook and a runnable example cover the release
+  recipe and app flow; only public releases and Linux AppImage apply are in this slice.
 
 ### Changed
 

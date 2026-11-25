@@ -67,3 +67,4 @@ ADR keeps the conclusion.
 | [0023](0023-update-journal-trust.md) | The update journal is a local trust boundary | Accepted |
 | [0024](0024-plugin-host-stage-1.md) | Plugin host stage 1: trust anchor before RPC | Accepted |
 | [0025](0025-in-process-plugin-dylib.md) | In-process plugin dylibs are an explicit exception | Accepted |
+| [0026](0026-github-releases-is-transport.md) | GitHub Releases is transport, not a trust anchor | Accepted |

@@ -1,0 +1,16 @@
+[app]
+identifier = "dev.auro.update-channel"
+product-name = "Update Channel"
+version = "1.0.0"
+
+[[app.windows]]
+label = "main"
+title = "Update Channel"
+width = 640
+height = 480
+
+[updater]
+provider = "github"
+repository = "pdl-clay/auri"
+# Replace with the public key printed by `auro generate-key` for your releases.
+public-key = "EL9+DO8YiZnz+2sC4MBb3796ez2U0YtJb1at+UVU4Aw="

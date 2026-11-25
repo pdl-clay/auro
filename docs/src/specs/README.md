@@ -70,3 +70,7 @@ Every spec carries:
 | [0031](0031-macos-package-apply.md) | macOS `.pkg` apply through installer/osascript | 2 | Implemented in tree (runtime unverified) |
 | [0032](0032-macos-notarization.md) | macOS notarization submission and stapling | 2 | Implemented in tree (credentials/runtime unverified) |
 | [0033](0033-update-journal-trust.md) | Update journal trust boundary: fail-closed ownership/mode/ACL checks | 2 | Implemented (Unix tested; Windows compile-verified, runtime unverified) |
+| [0034](0034-plugin-manifest-index.md) | Plugin manifest, verified subject and signed index | 3 | Implemented |
+| [0035](0035-plugin-rpc.md) | Out-of-process plugin RPC | 3 | Implemented |
+| [0036](0036-plugin-supervision.md) | Plugin supervision, RPC limits and the dylib backend | 3 | Implemented |
+| [0037](0037-github-release-channel.md) | GitHub Releases update channel | 2 | Implemented (Linux AppImage; public releases) |

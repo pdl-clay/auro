@@ -42,6 +42,7 @@
 - [0023 - The update journal is a local trust boundary](decisions/0023-update-journal-trust.md)
 - [0024 - Plugin host stage 1: trust anchor before RPC](decisions/0024-plugin-host-stage-1.md)
 - [0025 - In-process plugin dylibs are an explicit exception](decisions/0025-in-process-plugin-dylib.md)
+- [0026 - GitHub Releases is transport, not a trust anchor](decisions/0026-github-releases-is-transport.md)
 
 # Specifications
 
@@ -82,11 +83,13 @@
 - [0034 - Plugin manifest, verified subject and signed index](specs/0034-plugin-manifest-index.md)
 - [0035 - Out-of-process plugin RPC](specs/0035-plugin-rpc.md)
 - [0036 - Plugin supervision, RPC limits and the dylib backend](specs/0036-plugin-supervision.md)
+- [0037 - GitHub Releases update channel](specs/0037-github-release-channel.md)
 
 
 # Cookbook
 
 - [Plugin author](cookbook/plugin-author.md)
+- [GitHub release updates](cookbook/github-release-updates.md)
 
 # Reference
 

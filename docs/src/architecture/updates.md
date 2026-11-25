@@ -80,11 +80,26 @@ Signing inputs are mapped to the platform bundler. Notarization is separate rele
 validates the ticket, and `--verify` runs the matching Gatekeeper assessment. It does not replace
 the Auro manifest signature. See [macOS notarization](../specs/0032-macos-notarization.md).
 
+## Release channel
+
+The opt-in `[updater]` section in `Auro.toml` names a public GitHub repository, the pinned public
+key and a signed manifest asset (`auro-update.json` by default). `auro_update::GithubChannel`
+resolves `/releases/latest`, fetches that asset, verifies it with `Updater`, stages the artifact
+and writes the same apply journal used by a manual updater. `apply` starts the restart helper; the
+app then exits so the helper can replace the AppImage and relaunch. The install target is supplied
+at runtime (normally `$APPIMAGE`), and a base artifact can be supplied to use a signed delta.
+
+GitHub Releases is transport only: the API response is never a trust decision, and the app sends no
+token. See [spec 0037](../specs/0037-github-release-channel.md),
+[ADR 0026](../decisions/0026-github-releases-is-transport.md) and the
+[release recipe](../cookbook/github-release-updates.md).
+
 ## Not implemented
 
-- a served update channel, metadata expiry/generation, release key rotation and revocation
+- metadata expiry/generation, release key rotation and revocation
   ([RFC 0001](../../../rfcs/0001-update-metadata-trust.md));
 - a real notarization submission or a macOS `.pkg` apply on a macOS host;
 - automatic retention of a previous package;
-- an update UI, scheduling, channels or resume of an interrupted download;
+- an update UI, background scheduling, retry policy, resume of an interrupted download, private
+  releases and channels other than GitHub Releases
 - a public comparison or pinned CI baseline for update size/time.

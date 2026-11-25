@@ -146,6 +146,24 @@ Authenticode signing inputs.
 
 `webview-install-mode` is not configurable: Auro has no webview and always skips WebView2.
 
+### `[updater]`
+
+Opt-in GitHub Releases channel (spec 0037). The section is parsed by every Auro tool even without
+the facade's `updater` feature, so release-side commands can read the same file. Absent means no
+channel is configured.
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `provider` | `"github"` | `"github"` | only provider in this alpha |
+| `repository` | string | required | exactly `owner/repo`, public GitHub repository |
+| `public-key` | string | required | base64 Ed25519 key printed by `auro generate-key` |
+| `manifest-asset` | string | `"auro-update.json"` | release asset name; no path separators |
+| `interval-secs` | integer | `3600` | minimum seconds between automatic checks; must be positive |
+| `check-on-start` | bool | `true` | allow a check before any timestamp has been recorded |
+
+The app runtime, not the config, supplies the install target: an AppImage's path is host-specific
+and is normally read from `$APPIMAGE`.
+
 ## Validation
 
 Failures are `AuroError::Config { path, key, message }` and abort before a window opens. Rules:
@@ -167,6 +185,9 @@ Failures are `AuroError::Config { path, key, message }` and abort before a windo
    error under GPUI 0.2 because the renderer cannot express it.
 8. A window declared in `app.windows` without a matching `App::root`/`App::root_with` is a typed
    `AuroError::Window` before the event loop starts, not a headless process.
+9. `[updater].repository` is `owner/repo` with GitHub-safe name characters; `public-key` is
+   non-empty; `manifest-asset` is a plain asset name; `interval-secs` is positive. Invalid values
+   fail with a key-path error before a window opens.
 
 ## Interfaces
 
@@ -185,7 +206,7 @@ height = 640
 ```
 
 ```rust,ignore
-pub struct Config { pub app: AppConfig, pub dev: DevConfig, pub bundle: BundleConfig }
+pub struct Config { pub app: AppConfig, pub dev: DevConfig, pub bundle: BundleConfig, pub updater: Option<UpdaterConfig> }
 impl Config {
     /// Tries `AURO_CONFIG`, then `<dir>/Auro.toml`, then the executable's directory; merges the
     /// platform file and `AURO_CONFIG_OVERRIDES`, validates, returns.
