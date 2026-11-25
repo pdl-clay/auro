@@ -84,10 +84,13 @@ the Auro manifest signature. See [macOS notarization](../specs/0032-macos-notari
 
 The opt-in `[updater]` section in `Auro.toml` names a public GitHub repository, the pinned public
 key and a signed manifest asset (`auro-update.json` by default). `auro_update::GithubChannel`
-resolves `/releases/latest`, fetches that asset, verifies it with `Updater`, stages the artifact
-and writes the same apply journal used by a manual updater. `apply` starts the restart helper; the
-app then exits so the helper can replace the AppImage and relaunch. The install target is supplied
-at runtime (normally `$APPIMAGE`), and a base artifact can be supplied to use a signed delta.
+resolves `/releases/latest` (or `/releases` with `include-prereleases = true`, skipping drafts),
+fetches that asset, verifies it with `Updater`, stages the artifact and writes the same apply
+journal used by a manual updater. `apply` starts the restart helper; the app then exits so the
+helper can replace the AppImage and relaunch from `$APPIMAGE`. The install target and the state
+directory are supplied at runtime: an AppImage's cwd is its read-only mount, and the channel creates
+the state directory with owner-only permissions. A base artifact can be supplied to use a signed
+delta.
 
 GitHub Releases is transport only: the API response is never a trust decision, and the app sends no
 token. See [spec 0037](../specs/0037-github-release-channel.md),

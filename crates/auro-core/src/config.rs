@@ -298,6 +298,9 @@ pub struct UpdaterConfig {
     /// Allow a check before any timestamp has been recorded.
     #[serde(default = "default_true")]
     pub check_on_start: bool,
+    /// Allow prereleases by resolving the release list instead of `/releases/latest`.
+    #[serde(default)]
+    pub include_prereleases: bool,
 }
 
 /// The only supported release provider.
@@ -1197,16 +1200,16 @@ public-key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         assert_eq!(updater.provider, UpdateProvider::Github);
         assert_eq!(updater.manifest_asset, "auro-update.json");
         assert_eq!(updater.interval_secs, 3600);
-        assert!(updater.check_on_start);
+        assert!(!updater.include_prereleases);
 
         let explicit = format!(
-            "{MINIMAL}\n[updater]\nprovider = \"github\"\nrepository = \"pdl-clay/auri\"\npublic-key = \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\nmanifest-asset = \"nightly.json\"\ninterval-secs = 90\ncheck-on-start = false\n"
+            "{MINIMAL}\n[updater]\nprovider = \"github\"\nrepository = \"pdl-clay/auri\"\npublic-key = \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\nmanifest-asset = \"nightly.json\"\ninterval-secs = 90\ncheck-on-start = false\ninclude-prereleases = true\n"
         );
         let config = parse(&explicit).expect("explicit updater config");
         let updater = config.updater.as_ref().expect("updater section");
         assert_eq!(updater.manifest_asset, "nightly.json");
         assert_eq!(updater.interval_secs, 90);
-        assert!(!updater.check_on_start);
+        assert!(updater.include_prereleases);
 
         let invalid = [
             "provider = \"gitlab\"\nrepository = \"pdl-clay/auri\"\npublic-key = \"key\"",
@@ -1324,6 +1327,7 @@ public-key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 manifest-asset = "custom.json"
 interval-secs = 120
 check-on-start = false
+include-prereleases = true
 "#
         );
 

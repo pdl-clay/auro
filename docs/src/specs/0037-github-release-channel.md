@@ -1,6 +1,6 @@
 # 0037 - GitHub Releases update channel
 
-**Status:** Implemented (2026-11-24; Linux AppImage apply; public GitHub releases)
+**Status:** Implemented (2026-11-24; prerelease opt-in and private state dirs added 2026-11-25)
 
 Specs 0012-0015 define signed manifests, staging, platform apply and restart, but leave discovery to
 the app. This spec fixes the first served channel: a public GitHub Releases endpoint that hands a
@@ -9,10 +9,11 @@ signed manifest to the existing updater. Linux AppImage is the first apply targe
 ## Scope
 
 - An opt-in `[updater]` section in `Auro.toml`: `provider`, `repository`, `public-key`,
-  `manifest-asset`, `interval-secs` and `check-on-start` (spec 0002).
-- `auro_update::GithubChannel`: resolve the latest GitHub release, fetch one named signed manifest
-  asset, check it with `Updater`, download/stage the artifact, prepare or start the existing
-  apply/restart journal, and record the last check time.
+  `manifest-asset`, `interval-secs`, `check-on-start` and `include-prereleases` (spec 0002).
+- `auro_update::GithubChannel`: resolve the stable latest release or, when opted in, a prerelease
+  from the release list; fetch one named signed manifest asset, check it with `Updater`,
+  download/stage the artifact, prepare or start the existing apply/restart journal, and record the
+  last check time.
 - A documented release recipe using the existing `auro generate-key`, `auro manifest` and
   `auro delta` commands plus `gh release upload` (specs 0011, 0012, 0028).
 - Bounded manifest reads, a strict HTTPS GitHub asset host allowlist, and typed errors for a
@@ -32,8 +33,9 @@ signed manifest to the existing updater. Linux AppImage is the first apply targe
 
 ### D1 - GitHub Releases is transport, not trust
 
-The channel reads `GET /repos/{owner}/{repo}/releases/latest` to find a release and one asset named
-by configuration. It never treats the release tag, asset list or API response as authenticity. The
+The channel reads `GET /repos/{owner}/{repo}/releases/latest` by default. When
+`include-prereleases` is set, it reads `GET /repos/{owner}/{repo}/releases` and selects the first
+non-draft release. It never treats the release tag, asset list or API response as authenticity. The
 asset bytes are parsed as a v2 manifest and verified by `Updater::check` with the pinned public key
 before any artifact request. A tampered or wrong-key manifest fails before the artifact URL is used.
 
@@ -62,11 +64,13 @@ error. Artifact bytes keep the exact size and SHA-256 bound from spec 0013.
 `interval-secs` (default `3600`) and `check-on-start` (default `true`) drive `due()`. A successful
 due check records a Unix-seconds timestamp in the state directory. `apply` takes the AppImage path
 at runtime, because an installed AppImage's path is host-specific (often `$APPIMAGE`), not a build
-time config value. After `apply` starts the helper the app must exit so the helper's lock is
-released.
+time config value. The state directory must not be derived from the working directory: AppImage
+changes cwd to its read-only mount. `GithubChannel::new` creates the state directory and its staging
+subdirectory with mode `0700` on Unix, then the existing journal trust checks apply. After `apply`
+starts the helper the app must exit so the helper's lock is released.
 
-*Rejected:* a framework timer on the GPUI main thread and a config field naming a machine-specific
-absolute path.
+*Rejected:* a framework timer on the GPUI main thread, a config field naming a machine-specific
+absolute path, and writing update state under an AppImage's read-only cwd.
 
 ### D5 - One verification/staging/apply path
 
@@ -84,18 +88,29 @@ operator's token stays in the release recipe's `gh` invocation.
 
 *Rejected:* a config token that would be shipped to end users.
 
+### D7 - Stable by default, prereleases opt-in
+
+`/releases/latest` deliberately ignores prereleases and drafts. The default channel therefore
+tracks stable releases only. `include-prereleases = true` switches to `/releases` and selects the
+first non-draft entry, including a prerelease; drafts are still skipped. This keeps a public alpha
+app from silently jumping to a draft while allowing an explicit pre-release track.
+
+*Rejected:* always using `/releases`, which would make an unlabelled first entry override a stable
+release.
+
 ## Interfaces
 
 ```rust
 pub const DEFAULT_MANIFEST_ASSET: &str = "auro-update.json";
 
-pub struct ChannelConfig { /* repository, public key, asset name, interval, check-on-start */ }
+pub struct ChannelConfig { /* repository, public key, asset name, interval, check-on-start, prereleases */ }
 
 impl ChannelConfig {
     pub fn new(repository: &str, public_key_base64: &str) -> Self;
     pub fn with_manifest_asset(self, name: &str) -> Self;
     pub fn with_interval_secs(self, secs: u64) -> Self;
     pub fn with_check_on_start(self, enabled: bool) -> Self;
+    pub fn with_prereleases(self, enabled: bool) -> Self;
 }
 
 pub struct GithubChannel { /* settings, Updater, HTTP agent, state paths */ }
@@ -141,13 +156,15 @@ A minimal app flow:
 
 ```rust,ignore
 let config = Config::load(&std::env::current_dir()?)?;
+let state = state_dir("my-app")?; // $XDG_STATE_HOME/my-app, never cwd under AppImage
 let Some(settings) = config.updater.as_ref() else { return };
 let channel = GithubChannel::new(
     ChannelConfig::new(&settings.repository, &settings.public_key)
         .with_manifest_asset(&settings.manifest_asset)
         .with_interval_secs(settings.interval_secs)
-        .with_check_on_start(settings.check_on_start),
-    dir.join(".auro-updates"),
+        .with_check_on_start(settings.check_on_start)
+        .with_prereleases(settings.include_prereleases),
+    state,
     &config.app.version,
 )?;
 let target = std::env::var_os("APPIMAGE")
@@ -170,7 +187,8 @@ The runnable version lives in `examples/update-channel/`.
    `patch.bin`, then repeat step 3 with `--delta-from old.AppImage --delta-from-version <old>
    --delta-url <patch-url> --delta-out patch.bin`.
 5. `gh release upload <tag> auro-update.json [--clobber]` (and `patch.bin` when used).
-6. Publish the release. The app fetches `auro-update.json` from `/releases/latest`.
+6. Publish the release. The default app fetches `auro-update.json` via `/releases/latest`; set
+   `include-prereleases = true` to track a published prerelease instead.
 
 The full recipe, including the platform key and version rules, lives in
 `../cookbook/github-release-updates.md`.
@@ -193,9 +211,13 @@ The full recipe, including the platform key and version rules, lives in
    it is not (`stages_a_delta_or_the_full_artifact`).
 7. Config parses the documented keys, applies defaults and rejects invalid provider, repository,
    key, asset name and interval (`updater_section_parses_and_validates`).
-8. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-   `cargo test --workspace --locked`, `mdbook build docs` and
-   `cargo check --manifest-path examples/update-channel/Cargo.toml` pass.
+8. `/releases/latest` is used by default; `include-prereleases = true` selects the first non-draft
+   entry from `/releases` (`prereleases_are_opt_in`).
+9. `GithubChannel::new` creates state and staging directories with no group/other permission bits
+   on Unix (`creates_private_state_directories`).
+10. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+    `cargo test --workspace --locked`, `mdbook build docs` and
+    `cargo check --manifest-path examples/update-channel/Cargo.toml` pass.
 
 ## Open questions
 

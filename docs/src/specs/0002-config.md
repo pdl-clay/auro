@@ -160,9 +160,11 @@ channel is configured.
 | `manifest-asset` | string | `"auro-update.json"` | release asset name; no path separators |
 | `interval-secs` | integer | `3600` | minimum seconds between automatic checks; must be positive |
 | `check-on-start` | bool | `true` | allow a check before any timestamp has been recorded |
+| `include-prereleases` | bool | `false` | track non-draft prereleases via `/releases` instead of `/releases/latest` |
 
-The app runtime, not the config, supplies the install target: an AppImage's path is host-specific
-and is normally read from `$APPIMAGE`.
+The app runtime, not the config, supplies the install target and the state directory: an AppImage's
+path is host-specific (normally `$APPIMAGE`), and AppImage changes cwd to its read-only mount, so
+state must come from a private XDG state path.
 
 ## Validation
 

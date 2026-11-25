@@ -21,8 +21,9 @@ impl Render for Hello {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let dir = std::env::current_dir()?;
-    reconcile(&dir)?;
-    if maybe_update(&dir)? {
+    let state = state_dir("update-channel")?;
+    reconcile(&state)?;
+    if maybe_update(&dir, &state)? {
         // The helper owns the journal lock now; exit so it can apply and relaunch.
         return Ok(());
     }
@@ -30,8 +31,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn reconcile(dir: &Path) -> Result<(), Box<dyn Error>> {
-    let path = dir.join(".auro-updates").join("update.json");
+/// AppImage changes the working directory to its read-only mount, so state never comes from cwd.
+fn state_dir(app: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|home| Path::new(&home).join(".local").join("state"))
+        })
+        .ok_or("set XDG_STATE_HOME or HOME for update state")?;
+    Ok(base.join(app))
+}
+
+fn reconcile(state_dir: &Path) -> Result<(), Box<dyn Error>> {
+    let path = state_dir.join("update.json");
     let journal = match ApplyJournal::load(&path) {
         Ok(journal) => journal,
         Err(UpdateError::JournalMissing { .. }) => return Ok(()),
@@ -51,7 +64,7 @@ fn reconcile(dir: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn maybe_update(dir: &Path) -> Result<bool, Box<dyn Error>> {
+fn maybe_update(dir: &Path, state_dir: &Path) -> Result<bool, Box<dyn Error>> {
     let config = Config::load(dir)?;
     let Some(settings) = config.updater.as_ref() else {
         return Ok(false);
@@ -60,8 +73,9 @@ fn maybe_update(dir: &Path) -> Result<bool, Box<dyn Error>> {
         ChannelConfig::new(&settings.repository, &settings.public_key)
             .with_manifest_asset(&settings.manifest_asset)
             .with_interval_secs(settings.interval_secs)
-            .with_check_on_start(settings.check_on_start),
-        dir.join(".auro-updates"),
+            .with_check_on_start(settings.check_on_start)
+            .with_prereleases(settings.include_prereleases),
+        state_dir,
         &config.app.version,
     )?;
     let target = std::env::var_os("APPIMAGE")

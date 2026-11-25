@@ -10,8 +10,22 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+### Added
+
+- `include-prereleases` under `[updater]`: `/releases/latest` remains the stable-only default;
+  opting in resolves `/releases` and selects the first non-draft release, including prereleases.
+
+### Changed
+
 - Spec 0024 now lists `auro-plugins` in the leaves-first publication order, matching the
   twelve-crate release practice.
+
+### Fixed
+
+- `GithubChannel::new` now creates its state and staging directories with mode `0700` on Unix, so
+  an app does not need to pre-create a private directory for the journal trust checks.
+- The update-channel example and cookbook no longer derive state from the working directory, which
+  is a read-only AppImage mount; they use `$XDG_STATE_HOME/<app>` instead.
 
 ## [0.1.0-alpha.14] - 2026-11-24
 

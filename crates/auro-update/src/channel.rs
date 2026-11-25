@@ -40,6 +40,7 @@ pub struct ChannelConfig {
     manifest_asset: String,
     interval: Duration,
     check_on_start: bool,
+    include_prereleases: bool,
 }
 
 impl ChannelConfig {
@@ -51,6 +52,7 @@ impl ChannelConfig {
             manifest_asset: DEFAULT_MANIFEST_ASSET.to_owned(),
             interval: Duration::from_secs(3600),
             check_on_start: true,
+            include_prereleases: false,
         }
     }
 
@@ -72,6 +74,12 @@ impl ChannelConfig {
         self
     }
 
+    /// Allows prereleases by resolving `/releases` instead of `/releases/latest`.
+    pub fn with_prereleases(mut self, enabled: bool) -> Self {
+        self.include_prereleases = enabled;
+        self
+    }
+
     /// The configured `owner/repo`.
     pub fn repository(&self) -> &str {
         &self.repository
@@ -90,6 +98,11 @@ impl ChannelConfig {
     /// Whether a check is allowed before the first timestamp has been recorded.
     pub fn check_on_start(&self) -> bool {
         self.check_on_start
+    }
+
+    /// Whether prereleases are eligible.
+    pub fn include_prereleases(&self) -> bool {
+        self.include_prereleases
     }
 }
 
@@ -133,7 +146,8 @@ impl GithubChannel {
         let public_key = PublicKey::from_base64(&config.public_key)?;
         let state_dir = state_dir.into();
         let updater = Updater::new(state_dir.join("staging"), public_key, current_version)?;
-        fs::create_dir_all(&state_dir)?;
+        create_private_dir(&state_dir)?;
+        create_private_dir(&state_dir.join("staging"))?;
         Ok(GithubChannel {
             settings: config,
             state_dir,
@@ -289,11 +303,21 @@ impl GithubChannel {
     }
 
     fn latest_release(&self) -> Result<Release, UpdateError> {
-        let url = format!(
-            "{}/repos/{}/releases/latest",
-            self.api_base.trim_end_matches('/'),
-            self.settings.repository
-        );
+        let base = self.api_base.trim_end_matches('/');
+        let repository = &self.settings.repository;
+        if self.settings.include_prereleases {
+            let url = format!("{base}/repos/{repository}/releases");
+            let body = self.fetch_limited(&url)?;
+            let releases: Vec<Release> = serde_json::from_slice(&body)
+                .map_err(|error| UpdateError::ReleaseResponse(error.to_string()))?;
+            return releases
+                .into_iter()
+                .find(|release| !release.draft)
+                .ok_or_else(|| {
+                    UpdateError::ReleaseResponse("no non-draft release is published".to_owned())
+                });
+        }
+        let url = format!("{base}/repos/{repository}/releases/latest");
         let body = self.fetch_limited(&url)?;
         serde_json::from_slice(&body)
             .map_err(|error| UpdateError::ReleaseResponse(error.to_string()))
@@ -385,6 +409,8 @@ struct Release {
     #[serde(default)]
     tag_name: String,
     #[serde(default)]
+    draft: bool,
+    #[serde(default)]
     assets: Vec<ReleaseAsset>,
 }
 
@@ -414,6 +440,22 @@ fn valid_asset_name(value: &str) -> bool {
         && value.chars().all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
         })
+}
+
+#[cfg(unix)]
+fn create_private_dir(path: &Path) -> Result<(), UpdateError> {
+    use std::os::unix::fs::DirBuilderExt as _;
+
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+    builder.create(path)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn create_private_dir(path: &Path) -> Result<(), UpdateError> {
+    fs::create_dir_all(path)?;
+    Ok(())
 }
 
 fn validate_asset_url(url: &str, test_host: Option<&str>) -> Result<(), UpdateError> {
@@ -590,6 +632,7 @@ mod tests {
     }
 
     const RELEASE_PATH: &str = "/api.github.com/repos/pdl-clay/auri/releases/latest";
+    const RELEASES_PATH: &str = "/api.github.com/repos/pdl-clay/auri/releases";
     const MANIFEST_PATH: &str = "/auro-update.json";
     const ARTIFACT_PATH: &str = "/App.AppImage";
 
@@ -826,5 +869,85 @@ mod tests {
         let channel = github.channel(&key, "1.0.0", state.path());
         assert_eq!(channel.check().expect("check"), UpdateDecision::HeldBack);
         assert!(channel.stage(None).expect("stage").is_none());
+    }
+
+    #[test]
+    fn prereleases_are_opt_in() {
+        let key = SigningKey::generate();
+        let artifact = b"AppImage bytes".to_vec();
+        let state = state_dir();
+        let github = FakeGitHub::new(4);
+        let stable = signed_manifest(
+            &key,
+            &artifact,
+            "1.0.0",
+            &format!("{}{ARTIFACT_PATH}", github.base),
+            &crate::current_platform(),
+            None,
+            None,
+        );
+        github.standard(stable, None);
+        let channel = github.channel(&key, "1.0.0", state.path());
+        assert_eq!(
+            channel.check().expect("stable check"),
+            UpdateDecision::UpToDate
+        );
+
+        let prerelease = signed_manifest(
+            &key,
+            &artifact,
+            "1.2.3",
+            &format!("{}{ARTIFACT_PATH}", github.base),
+            &crate::current_platform(),
+            None,
+            None,
+        );
+        github.set(MANIFEST_PATH, prerelease);
+        let list = json!([
+            { "tag_name": "v9.9.9", "draft": true, "assets": [] },
+            {
+                "tag_name": "v1.2.3",
+                "draft": false,
+                "prerelease": true,
+                "assets": [{
+                    "name": DEFAULT_MANIFEST_ASSET,
+                    "browser_download_url": format!("{}{MANIFEST_PATH}", github.base)
+                }]
+            }
+        ]);
+        github.set(
+            RELEASES_PATH,
+            serde_json::to_vec(&list).expect("release list"),
+        );
+
+        let settings = ChannelConfig::new("pdl-clay/auri", &key.public_key().to_base64())
+            .with_prereleases(true);
+        let channel = GithubChannel::new(settings, state.path(), "1.0.0")
+            .expect("channel")
+            .with_api_base(format!("{}/api.github.com", github.base));
+        assert!(channel.settings().include_prereleases());
+        assert_eq!(
+            channel.check().expect("prerelease check"),
+            UpdateDecision::Available
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creates_private_state_directories() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let key = SigningKey::generate();
+        let parent = state_dir();
+        let nested = parent.path().join("nested").join("state");
+        let settings = ChannelConfig::new("pdl-clay/auri", &key.public_key().to_base64());
+        GithubChannel::new(settings, &nested, "1.0.0").expect("channel");
+        for directory in [&nested, &nested.join("staging")] {
+            let mode = fs::metadata(directory)
+                .expect("directory metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o077, 0, "{directory:?} is not private");
+        }
     }
 }

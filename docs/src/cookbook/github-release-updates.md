@@ -29,36 +29,42 @@ public-key = "<base64 key printed by auro generate-key>"
 # manifest-asset = "auro-update.json"   # default
 # interval-secs = 3600                  # default
 # check-on-start = true                 # default
+# include-prereleases = false            # default: /releases/latest (stable only)
 ```
 
 The install target is not a config key: an installed AppImage has a host-specific path, normally
-available as `$APPIMAGE`. The app supplies it to `apply_if_due` at runtime.
+available as `$APPIMAGE`. The app supplies it to `apply_if_due` at runtime. The state directory is
+not config either: AppImage changes the working directory to its read-only mount. Use
+`$XDG_STATE_HOME/<app>` (or `$HOME/.local/state/<app>`) and let `GithubChannel::new` create it with
+owner-only permissions.
 
 Enable the facade feature:
 
 ```toml
 [dependencies]
-auro = { version = "=0.1.0-alpha.14", features = ["updater"] }
+auro = { version = "=0.1.0-alpha.15", features = ["updater"] }
 ```
 
 App flow (see the runnable example for the full code):
 
 ```rust,ignore
-let config = Config::load(&std::env::current_dir()?)?;
+let dir = std::env::current_dir()?;
+let state = state_dir("auri")?; // $XDG_STATE_HOME/auri, never cwd under AppImage
+let config = Config::load(&dir)?;
 let Some(settings) = config.updater.as_ref() else { return Ok(false) };
 let channel = GithubChannel::new(
     ChannelConfig::new(&settings.repository, &settings.public_key)
         .with_manifest_asset(&settings.manifest_asset)
         .with_interval_secs(settings.interval_secs)
-        .with_check_on_start(settings.check_on_start),
-    std::env::current_dir()?.join(".auro-updates"),
+        .with_check_on_start(settings.check_on_start)
+        .with_prereleases(settings.include_prereleases),
+    state,
     &config.app.version,
 )?;
 let target = std::env::var_os("APPIMAGE")
     .map(PathBuf::from)
     .unwrap_or(std::env::current_exe()?);
 Ok(channel.apply_if_due(target, None)?)
-```
 
 After `apply_if_due` returns `true`, the app must exit. The restart helper waits for that exit,
 verifies the staged artifact again, replaces the AppImage, marks the journal, and relaunches from
@@ -124,19 +130,21 @@ otherwise.
 ## Limits
 
 - Public releases only. Private releases need an authenticated API, which is deliberately absent.
-- One manifest asset per release. Channels, beta tracks and metadata expiry are later work.
+- The default channel tracks stable releases: `/releases/latest` ignores prereleases and drafts.
+  `include-prereleases = true` uses `/releases` and picks the first non-draft entry, including a
+  prerelease. Full beta tracks and metadata expiry are later work.
 - AppImage apply is first. Windows and macOS manifests can be published, but `GithubChannel::apply`
   only prepares the AppImage journal.
 - The signed manifest's artifact URL is not restricted to GitHub; the asset URL from the API is.
   A release operator can point the artifact at a CDN, and the SHA-256 from the signed manifest
   still decides whether the bytes are accepted.
-- The state directory holds the journal and must be private to the user. Do not put it under a
-  world-writable path.
+- The state directory holds the journal and is created with mode `0700` on Unix. Never derive it
+  from cwd: an AppImage's working directory is its read-only mount.
 
 ## Verification
 
-- `cargo test -p auro-update` covers release discovery, signature rejection, asset URL restrictions,
-  a 1 MiB manifest bound, check intervals, delta staging and AppImage journal preparation against a
-  local fake API.
+- `cargo test -p auro-update` covers release discovery (stable and opt-in prerelease), signature
+  rejection, asset URL restrictions, a 1 MiB manifest bound, check intervals, delta staging,
+  private state directories and AppImage journal preparation against a local fake API.
 - `cargo test -p auro-core` covers parsing, defaults and validation of `[updater]`.
 - `cargo check --manifest-path examples/update-channel/Cargo.toml` compiles the documented app flow.
