@@ -10,6 +10,9 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+- Spec 0024 now lists `auro-plugins` in the leaves-first publication order, matching the
+  twelve-crate release practice.
+
 ## [0.1.0-alpha.14] - 2026-11-24
 
 ### Added

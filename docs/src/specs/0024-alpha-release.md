@@ -39,7 +39,7 @@ placeholder and is never published. `0.1.0-alpha.2` follows the same rule for th
 
 crates.io resolves dependencies from the registry, not from path dependencies. Publication order:
 
-1. `auro-macros`, `auro-ipc`, `auro-sign`, `auro-perms`, `auro-services`
+1. `auro-macros`, `auro-ipc`, `auro-sign`, `auro-perms`, `auro-services`, `auro-plugins`
 2. `auro-core`
 3. `auro-update`
 4. `auro-ui`
@@ -47,7 +47,7 @@ crates.io resolves dependencies from the registry, not from path dependencies. P
 6. `auro`
 7. `auro-cli`
 
-The first five fit the new-crate burst; the remaining six are spaced by the crates.io limit of one
+The first six fit the new-crate burst; the remaining six are spaced by the crates.io limit of one
 new crate per ten minutes. Each crate is dry-run and verified before the next.
 
 ### D3 - Services are opt-in at the facade
