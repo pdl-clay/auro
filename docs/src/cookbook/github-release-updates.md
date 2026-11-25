@@ -148,3 +148,9 @@ otherwise.
   private state directories and AppImage journal preparation against a local fake API.
 - `cargo test -p auro-core` covers parsing, defaults and validation of `[updater]`.
 - `cargo check --manifest-path examples/update-channel/Cargo.toml` compiles the documented app flow.
+- Real Auri run with `0.1.0-alpha.15`: `v0.1.0-test5` and `v0.1.1-test6` were published as
+  prereleases with signed manifests; `include-prereleases = true` discovered `0.1.1` via
+  `/releases`, the installed AppImage hash changed from
+  `3e3d225e3d86df51cd966e9ce1753df69ec10550b784299ef69cff9322bac1a9` to
+  `ea6895b81ba7efb85120fa48402bcb389121ed8404e15c499b825ded722eb7ea`, matching the 0.1.1 manifest,
+  and the journal reached `restarted` with the backup retained.

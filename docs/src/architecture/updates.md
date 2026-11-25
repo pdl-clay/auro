@@ -1,8 +1,11 @@
 # Updates
 
-Status: the pieces below exist in tree and are unit-tested, but no update has been served, signed
-with a release key, installed on a packaged app and verified end to end on all three platforms.
-Apple credentials and a macOS runtime are unavailable here.
+Status: the pieces below exist in tree and are unit-tested. The Linux AppImage path with the GitHub
+Releases channel was verified end to end against Auri with `0.1.0-alpha.15`: a published prerelease
+was discovered via `/releases`, its signed manifest verified, the artifact staged at the manifest
+SHA-256, an AppImage journal written (`restarted`, backup retained), and the app relaunched with the
+exact manifest hash installed. Windows and macOS remain unverified end to end; Apple credentials and
+a macOS runtime are unavailable here.
 
 The contract lives in the specs: [0012](../specs/0012-update-manifests.md) (manifest),
 [0013](../specs/0013-updater-runtime.md) (check/stage), [0014](../specs/0014-appimage-apply.md),

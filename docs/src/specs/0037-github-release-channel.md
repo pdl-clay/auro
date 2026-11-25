@@ -1,6 +1,7 @@
 # 0037 - GitHub Releases update channel
 
-**Status:** Implemented (2026-11-24; prerelease opt-in and private state dirs added 2026-11-25)
+**Status:** Implemented (2026-11-24; prerelease opt-in and private state dirs added 2026-11-25;
+Linux AppImage channel verified end to end against Auri with `0.1.0-alpha.15`)
 
 Specs 0012-0015 define signed manifests, staging, platform apply and restart, but leave discovery to
 the app. This spec fixes the first served channel: a public GitHub Releases endpoint that hands a

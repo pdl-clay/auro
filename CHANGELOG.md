@@ -10,6 +10,12 @@ breaking change bumps the minor version; the patch version is for compatible fix
 
 ## [Unreleased]
 
+
+### Changed
+
+- The updates architecture, spec 0037 and cookbook record the real Auri end-to-end result for the
+  Linux AppImage prerelease channel on `0.1.0-alpha.15`. Documentation only; no runtime change.
+
 ## [0.1.0-alpha.15] - 2026-11-25
 
 ### Added
